@@ -1,0 +1,8 @@
+# Two terms share one ID.
+expect: REQ_UNIQUE_IDS
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: |
+    :id: TERM_FINDING
+  replace: |
+    :id: TERM_NEED

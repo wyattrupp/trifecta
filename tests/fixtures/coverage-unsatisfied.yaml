@@ -1,0 +1,8 @@
+# A requirement loses its only satisfying component.
+expect: REQ_COVERAGE
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :satisfies: REQ_CHOICE_CONSIDERED, REQ_NO_ORPHANS, REQ_SPEC_RESOLVES
+  replace: |
+    :satisfies: REQ_CHOICE_CONSIDERED, REQ_NO_ORPHANS

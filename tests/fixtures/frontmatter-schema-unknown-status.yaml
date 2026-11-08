@@ -1,0 +1,8 @@
+# A design doc status outside its enum.
+expect: REQ_FRONTMATTER_SCHEMA
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    status: implemented
+  replace: |
+    status: done

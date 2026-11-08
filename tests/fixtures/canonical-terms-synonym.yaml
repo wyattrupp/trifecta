@@ -1,0 +1,6 @@
+# A declared synonym used in place of its term.
+expect: REQ_CANONICAL_TERMS
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: This repository is the reference implementation
+  replace: Each ADR lives in its own file. This repository is the reference implementation

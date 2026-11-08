@@ -1,0 +1,8 @@
+# A component constrained by a question instead of a decision.
+expect: REQ_LINK_TARGETS
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :constrained_by: DEC_0002, DEC_0003
+  replace: |
+    :constrained_by: DEC_0002, Q_CHOSEN_SENTENCE

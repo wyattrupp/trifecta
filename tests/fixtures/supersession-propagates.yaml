@@ -1,0 +1,10 @@
+# A component constrained by a superseded decision.
+expect: REQ_SUPERSESSION
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :satisfies: REQ_NORMATIVE_SCOPE, REQ_NO_DECISION_LANGUAGE
+    :constrained_by: DEC_0005
+  replace: |
+    :satisfies: REQ_NORMATIVE_SCOPE, REQ_NO_DECISION_LANGUAGE
+    :constrained_by: DEC_0004

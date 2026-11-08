@@ -1,0 +1,8 @@
+# An RFC section renamed away from the skeleton.
+expect: REQ_SECTION_SKELETON
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: |
+    ## Motivation
+  replace: |
+    ## Background

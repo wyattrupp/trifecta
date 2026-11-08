@@ -1,0 +1,14 @@
+# An accepted RFC gains a question no decision resolves.
+expect: REQ_RFC_ACCEPTANCE
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: |
+    :id: Q_FIXTURE_FORM
+    :::
+  replace: |
+    :id: Q_FIXTURE_FORM
+    :::
+
+    :::{question} Who reviews fixtures?
+    :id: Q_FIXTURE_REVIEW
+    :::

@@ -1,0 +1,7 @@
+# An interface that no component provides.
+expect: REQ_NO_ORPHANS
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :provides: IF_FINDING
+  replace: ''

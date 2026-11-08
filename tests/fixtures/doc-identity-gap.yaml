@@ -1,0 +1,14 @@
+# A MADR numbered 0009 leaves 0008 missing.
+expect: REQ_DOC_IDENTITY
+mutations:
+- file: docs/decisions/0009-skip-a-number.md
+  create: |
+    ---
+    status: proposed
+    date: 2026-11-07
+    decision-makers: [wyatt]
+    ---
+    # Skip a number
+
+    :::{decision}
+    :::

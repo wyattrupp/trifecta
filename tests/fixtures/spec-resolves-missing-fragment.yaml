@@ -1,0 +1,8 @@
+# A spec fragment that no longer occurs in its file.
+expect: REQ_SPEC_RESOLVES
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :spec: tools/check_graph.py#def check
+  replace: |
+    :spec: tools/check_graph.py#def verify

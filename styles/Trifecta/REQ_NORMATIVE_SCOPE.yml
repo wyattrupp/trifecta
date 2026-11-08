@@ -1,0 +1,18 @@
+# Enforces REQ_NORMATIVE_SCOPE. Applied by vale/normative.ini, which ignores the
+# content of requirement and interface needs, so any hit is out of scope.
+extends: existence
+message: "REQ_NORMATIVE_SCOPE: '%s' is a normative keyword outside a requirement or interface need"
+level: error
+ignorecase: false
+tokens:
+  - MUST NOT
+  - MUST
+  - SHALL NOT
+  - SHALL
+  - SHOULD NOT
+  - SHOULD
+  - NOT RECOMMENDED
+  - RECOMMENDED
+  - REQUIRED
+  - MAY
+  - OPTIONAL

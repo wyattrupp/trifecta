@@ -1,0 +1,13 @@
+# Hand-written prose inside a derived-view section.
+expect: REQ_GENERATED_VIEWS
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |+
+    ## Constraints
+
+  replace: |+
+    ## Constraints
+
+    The pipeline honors the decisions below.
+
+...

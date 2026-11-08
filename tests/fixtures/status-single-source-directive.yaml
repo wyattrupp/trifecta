@@ -1,0 +1,9 @@
+# Status restated in the document-level directive.
+expect: REQ_STATUS_SINGLE_SOURCE
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :::{design}
+  replace: |
+    :::{design}
+    :status: implemented

@@ -1,0 +1,7 @@
+# A superseded decision that nothing supersedes.
+expect: REQ_SUPERSESSION
+mutations:
+- file: docs/decisions/0005-lint-rendered-html-with-vale.md
+  find: |
+    :supersedes: DEC_0004
+  replace: ''

@@ -1,0 +1,15 @@
+# Enforces REQ_NO_DECISION_LANGUAGE in design docs: a choice belongs in a MADR.
+extends: existence
+message: "REQ_NO_DECISION_LANGUAGE: '%s' records a choice; write a MADR and constrain the element by it"
+level: error
+ignorecase: true
+tokens:
+  - we chose
+  - we decided
+  - we picked
+  - decided to
+  - chose to
+  - opted (?:for|to)
+  - instead of
+  - rather than
+  - in favou?r of

@@ -1,0 +1,6 @@
+# A normative keyword in RFC motivation prose.
+expect: REQ_NORMATIVE_SCOPE
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: Documentation drifts because nothing fails when it does.
+  replace: Documentation MUST NOT drift, yet nothing fails when it does.

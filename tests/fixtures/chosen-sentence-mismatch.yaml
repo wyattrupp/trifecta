@@ -1,0 +1,6 @@
+# The outcome sentence cites the option that was not chosen.
+expect: REQ_CHOSEN_SENTENCE
+mutations:
+- file: docs/decisions/0003-validate-the-chosen-option-sentence.md
+  find: 'Chosen option: {need}`OPT_0003_VALIDATE`'
+  replace: 'Chosen option: {need}`OPT_0003_GENERATE`'

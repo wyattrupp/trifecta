@@ -1,0 +1,8 @@
+# A decision that chooses two options.
+expect: REQ_DECISION_OPTIONS
+mutations:
+- file: docs/decisions/0002-madr-files-own-decisions.md
+  find: |
+    :chooses: OPT_0002_MADR_FILES
+  replace: |
+    :chooses: OPT_0002_MADR_FILES, OPT_0002_INLINE

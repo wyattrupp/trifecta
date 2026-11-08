@@ -1,0 +1,13 @@
+# A new requirement added without a negative fixture.
+expect: REQ_FIXTURE_PER_INVARIANT
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: |
+    :::{req} The toolchain is pinned
+  replace: |
+    :::{req} Pages build in under a minute
+    :id: REQ_FAST_BUILD
+    A full build MUST finish in under one minute.
+    :::
+
+    :::{req} The toolchain is pinned

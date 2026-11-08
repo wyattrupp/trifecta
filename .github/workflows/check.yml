@@ -1,0 +1,28 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: make setup
+      - name: Check (with MADR immutability against the base)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            make check BASE=origin/${{ github.base_ref }}
+          elif git rev-parse -q --verify HEAD^ >/dev/null; then
+            make check BASE=HEAD^
+          else
+            make check
+          fi
+      - run: make fixtures

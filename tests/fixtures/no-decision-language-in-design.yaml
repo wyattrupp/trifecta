@@ -1,0 +1,6 @@
+# A design doc that records a choice in prose.
+expect: REQ_NO_DECISION_LANGUAGE
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: '`tools/check.py` runs one deterministic pipeline over the corpus.'
+  replace: We chose to run one deterministic pipeline over the corpus.

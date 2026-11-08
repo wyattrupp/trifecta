@@ -1,0 +1,6 @@
+# The body of an accepted MADR edited in place.
+expect: REQ_IMMUTABLE_DECISIONS
+mutations:
+- file: docs/decisions/0001-use-sphinx-needs-as-the-graph-engine.md
+  find: The corpus is a typed graph of requirements
+  replace: The corpus is a strongly typed graph of requirements

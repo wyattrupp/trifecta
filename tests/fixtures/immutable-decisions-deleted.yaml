@@ -1,0 +1,5 @@
+# An accepted MADR deleted.
+expect: REQ_IMMUTABLE_DECISIONS
+mutations:
+- file: docs/decisions/0006-split-rules-between-schemas-and-a-checker.md
+  delete: true

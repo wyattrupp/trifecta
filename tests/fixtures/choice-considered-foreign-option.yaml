@@ -1,0 +1,8 @@
+# A decision that chooses another decision's option.
+expect: REQ_CHOICE_CONSIDERED
+mutations:
+- file: docs/decisions/0003-validate-the-chosen-option-sentence.md
+  find: |
+    :chooses: OPT_0003_VALIDATE
+  replace: |
+    :chooses: OPT_0002_MADR_FILES

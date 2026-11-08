@@ -1,0 +1,13 @@
+# A component that traces to nothing.
+expect: REQ_NO_ORPHANS
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    ## Interfaces
+  replace: |
+    :::{component} Report formatter
+    :id: COMP_FORMATTER
+    Prints a summary.
+    :::
+
+    ## Interfaces
