@@ -2,7 +2,5 @@
 expect: REQ_PINNED_TOOLCHAIN
 mutations:
 - file: requirements.lock
-  find: |
-    sphinx-needs==9.2.0
-  replace: |
-    sphinx-needs>=9.2
+  find: 'sphinx-needs==9.2.0 '
+  replace: 'sphinx-needs>=9.2 '

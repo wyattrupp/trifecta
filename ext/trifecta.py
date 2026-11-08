@@ -140,7 +140,7 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
     except yaml.YAMLError as exc:
         _warn("REQ_FRONTMATTER_SCHEMA", f"frontmatter is not valid YAML: {exc}", docname, 1)
         return
-    schema = json.loads((SCHEMA_DIR / spec["schema"]).read_text())
+    schema = json.loads((SCHEMA_DIR / spec["schema"]).read_text(encoding="utf-8"))
     errors = sorted(jsonschema.Draft202012Validator(schema).iter_errors(meta), key=str)
     for err in errors:
         where = "/".join(str(p) for p in err.absolute_path) or "(root)"
@@ -174,7 +174,7 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
 
     # REQ_STATUS_SINGLE_SOURCE: identity and lifecycle facts have exactly one home.
     owned = {"id", "status", "title"} | {_field_name(k) for k in schema["properties"]}
-    for key in sorted(owned & authored.keys()):
+    for key in sorted(k for k in authored if _field_name(k) in owned):
         _warn(
             "REQ_STATUS_SINGLE_SOURCE",
             f"':{key}:' is owned by the filename or frontmatter and must not be written "

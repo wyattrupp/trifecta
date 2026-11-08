@@ -7,6 +7,9 @@ tokens:
   - we chose
   - we decided
   - we picked
+  - we (?:have )?(?:chosen|selected|settled on)
+  - we went with
+  - decided (?:on|against)
   - decided to
   - chose to
   - opted (?:for|to)

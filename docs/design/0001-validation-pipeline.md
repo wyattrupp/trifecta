@@ -53,7 +53,7 @@ the requirements they enforce.
 :constrained_by: DEC_0002, DEC_0003
 A Sphinx extension that validates frontmatter, injects each document's title, ID, status
 and metadata into its document-level need, and checks the section skeleton while the
-document is read. Injection preserves source line numbers.
+document is read. Injection keeps the line number of every line after the directive.
 :::
 
 :::{component} Graph checker

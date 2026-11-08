@@ -41,7 +41,7 @@ def check(root: Path, base: str) -> list[Finding]:
                 f"a MADR in status '{status_before}' was deleted or renamed",
             ))
             continue
-        after = current.read_text()
+        after = current.read_text(encoding="utf-8")
         status_after = _status(after)
         if STATUS_LINE.sub("status:", before) != STATUS_LINE.sub("status:", after):
             findings.append(Finding(

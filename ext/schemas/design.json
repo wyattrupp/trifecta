@@ -6,6 +6,6 @@
   "required": ["status", "authors"],
   "properties": {
     "status": {"enum": ["draft", "approved", "implemented", "obsolete"]},
-    "authors": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+    "authors": {"type": "array", "items": {"type": "string", "not": {"pattern": "[\r\n]"}}, "minItems": 1}
   }
 }

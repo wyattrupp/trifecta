@@ -27,7 +27,8 @@ _SCHEMA = re.compile(r"Schema path:\s+(REQ_[A-Z_]+)\[")
 _NEED_PATH = re.compile(r"Need '([^']+)' has schema violations")
 _MESSAGE = re.compile(r"User message:\s+(.*)")
 _SCHEMA_MESSAGE = re.compile(r"Schema message:\s+(.*?)\s*(?:\[[a-z_.]+\])?$", re.M)
-_DUPLICATE = re.compile(r"A need with ID '[^']+' already exists")
+#: Both arrive as needs.create_need, a code other failures share, so match the message.
+_DUPLICATE = re.compile(r"A need with ID '[^']+' already exists|does not match the id_regex")
 
 #: Native sphinx-needs warning codes, by the requirement they enforce.
 _NATIVE = {
