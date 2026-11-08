@@ -22,7 +22,7 @@ needs_id_required = True
 needs_title_optional = True
 needs_id_regex = r"^[A-Z]+_[A-Z0-9_]+$"
 
-DOC_LEVEL = ["rfc", "decision", "design"]
+DOC_LEVEL = ["rfc", "decision", "design", "plan"]
 
 
 def _text(description):
@@ -31,6 +31,19 @@ def _text(description):
 
 def _link(outgoing, incoming, targets):
     return {"outgoing": outgoing, "incoming": incoming, "target_types": targets}
+
+
+def _same_file(outgoing, incoming, child_type):
+    """A derived link to every need of ``child_type`` in the same file. Never authored."""
+    return {
+        "outgoing": outgoing,
+        "incoming": incoming,
+        "derive": {
+            "kind": "links",
+            "join": {"field": "docname", "equals": "docname"},
+            "where": f"type == '{child_type}'",
+        },
+    }
 
 
 # A child need's document status, joined from the document-level need in the same file.
@@ -54,6 +67,7 @@ needs_types = [
     dict(
         directive="rfc", title="RFC", prefix="RFC_", id_regex=r"^RFC_\d{4}$",
         fields={"authors": _text("Authors."), "created": _text("Creation date.")},
+        links={"reviewed_by": _same_file("reviewed by", "reviews", "review")},
     ),
     dict(directive="req", title="Requirement", prefix="REQ_"),
     dict(
@@ -72,15 +86,7 @@ needs_types = [
         },
         links={
             # Derived: every option defined in the decision's own file. Never restated.
-            "considers": {
-                "outgoing": "considers",
-                "incoming": "considered by",
-                "derive": {
-                    "kind": "links",
-                    "join": {"field": "docname", "equals": "docname"},
-                    "where": "type == 'opt'",
-                },
-            },
+            "considers": _same_file("considers", "considered by", "opt"),
             "chooses": _link("chooses", "chosen by", ["opt"]),
             "resolves": _link("resolves", "resolved by", ["question"]),
             "driven_by": _link("driven by", "drives", ["req"]),
@@ -92,6 +98,7 @@ needs_types = [
     dict(
         directive="design", title="Design", prefix="DES_", id_regex=r"^DES_\d{4}$",
         fields={"authors": _text("Authors.")},
+        links={"reviewed_by": _same_file("reviewed by", "reviews", "review")},
     ),
     dict(
         directive="component", title="Component", prefix="COMP_",
@@ -108,6 +115,27 @@ needs_types = [
         fields={"spec": _text("Repo path (and #fragment) of the interface's shape.")},
         links={"constrained_by": _link("constrained by", "constrains", ["decision"])},
     ),
+    # --- Plan ------------------------------------------------------------------
+    # Task progress is the steps' checkboxes and nothing else (DEC_0009), so no task
+    # carries a state field; tools/next.py and the extension read the checkboxes.
+    dict(
+        directive="plan", title="Plan", prefix="PLAN_", id_regex=r"^PLAN_\d{4}$",
+        fields={"authors": _text("Authors."), "created": _text("Creation date.")},
+        links={
+            "implements": _link("implements", "implemented by", ["design"]),
+            "reviewed_by": _same_file("reviewed by", "reviews", "review"),
+        },
+    ),
+    dict(
+        directive="task", title="Task", prefix="TASK_", id_regex=r"^TASK_\d{4}_\d{2,}$",
+        fields={"gate": _text("What decides the task is done: fixtures, commands, checks.")},
+        links={"builds": _link("builds", "built by", ["component", "interface"])},
+    ),
+    # --- Review (RFC, design doc, plan) -----------------------------------------
+    dict(
+        directive="review", title="Review", prefix="REV_", id_regex=r"^REV_[A-Z0-9_]+$",
+        fields={"k": _text("Number of distinct-lens passes."), "date": _text("Review date.")},
+    ),
 ]
 
 
@@ -121,7 +149,8 @@ needs_schema_definitions = {"schemas": [
         "id": "REQ_DECISION_OPTIONS",
         "message": "a decision considers at least two options and chooses exactly one",
         "select": _select(type="decision"),
-        "validate": {"local": {"properties": {
+        # sphinx-needs drops empty fields before validating, so emptiness is "required".
+        "validate": {"local": {"required": ["considers", "chooses"], "properties": {
             "considers": {"type": "array", "minItems": 2},
             "chooses": {"type": "array", "minItems": 1, "maxItems": 1},
         }}},
@@ -171,5 +200,38 @@ needs_schema_definitions = {"schemas": [
         "validate": {"network": {"supersedes": {
             "items": {"local": _select(status="superseded")},
         }}},
+    },
+    {
+        "id": "REQ_PLAN_IMPLEMENTS",
+        "message": "a plan implements exactly one design doc",
+        "select": _select(type="plan"),
+        "validate": {"local": {"required": ["implements"], "properties": {
+            "implements": {"type": "array", "minItems": 1, "maxItems": 1},
+        }}},
+    },
+] + [
+    {
+        "id": "REQ_REVIEWED",
+        "message": f"{label} records at least one review",
+        "select": _select(type=need_type, status=statuses),
+        "validate": {"local": {"required": ["reviewed_by"]}},
+    }
+    for need_type, statuses, label in [
+        ("rfc", ["accepted"], "an accepted RFC"),
+        ("design", ["approved", "implemented"], "an approved or implemented design doc"),
+        ("plan", ["active", "done"], "an active or done plan"),
+    ]
+] + [
+    {
+        "id": "REQ_REVIEWED",
+        "message": "a review states k as a positive number and its date as YYYY-MM-DD",
+        "select": _select(type="review"),
+        "validate": {"local": {
+            "required": ["k", "date"],
+            "properties": {
+                "k": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+                "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+            },
+        }},
     },
 ]}

@@ -1,0 +1,6 @@
+# The last task skips a number.
+expect: REQ_TASK_ORDER
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: ':id: TASK_0001_04'
+  replace: ':id: TASK_0001_05'

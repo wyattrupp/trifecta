@@ -1,0 +1,7 @@
+# A decision that chooses nothing.
+expect: REQ_DECISION_OPTIONS
+mutations:
+- file: docs/decisions/0001-use-sphinx-needs-as-the-graph-engine.md
+  find: |
+    :chooses: OPT_0001_SPHINX_NEEDS
+  replace: ''

@@ -74,7 +74,7 @@ def run_sphinx(root: Path) -> list[Finding]:
 
 
 META_ROW = re.compile(r'<tr class="need meta.*?</tr>', re.S)
-TYPED_DIRS = ("rfcs", "decisions", "design")
+TYPED_DIRS = ("rfcs", "decisions", "design", "plans")
 
 
 def build_lint_view(root: Path) -> Path:

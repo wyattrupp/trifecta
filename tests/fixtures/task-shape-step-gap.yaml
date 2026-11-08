@@ -1,0 +1,6 @@
+# A step number skips within its task.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: '- [x] **2.3**'
+  replace: '- [x] **2.4**'

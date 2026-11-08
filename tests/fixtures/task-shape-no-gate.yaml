@@ -1,0 +1,7 @@
+# A task that states no gate.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: |
+    :gate: The REQ_DESIGN_BUILT fixture is rejected.
+  replace: ''

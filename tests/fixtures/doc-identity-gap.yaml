@@ -1,7 +1,7 @@
-# A MADR numbered 0009 leaves 0008 missing.
+# A MADR numbered 0012 leaves 0011 missing.
 expect: REQ_DOC_IDENTITY
 mutations:
-- file: docs/decisions/0009-skip-a-number.md
+- file: docs/decisions/0012-skip-a-number.md
   create: |
     ---
     status: proposed

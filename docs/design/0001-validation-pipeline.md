@@ -133,3 +133,17 @@ One violation per line: `REQ_ID`, a tab, a location, a tab, a message. Every fin
 MUST begin with the ID of the requirement it violates, and output MUST be sorted so two
 runs over the same input are byte-identical.
 :::
+
+## Review
+
+:::{review} Correctness; security
+:id: REV_DES_0001_1
+:k: 2
+:date: 2026-11-08
+Two cold passes over the whole repository at commit 75a489c; the local cross-check model
+was unreachable, so no pass came from another model lineage. Every finding was verified
+against the code. Three were rated high: Sphinx colour codes broke finding mapping in CI,
+the push check compared only the last commit, and a trailing space skipped the
+chosen-option sentence check. All three, and the medium and low findings that held up,
+were fixed with fixtures in the pull requests that followed.
+:::

@@ -1,0 +1,6 @@
+# A plan with done steps set back to draft, as if never reviewed.
+expect: REQ_LINEAR_EXECUTION
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: 'status: done'
+  replace: 'status: draft'

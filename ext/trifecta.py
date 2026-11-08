@@ -20,6 +20,8 @@ from docutils import nodes
 from sphinx.application import Sphinx
 from sphinx.util import logging
 
+import plans
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = Path(__file__).parent / "schemas"
@@ -31,7 +33,7 @@ DOC_TYPES: dict[str, dict] = {
         "directive": "rfc",
         "prefix": "RFC",
         "schema": "rfc.json",
-        "sections": ["Summary", "Motivation", "Terms", "Requirements", "Questions"],
+        "sections": ["Summary", "Motivation", "Terms", "Requirements", "Questions", "Review"],
         "derived": [],
     },
     "decisions": {
@@ -51,8 +53,17 @@ DOC_TYPES: dict[str, dict] = {
         "directive": "design",
         "prefix": "DES",
         "schema": "design.json",
-        "sections": ["Overview", "Requirements", "Constraints", "Components", "Interfaces"],
+        "sections": [
+            "Overview", "Requirements", "Constraints", "Components", "Interfaces", "Review",
+        ],
         "derived": ["Requirements", "Constraints"],
+    },
+    "plans": {
+        "directive": "plan",
+        "prefix": "PLAN",
+        "schema": "plan.json",
+        "sections": ["Read before starting", "Rules for every task", "Tasks", "Review", "As built"],
+        "derived": [],
     },
 }
 
@@ -195,6 +206,12 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
     if spec["directive"] == "decision":
         chosen = [c.strip() for c in authored.get("chooses", ("", 0))[0].split(",") if c.strip()]
         _check_chosen_sentence(lines, chosen, docname)
+
+    # REQ_TASK_ORDER, REQ_TASK_SHAPE, REQ_LINEAR_EXECUTION, REQ_AS_BUILT (DEC_0009).
+    if spec["directive"] == "plan":
+        number = need_id.split("_", 1)[1]
+        for req, msg, line in plans.problems(plans.parse(lines), number, meta.get("status")):
+            _warn(req, msg, docname, line)
 
     # Inject the owned facts. The frontmatter block is replaced by blank lines, k fewer
     # than it had, and k option lines are inserted into the directive, so every line

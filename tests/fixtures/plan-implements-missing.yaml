@@ -1,0 +1,7 @@
+# A plan that implements no design doc.
+expect: REQ_PLAN_IMPLEMENTS
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: |
+    :implements: DES_0002
+  replace: ''
