@@ -124,9 +124,8 @@ each record at least one review, and every review MUST state its k and its date.
 
 ## Out of scope
 
-Freezing a resolved task against a base ref, as MADRs are frozen; checking that a review
-is newer than the document's last change; the wording of an As built entry, including
-why a step was dropped. Each is convention until a requirement says otherwise.
+Freezing resolved tasks, binding a review to the text it read, and the reasons for
+dropped steps, which {need}`RFC_0003` takes up; the rest of an As built entry's wording.
 
 ## Review
 

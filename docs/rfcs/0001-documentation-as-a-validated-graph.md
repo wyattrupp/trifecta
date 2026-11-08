@@ -192,8 +192,8 @@ pinned by version and checksum.
 
 :::{req} Every invariant has a negative fixture
 :id: REQ_FIXTURE_PER_INVARIANT
-Every requirement in this RFC MUST be the expected finding of at least one negative
-fixture, and the unmutated corpus MUST pass.
+Every requirement satisfied by a component of an implemented design doc MUST be the
+expected finding of at least one negative fixture, and the unmutated corpus MUST pass.
 :::
 
 ## Questions
