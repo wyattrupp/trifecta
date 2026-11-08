@@ -1,0 +1,7 @@
+# A frontmatter value with a newline would inject a directive option (here a second
+# ':chooses:') when the value is copied into the directive.
+expect: REQ_FRONTMATTER_SCHEMA
+mutations:
+- file: docs/decisions/0001-use-sphinx-needs-as-the-graph-engine.md
+  find: 'decision-makers: [wyatt]'
+  replace: 'decision-makers: ["wyatt\n:chooses: OPT_0001_BESPOKE"]'

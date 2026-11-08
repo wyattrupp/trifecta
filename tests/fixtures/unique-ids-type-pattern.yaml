@@ -1,0 +1,6 @@
+# An option ID that fits the global ID shape but not its type's OPT_NNNN_ pattern.
+expect: REQ_UNIQUE_IDS
+mutations:
+- file: docs/decisions/0001-use-sphinx-needs-as-the-graph-engine.md
+  find: ':id: OPT_0001_BESPOKE'
+  replace: ':id: OPT_1_BESPOKE'

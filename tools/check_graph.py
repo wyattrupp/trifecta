@@ -5,13 +5,14 @@ the repository."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from findings import Finding
 
 
 def load_needs(needs_json: Path) -> dict[str, dict]:
-    data = json.loads(needs_json.read_text())
+    data = json.loads(needs_json.read_text(encoding="utf-8"))
     return data["versions"][data["current_version"]]["needs"]
 
 
@@ -49,13 +50,21 @@ def check(needs: dict[str, dict], root: Path) -> list[Finding]:
         spec = need.get("spec")
         if need["type"] in ("component", "interface") and spec:
             path, _, fragment = spec.partition("#")
-            target = root / path
-            if not target.is_file():
+            target = (root / path).resolve()
+            if not target.is_relative_to(root.resolve()) or ".git" in target.parts:
+                findings.append(Finding(
+                    "REQ_SPEC_RESOLVES", _where(need),
+                    f"{need['id']} spec '{path}' must be a path inside the repository",
+                ))
+            elif not target.is_file():
                 findings.append(Finding(
                     "REQ_SPEC_RESOLVES", _where(need),
                     f"{need['id']} spec '{path}' does not exist",
                 ))
-            elif fragment and fragment not in target.read_text():
+            elif fragment and not re.search(
+                re.escape(fragment) + r"(?!\w)",
+                target.read_text(encoding="utf-8", errors="replace"),
+            ):
                 findings.append(Finding(
                     "REQ_SPEC_RESOLVES", _where(need),
                     f"{need['id']} spec fragment '{fragment}' does not occur in {path}",

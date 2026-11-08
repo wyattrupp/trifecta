@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,10 @@ from check_lifecycle import check as check_lifecycle  # noqa: E402
 from findings import Finding, from_sphinx  # noqa: E402
 from gen_vale import generate  # noqa: E402
 
-LOCK_LINE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],]*==[^\s=<>~!;]+$")
+# An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
+LOCK_LINE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],]*==[^\s=<>~!;]+(?: --hash=sha256:[0-9a-f]{64})+$"
+)
 VALE_VERSION = re.compile(r"^VALE_VERSION := \d+\.\d+\.\d+$", re.M)
 VALE_SHA = re.compile(r"^VALE_SHA256 := [0-9a-f]{64}$", re.M)
 VALE_LINE = re.compile(r"^(?P<loc>.+?:\d+:\d+):(?P<check>[\w.]+):(?P<msg>.*)$")
@@ -26,13 +30,13 @@ VALE_LINE = re.compile(r"^(?P<loc>.+?:\d+:\d+):(?P<check>[\w.]+):(?P<msg>.*)$")
 def check_toolchain(root: Path) -> list[Finding]:
     findings = []
     lock = root / "requirements.lock"
-    for n, line in enumerate(lock.read_text().splitlines(), 1):
+    for n, line in enumerate(lock.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if line and not line.startswith("#") and not LOCK_LINE.match(line):
             findings.append(Finding(
-                "REQ_PINNED_TOOLCHAIN", f"requirements.lock:{n}", f"not an exact pin: {line}",
+                "REQ_PINNED_TOOLCHAIN", f"requirements.lock:{n}", f"not an exact pin with --hash: {line[:80]}",
             ))
-    makefile = (root / "Makefile").read_text()
+    makefile = (root / "Makefile").read_text(encoding="utf-8")
     if not VALE_VERSION.search(makefile) or not VALE_SHA.search(makefile):
         findings.append(Finding(
             "REQ_PINNED_TOOLCHAIN", "Makefile",
@@ -56,6 +60,8 @@ def run_sphinx(root: Path) -> list[Finding]:
     docs = root / "docs"
     # --no-color: Sphinx forces ANSI colour when CI=true or on Windows, even into a pipe,
     # and the escape codes break the line-anchored patterns in findings.py.
+    # A clean output directory: stale pages of deleted documents would otherwise be linted.
+    shutil.rmtree(docs / "_build", ignore_errors=True)
     proc = subprocess.run(
         [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going", "--no-color",
          "-b", "html", str(docs), str(docs / "_build" / "html")],
@@ -85,7 +91,7 @@ def build_lint_view(root: Path) -> Path:
         for page in sorted((html / directory).glob("*.html")):
             out = view / directory / page.name
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(META_ROW.sub("", page.read_text()))
+            out.write_text(META_ROW.sub("", page.read_text(encoding="utf-8")), encoding="utf-8")
     return view
 
 
@@ -93,15 +99,18 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
     html = root / "docs" / "_build" / "lint"
     targets = [str(html / d) for d in TYPED_DIRS if (html / d).is_dir()]
     if not targets:
-        return []
-    proc = subprocess.run(
-        [str(vale), f"--config={root / 'vale' / config}", "--output=line",
-         "--no-exit", *targets],
-        capture_output=True, text=True, cwd=root,
-    )
-    if proc.stderr.strip():
-        return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", proc.stderr.strip()[:500])]
+        return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", "no typed pages were built to lint")]
+    try:
+        proc = subprocess.run(
+            [str(vale), f"--config={root / 'vale' / config}", "--output=line",
+             "--no-exit", *targets],
+            capture_output=True, text=True, cwd=root,
+        )
+    except OSError as exc:
+        return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", f"cannot run {vale}: {exc}")]
     findings = []
+    if proc.stderr.strip():
+        findings.append(Finding("REQ_WARNINGS_FATAL", f"vale/{config}", proc.stderr.strip()[:500]))
     for line in proc.stdout.splitlines():
         if not (m := VALE_LINE.match(line)):
             continue
@@ -115,7 +124,7 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
 def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
     expected = set()
     for path in sorted(fixtures.glob("*.yaml")):
-        expected.add((yaml.safe_load(path.read_text()) or {}).get("expect"))
+        expected.add((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("expect"))
     return [
         Finding("REQ_FIXTURE_PER_INVARIANT", f"{fixtures.name}/",
                 f"no negative fixture expects {need['id']}")
@@ -138,13 +147,18 @@ def main(argv: list[str] | None = None) -> int:
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():
         needs = load_needs(needs_json)
-        findings = [_locate(f, needs) for f in findings]
         findings += check_graph(needs, root)
-        generate(needs, root / "styles" / "TrifectaGenerated")
+        findings += generate(needs, root / "styles" / "TrifectaGenerated")
+        findings = [_locate(f, needs) for f in findings]
         build_lint_view(root)
         findings += run_vale(root, vale, "normative.ini")
         findings += run_vale(root, vale, "prose.ini")
         findings += audit_fixtures(needs, root / "tests" / "fixtures")
+    else:
+        findings.append(Finding(
+            "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",
+            "the build produced no needs.json, so graph, lint and fixture checks did not run",
+        ))
     if args.base:
         findings += check_lifecycle(root, args.base)
 

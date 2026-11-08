@@ -46,17 +46,19 @@ def make_base(tmp: Path) -> Path:
 
 def apply(copy: Path, mutations: list[dict]) -> None:
     for m in mutations:
-        target = copy / m["file"]
+        target = (copy / m["file"]).resolve()
+        if not target.is_relative_to(copy.resolve()):
+            raise FixtureError(f"{m['file']}: path leaves the repository copy")
         if "find" in m:
-            text = target.read_text()
+            text = target.read_text(encoding="utf-8")
             count = text.count(m["find"])
             if count != 1:
                 raise FixtureError(f"{m['file']}: anchor occurs {count} times, expected 1: "
                                    f"{m['find']!r}")
-            target.write_text(text.replace(m["find"], m["replace"]))
+            target.write_text(text.replace(m["find"], m["replace"]), encoding="utf-8")
         elif "create" in m:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(m["create"])
+            target.write_text(m["create"], encoding="utf-8")
         elif m.get("delete"):
             target.unlink()
         else:
@@ -74,7 +76,7 @@ def run_check(copy: Path, vale: Path) -> tuple[int, list[Finding]]:
 
 
 def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, bool, str]:
-    spec = yaml.safe_load(path.read_text())
+    spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     copy = tmp / path.stem
     shutil.copytree(base, copy)
     try:
@@ -97,6 +99,9 @@ def main(argv: list[str] | None = None) -> int:
     vale = args.vale.resolve()
     fixtures = sorted((ROOT / "tests" / "fixtures").glob("*.yaml"))
     if args.names:
+        unknown = sorted(set(args.names) - {f.stem for f in fixtures})
+        if unknown:
+            parser.error(f"unknown fixture(s): {', '.join(unknown)}")
         fixtures = [f for f in fixtures if f.stem in args.names]
 
     with tempfile.TemporaryDirectory() as raw:
