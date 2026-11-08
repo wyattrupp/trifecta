@@ -54,8 +54,10 @@ def _locate(finding: Finding, needs: dict[str, dict]) -> Finding:
 
 def run_sphinx(root: Path) -> list[Finding]:
     docs = root / "docs"
+    # --no-color: Sphinx forces ANSI colour when CI=true or on Windows, even into a pipe,
+    # and the escape codes break the line-anchored patterns in findings.py.
     proc = subprocess.run(
-        [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going",
+        [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going", "--no-color",
          "-b", "html", str(docs), str(docs / "_build" / "html")],
         capture_output=True, text=True,
     )
