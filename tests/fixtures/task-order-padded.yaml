@@ -1,0 +1,6 @@
+# A task number padded past two digits.
+expect: REQ_TASK_ORDER
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: ':id: TASK_0001_05'
+  replace: ':id: TASK_0001_005'

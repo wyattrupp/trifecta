@@ -28,8 +28,9 @@ somewhere, and anything that restates it can disagree with it.
 
 :::{opt} Numbered checkboxes in the task body, executed in order
 :id: OPT_0009_CHECKBOXES
-Good, because the checkbox is the only record of progress, a task is resolved exactly
-when its steps are, and the next step is the first open checkbox in the file. Bad,
+Good, because the checkbox is the only record of whether a step is done, a task is
+resolved exactly when its steps are, and the next step is the first open checkbox in the
+file. The As built entry records what was built and is checked against the checkboxes. Bad,
 because work that could run in parallel has to be a separate plan.
 :::
 

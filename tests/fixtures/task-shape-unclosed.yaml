@@ -1,0 +1,9 @@
+# A task whose closing colons are missing, so it runs into the next task.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: |
+    open copy of this plan.
+    :::
+  replace: |
+    open copy of this plan.

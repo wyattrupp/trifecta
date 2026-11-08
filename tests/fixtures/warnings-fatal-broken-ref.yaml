@@ -2,5 +2,5 @@
 expect: REQ_WARNINGS_FATAL
 mutations:
 - file: docs/rfcs/0001-documentation-as-a-validated-graph.md
-  find: RFCs, MADRs and design docs form one
-  replace: See {doc}`/nowhere`. RFCs, MADRs and design docs form one
+  find: RFCs, MADRs, design docs and plans form one
+  replace: See {doc}`/nowhere`. RFCs, MADRs, design docs and plans form one

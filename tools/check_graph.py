@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 from findings import Finding
@@ -20,8 +21,9 @@ def _where(need: dict) -> str:
     return f"docs/{need['docname']}{need['doctype']}:{need['lineno']}"
 
 
-#: Plan statuses whose tasks count as building a design; an abandoned plan builds nothing.
-LIVE_PLANS = ("draft", "active", "done")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
+
+from plans import HELD as LIVE_PLANS  # noqa: E402  (an abandoned plan builds nothing)
 
 
 def check_plans(needs: dict[str, dict]) -> list[Finding]:

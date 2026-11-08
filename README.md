@@ -15,7 +15,8 @@ make setup             # pip install --require-hashes -r requirements.lock; fetc
 make check             # build, validate, lint; prints findings and exits 1 if there are any
 make check BASE=main   # also check MADR immutability against a git ref
 make fixtures          # prove the corpus passes and every negative fixture is rejected
-python tools/new.py plan <slug> --implements DES_NNNN   # skeleton of any type: rfc, decision, design, plan
+python tools/new.py rfc <slug>                          # a draft of a type: rfc, decision, design
+python tools/new.py plan <slug> --implements DES_NNNN   # a draft plan, its first task building the whole design
 python tools/next.py docs/plans/NNNN-slug.md            # the task holding an active plan's next open step
 ```
 
@@ -41,8 +42,11 @@ reasons are in the MADRs.
 A spec is an RFC (the problem and the requirements), a MADR per choice, and a design doc
 (the components); a plan implements one design doc as tasks in build order
 (`docs/decisions/0008-a-spec-is-an-rfc-its-madrs-and-a-design.md`). Each starts as a
-draft from `tools/new.py`. An RFC, design doc or plan is accepted, approved or made
-active only after a review, recorded as a `review` need in its Review section. A building
+draft from `tools/new.py`, under `docs/rfcs/`, `docs/decisions/`, `docs/design/` or
+`docs/plans/`; the superpowers skills' own paths (`docs/superpowers/...`) and templates
+do not apply here, and the check rejects a document outside those directories. An
+accepted RFC, an approved or implemented design doc, and an active or done plan record at
+least one review, as a `review` need in the Review section. A building
 session runs `tools/next.py`, does the marked step, ticks it, and writes the task's As
 built entry when its last step is ticked.
 

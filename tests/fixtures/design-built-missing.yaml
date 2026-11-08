@@ -2,5 +2,5 @@
 expect: REQ_DESIGN_BUILT
 mutations:
 - file: docs/plans/0001-plans-and-reviews.md
-  find: ':builds: COMP_NEW_COMMAND, COMP_NEXT_COMMAND'
-  replace: ':builds: COMP_NEW_COMMAND'
+  find: ':builds: COMP_PLAN_COVERAGE'
+  replace: ':builds: COMP_PLAN_TYPES'

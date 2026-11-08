@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import re
 import subprocess
 import sys
@@ -29,15 +30,7 @@ from trifecta import DOC_TYPES, FILENAME_RE  # noqa: E402
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ELEMENT_RE = re.compile(r"^:id: ((?:COMP|IF)_[A-Z0-9_]+)\s*$", re.M)
-TODO = "TODO."
-
-#: The design doc's derived views, as written in docs/design/0001.
-NEEDTABLES = {
-    "Requirements": ":::{needtable}\n:filter: type == 'req' and len(satisfies_back) > 0\n"
-                    ":columns: id, title, satisfies_back as \"Satisfied by\"\n:style: table\n:::",
-    "Constraints": ":::{needtable}\n:filter: type == 'decision' and len(constrained_by_back) > 0\n"
-                   ":columns: id, title, status\n:style: table\n:::",
-}
+TODO = plans.PLACEHOLDER
 
 
 def _author() -> str:
@@ -66,6 +59,7 @@ def render(kind: str, number: str, slug: str, author: str, today: str,
            implements: str | None = None) -> str:
     directory, spec = next((d, s) for d, s in DOC_TYPES.items() if s["directive"] == kind)
     title = slug.replace("-", " ").capitalize()
+    author = json.dumps(author)  # a JSON string is a YAML scalar, whatever the name holds
     front = {
         "rfc": [("status", "draft"), ("authors", f"[{author}]"), ("created", today)],
         "decision": [("status", "proposed"), ("date", today), ("decision-makers", f"[{author}]")],
@@ -73,7 +67,7 @@ def render(kind: str, number: str, slug: str, author: str, today: str,
         "plan": [("status", "draft"), ("authors", f"[{author}]"), ("created", today)],
     }[kind]
     links, body = [], {s: TODO for s in spec["sections"]}
-    body.update({s: NEEDTABLES[s] for s in spec["derived"]})
+    body.update({s: "\n".join(view) for s, view in spec.get("views", {}).items()})
 
     if kind == "decision":
         a, b = f"OPT_{number}_A", f"OPT_{number}_B"

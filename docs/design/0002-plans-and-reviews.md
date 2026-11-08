@@ -99,4 +99,18 @@ sections, and the As built entries. A step line MUST match `STEP_RE`, and reader
 take the first open step in document order as the next one.
 :::
 
+## Risks
+
+A superpowers skill run with its defaults writes under `docs/superpowers/`; the check
+rejects that path and names the typed directories, and the template work planned next
+points the skills at `tools/new.py`. Renumbering open tasks can miss a citation in prose;
+nothing outside a plan cites an open task.
+
 ## Review
+
+:::{review} Correctness; single source of truth and fidelity to the superpowers shapes
+:id: REV_DES_0002_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0002_1` covered this document.
+:::

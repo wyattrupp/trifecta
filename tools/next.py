@@ -13,8 +13,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
 
 import plans  # noqa: E402
@@ -28,17 +26,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("plan", type=Path)
     args = parser.parse_args(argv)
     lines = args.plan.read_text(encoding="utf-8").splitlines()
-    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
-    status = (yaml.safe_load("\n".join(lines[1:end])) or {}).get("status") if end else None
-
-    if status != "active":
-        reason = {"draft": "is a draft: review it, then set status: active",
-                  "done": "is done", "abandoned": "is abandoned"}.get(status, "has no status")
-        print(f"{args.plan.as_posix()} {reason}")
-        return 0 if status == "done" else 1
-
+    status = plans.frontmatter(lines).get("status")
     plan = plans.parse(lines)
     found = plan.next_step()
+
+    if status == "done" and found is None:
+        print(f"{args.plan.as_posix()} is done")
+        return 0
+    if status != "active":
+        reason = {"draft": "is a draft: review it, then set status: active",
+                  "done": "is marked done but has open steps; run make check",
+                  "abandoned": "is abandoned"}.get(status, "has no status")
+        print(f"{args.plan.as_posix()} {reason}")
+        return 1
     if found is None:
         print(f"{args.plan.as_posix()} has no open step: write the As built entries "
               f"and set status: done")
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     if "Rules for every task" in plan.sections:
         start, stop = plan.sections["Rules for every task"]
         print("\n".join(lines[start:stop]).rstrip(), end="\n\n")
-    for i in range(task.line, task.end + 1):
+    for i in range(task.line, min(task.end, len(lines) - 1) + 1):
         print((MARK if i == step.line else "") + lines[i])
     return 0
 

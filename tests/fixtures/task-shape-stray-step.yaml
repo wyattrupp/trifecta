@@ -1,0 +1,14 @@
+# A checkbox between two tasks, which no task owns.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: |
+    :::
+
+    :::{task} Fold in the k=2 review
+  replace: |
+    :::
+
+    - [x] **9.1** A step outside any task.
+
+    :::{task} Fold in the k=2 review

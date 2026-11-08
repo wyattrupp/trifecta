@@ -9,10 +9,11 @@ A task is a ``:::{task}`` need under ``## Tasks`` with ``:id: TASK_<plan>_<NN>``
 
     - [ ] **2.1** open
     - [x] **2.2** done
-    - [-] **2.3** dropped (the As built entry says why)
+    - [-] **2.3** dropped
 
 A task is resolved when it has steps and none is open. ``## As built`` holds one
-``### Task N (YYYY-MM-DD)`` entry per resolved task, in task order.
+``### Task N (YYYY-MM-DD)`` entry per resolved task, in task order. What an entry says,
+including why a step was dropped, is convention; the check holds only its presence.
 """
 
 from __future__ import annotations
@@ -20,16 +21,25 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-OPEN, DONE, DROPPED = " ", "x", "-"
-#: Statuses whose plans make the linear promise. An abandoned plan is past changing.
-HELD = ("draft", "active", "done")
+import yaml
 
-TASK_OPEN_RE = re.compile(r"^:::\{task\}(?:[ \t]+(?P<title>.*?))?[ \t]*$")
-TASK_ID_RE = re.compile(r"^TASK_(?P<plan>\d{4})_(?P<n>\d{2,})$")
+OPEN, DONE, DROPPED = " ", "x", "-"
+#: Statuses whose plans make the linear promise and whose tasks count as building their
+#: design. An abandoned plan is past changing. tools/check_graph.py reads this.
+HELD = ("draft", "active", "done")
+#: Statuses in which a plan is relied on, so it must be reviewed. docs/conf.py reads this.
+RELIED_ON = ("active", "done")
+
+#: A task opener; MyST closes a colon fence with a line of the same number of colons.
+TASK_OPEN_RE = re.compile(r"^(?P<colons>:{3,})\{task\}(?:[ \t]+(?P<title>.*?))?[ \t]*$")
+#: Task numbers are two digits or more, with no padding beyond two: 01..99, 100...
+TASK_ID_RE = re.compile(r"^TASK_(?P<plan>\d{4})_(?P<n>0[1-9]|[1-9]\d+)$")
 OPTION_RE = re.compile(r"^:(?P<key>[A-Za-z_][\w-]*):(?P<value>.*)$")
-STEP_RE = re.compile(r"^- \[(?P<state>[ x-])\] \*\*(?P<n>\d+)\.(?P<k>\d+)\*\* \S")
+STEP_RE = re.compile(r"^- \[(?P<state>[ x-])\] \*\*(?P<n>[1-9]\d*)\.(?P<k>[1-9]\d*)\*\* \S")
+#: The text tools/new.py writes where an author has to write something.
+PLACEHOLDER = "TODO."
 #: Anything that looks like a checkbox, so a malformed step is reported, not ignored.
-STEP_LIKE_RE = re.compile(r"^\s*[-*+] \[.?\]")
+STEP_LIKE_RE = re.compile(r"^\s*[-*+] \[[^\]]?\](?!\()")
 AS_BUILT_RE = re.compile(r"^### Task (?P<n>\d+) \((?P<date>\d{4}-\d{2}-\d{2})\)[ \t]*$")
 H2_RE = re.compile(r"^ {0,3}##(?:[ \t]+(?P<title>.*?))?(?:[ \t]+#+)?[ \t]*$")
 H3_RE = re.compile(r"^ {0,3}###(?:[ \t]|$)")
@@ -50,6 +60,7 @@ class Step:
     k: int
     state: str
     line: int  # 0-based index into the source lines
+    text: str = ""
 
 
 @dataclass
@@ -58,6 +69,7 @@ class Task:
     line: int
     end: int
     in_tasks_section: bool
+    closed: bool = True
     options: dict[str, tuple[str, int]] = field(default_factory=dict)
     steps: list[Step] = field(default_factory=list)
     malformed: list[int] = field(default_factory=list)
@@ -82,6 +94,7 @@ class Plan:
     sections: dict[str, tuple[int, int]]  # H2 title -> (heading index, end index)
     as_built: list[tuple[int, int]]  # (task number, line) per well-formed entry
     as_built_bad: list[int]  # lines of other H3 headings under As built
+    stray_steps: list[int] = field(default_factory=list)  # checkboxes outside any task
 
     def steps(self) -> list[tuple[Task, Step]]:
         return [(t, s) for t in self.tasks for s in t.steps]
@@ -124,9 +137,19 @@ def parse(lines: list[str]) -> Plan:
         if not m:
             i += 1
             continue
-        end = next((j for j in range(i + 1, len(lines)) if not code[j]
-                    and lines[j].rstrip() == ":::"), len(lines))
-        task = Task(m.group("title") or "", i, end, tasks_span[0] < i < tasks_span[1])
+        # The closer has the opener's colons. A task never spans another task or an H2,
+        # so reaching either first means the task was not closed.
+        closer, end, closed = m.group("colons"), len(lines), False
+        for j in range(i + 1, len(lines)):
+            if code[j]:
+                continue
+            if lines[j].rstrip() == closer:
+                end, closed = j, True
+                break
+            if TASK_OPEN_RE.match(lines[j]) or H2_RE.match(lines[j]):
+                end = j
+                break
+        task = Task(m.group("title") or "", i, end, tasks_span[0] < i < tasks_span[1], closed)
         j = i + 1
         while j < end and (o := OPTION_RE.match(lines[j])):
             task.options[o.group("key")] = (o.group("value").strip(), j)
@@ -135,11 +158,17 @@ def parse(lines: list[str]) -> Plan:
             if code[j]:
                 continue
             if s := STEP_RE.match(lines[j]):
-                task.steps.append(Step(int(s.group("n")), int(s.group("k")), s.group("state"), j))
+                task.steps.append(Step(int(s.group("n")), int(s.group("k")), s.group("state"), j,
+                                       lines[j][s.end() - 1:].strip()))
             elif STEP_LIKE_RE.match(lines[j]):
                 task.malformed.append(j)
         tasks.append(task)
-        i = end + 1
+        i = end + 1 if closed else end
+
+    # Checkboxes outside every task: the linear rule and next.py would never see them.
+    inside = {j for t in tasks for j in range(t.line, t.end + 1)}
+    stray = [j for j, line in enumerate(lines)
+             if not code[j] and j not in inside and STEP_LIKE_RE.match(line)]
 
     as_built, bad = [], []
     if "As built" in sections:
@@ -151,7 +180,31 @@ def parse(lines: list[str]) -> Plan:
                 as_built.append((int(e.group("n")), j))
             else:
                 bad.append(j)
-    return Plan(tasks, sections, as_built, bad)
+    return Plan(tasks, sections, as_built, bad, stray)
+
+
+def frontmatter(lines: list[str]) -> dict:
+    """The YAML frontmatter as written (dates stay strings), or {} if there is none."""
+    if not lines or lines[0].strip() != "---":
+        return {}
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return {}
+    try:
+        data = yaml.load("\n".join(lines[1:end]), Loader=NoTimestampLoader)
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class NoTimestampLoader(yaml.SafeLoader):
+    """Frontmatter dates stay strings, so a schema sees what the author wrote."""
+
+
+NoTimestampLoader.yaml_implicit_resolvers = {
+    k: [(tag, rx) for tag, rx in v if tag != "tag:yaml.org,2002:timestamp"]
+    for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
 
 
 def problems(plan: Plan, plan_number: str, status: str | None) -> list[tuple[str, str, int]]:
@@ -173,8 +226,16 @@ def problems(plan: Plan, plan_number: str, status: str | None) -> list[tuple[str
                 task.line)
 
     # REQ_TASK_SHAPE: where a task lives, what it builds, its gate, and its steps.
+    if not plan.tasks:
+        add("REQ_TASK_SHAPE", "a plan has at least one ':::{task}' under '## Tasks'",
+            plan.sections.get("Tasks", (0, 0))[0])
+    for line in plan.stray_steps:
+        add("REQ_TASK_SHAPE", "a step belongs inside a ':::{task}' block", line)
     for task in plan.tasks:
         name = task.id or task.title or "task"
+        if not task.closed:
+            add("REQ_TASK_SHAPE", f"{name} has no closing ':::' before the next task or "
+                                  f"section", task.line)
         if not task.in_tasks_section:
             add("REQ_TASK_SHAPE", f"{name} is outside '## Tasks'", task.line)
         for key in ("builds", "gate"):
@@ -189,6 +250,14 @@ def problems(plan: Plan, plan_number: str, status: str | None) -> list[tuple[str
             if task.number is not None and (step.n, step.k) != (task.number, k):
                 add("REQ_TASK_SHAPE", f"step must be numbered {task.number}.{k}, "
                                       f"got {step.n}.{step.k}", step.line)
+        # A relied-on plan says what each task is for: no skeleton placeholder is left.
+        if status in RELIED_ON:
+            gate = task.options.get("gate", ("", task.line))
+            texts = [gate] + [(s.text, s.line) for s in task.steps]
+            for text, line in texts:
+                if text == PLACEHOLDER:
+                    add("REQ_TASK_SHAPE", f"{name} still has the placeholder "
+                                          f"'{PLACEHOLDER}'", line)
 
     if status not in HELD:
         return out

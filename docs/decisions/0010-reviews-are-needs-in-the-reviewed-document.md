@@ -54,5 +54,6 @@ the check validates, next to the prose that says what it found.
 ## Consequences
 
 - Good, because the derived `reviewed_by` link is computed, never written.
-- Bad, because MADRs keep the standard MADR sections and carry no Review section; the
-  review of the RFC whose questions they resolve covers them.
+- Bad, because MADRs keep the standard MADR sections and carry no Review section; by
+  convention, the review of the RFC whose questions they resolve covers them, and no
+  check links the two.

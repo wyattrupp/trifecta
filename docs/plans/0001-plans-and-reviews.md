@@ -11,11 +11,7 @@ created: 2026-11-08
 
 ## Read before starting
 
-{need}`RFC_0002` for the requirements, {need}`DES_0002` for the components each task
-builds, and the three MADRs that resolve the RFC's questions: {need}`DEC_0008`,
-{need}`DEC_0009` and {need}`DEC_0010`. The superpowers spec and plan shapes in
-gfl2_pmxview (`docs/superpowers/specs/2026-11-07-spec-plan-shapes-design.md` there) are
-the shapes this adapts to the graph.
+{need}`RFC_0002` and the MADRs that resolve its questions.
 
 ## Rules for every task
 
@@ -70,7 +66,28 @@ Write the two commands from the shared constants.
 - [x] **4.3** Run the check over a skeleton of each type, and `next` over an open copy of this plan.
 :::
 
+:::{task} Fold in the k=2 review
+:id: TASK_0001_05
+:builds: COMP_PLAN_RULES, COMP_PLAN_TYPES, COMP_NEW_COMMAND, COMP_NEXT_COMMAND
+:gate: The fixtures for every finding that a corpus mutation can show are rejected; the corpus passes.
+Apply the findings of the review recorded in RFC_0002 that held up.
+
+- [x] **5.1** Bound task blocks by MyST's closing colons, the next task or the next section, and report an unclosed task.
+- [x] **5.2** Report checkboxes outside a task, a plan with no task, padded task and step numbers, and placeholders in an active or done plan.
+- [x] **5.3** Exempt abandoned plans in the requirement text, and add Out of scope to RFCs and Risks to design docs.
+- [x] **5.4** Reject documents outside the typed directories, and point the README away from the superpowers default paths.
+- [x] **5.5** Give plan statuses, frontmatter parsing, the lint directories and the derived views one home each.
+- [x] **5.6** Record the review in RFC_0002, DES_0002 and this plan, and add the fixtures.
+:::
+
 ## Review
+
+:::{review} Correctness; single source of truth and fidelity to the superpowers shapes
+:id: REV_PLAN_0001_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0002_1` covered this document.
+:::
 
 ## As built
 
@@ -83,7 +100,8 @@ fixture `decision-options-no-choice`.
 
 ### Task 2 (2026-11-08)
 
-The parser lives in its own module with no Sphinx import so the commands can load it.
+The parser lives in its own module with no Sphinx import, so `tools/next.py` loads it
+without Sphinx; `tools/new.py` also reads `DOC_TYPES` from the extension.
 `doc-identity-gap` created MADR 0009, which now exists; it creates 0012.
 
 ### Task 3 (2026-11-08)
@@ -93,3 +111,13 @@ As designed.
 ### Task 4 (2026-11-08)
 
 As designed.
+
+### Task 5 (2026-11-08)
+
+Two findings were not taken: duplicate directive options, which docutils already
+rejects, and CRLF line endings, which Sphinx and `splitlines` normalize before the
+parser sees them.
+
+Found while verifying the skeletons: a frontmatter value holding `#` or a quote broke the
+directive it is injected into, since MyST reads those as option syntax. The extension
+now quotes such values; `tools/new.py` quotes the author it writes into the frontmatter.

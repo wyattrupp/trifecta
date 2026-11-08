@@ -73,21 +73,27 @@ document order without gaps.
 
 :::{req} Tasks have a fixed shape
 :id: REQ_TASK_SHAPE
-A task MUST sit under its plan's Tasks section, MUST build at least one component or
-interface, MUST state a gate, and MUST contain at least one step. Steps MUST be written
-`- [ ] **N.k** text`, where N is the task's number and k runs from 1 without gaps.
+A plan MUST have at least one task. A task MUST be a closed `task` directive under its
+plan's Tasks section, MUST build at least one component or interface, MUST state a gate,
+and MUST contain at least one step; every checkbox in a plan MUST be a step of a task.
+A step MUST be written `- [ ] **N.k** text` while open, `- [x] **N.k** text` when done
+and `- [-] **N.k** text` when dropped, where N is the task's number and k runs from 1
+without gaps. In an active or done plan, a gate or step MUST NOT be the skeleton
+placeholder.
 :::
 
 :::{req} Execution is linear
 :id: REQ_LINEAR_EXECUTION
-A step MUST NOT be done or dropped while an earlier step of the same plan is open, and a
-draft plan MUST NOT have a done or dropped step.
+In a draft, active or done plan, a step MUST NOT be done or dropped while an earlier
+step of the same plan is open, and a draft plan MUST NOT have a done or dropped step. An
+abandoned plan is exempt.
 :::
 
 :::{req} As built records each resolved task
 :id: REQ_AS_BUILT
-A plan's As built section MUST hold exactly one `### Task N (YYYY-MM-DD)` entry for each
-resolved task, in task order, and a done plan MUST have every task resolved.
+The As built section of a draft, active or done plan MUST hold exactly one
+`### Task N (YYYY-MM-DD)` entry for each resolved task, in task order, and a done plan
+MUST have every task resolved. An abandoned plan is exempt.
 :::
 
 :::{req} A planned design is built in full
@@ -116,4 +122,27 @@ each record at least one review, and every review MUST state its k and its date.
 :id: Q_REVIEW_HOME
 :::
 
+## Out of scope
+
+Freezing a resolved task against a base ref, as MADRs are frozen; checking that a review
+is newer than the document's last change; the wording of an As built entry, including
+why a step was dropped. Each is convention until a requirement says otherwise.
+
 ## Review
+
+:::{review} Correctness; single source of truth and fidelity to the superpowers shapes
+:id: REV_RFC_0002_1
+:k: 2
+:date: 2026-11-08
+The first draft of this RFC, its three MADRs, design doc 0002, plan 0001 and the code at
+commit 6eb3205, lenses as titled (fidelity in place of security: the change parses local
+markdown). The local cross-check model was unreachable, so no pass came from another
+model lineage. Every finding was verified against the code and the corpus. Folded in, as
+task 5 of {need}`PLAN_0001`: unclosed and nested task blocks, checkboxes outside a task
+and plans with no task, padded task and step numbers, placeholders left in a relied-on
+plan, the abandoned-plan exemption written into the requirements, Out of scope and Risks
+sections, the user's ruling quoted in {need}`DEC_0008`, documents outside the typed
+directories rejected, and one home each for plan statuses, frontmatter parsing, the lint
+directories and the design doc's derived views. Deferred, and listed under Out of scope:
+freezing resolved tasks against a base ref, and review staleness.
+:::

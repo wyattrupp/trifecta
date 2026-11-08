@@ -14,11 +14,13 @@ informed: [wyatt]
 
 ## Context and Problem Statement
 
-The superpowers flow writes a spec, then a plan, then builds. A superpowers spec holds
-the problem, the user's rulings, numbered design decisions, gates, risks and out-of-scope
-items in one file. This corpus already gives each of those a home: the problem and the
-requirements in an RFC, each choice in a MADR, each designed element in a design doc. A
-second home for any of them breaks the rule that each fact is defined once.
+wyatt, 2026-11-08: "make it work with the same validation and single source of truth
+discipline that we've established here", for the superpowers spec and plan shapes of
+gfl2_pmxview. The superpowers flow writes a spec, then a plan, then builds. A
+superpowers spec holds the problem, the user's rulings, numbered design decisions,
+gates, risks, out-of-scope items and amendments in one file; its plan adds the files
+each task touches. A second home for any of these breaks the rule that each fact is
+defined once, so each needs exactly one home in this corpus.
 
 ## Decision Drivers
 
@@ -56,8 +58,14 @@ per fact while adding the one thing the corpus lacked, the plan.
 
 ## Consequences
 
-- Good, because a user's ruling is a MADR with the user as decision maker, and a gate is
-  a requirement with its negative fixture.
+- Good, because each part of a superpowers spec has one home: the problem and the
+  out-of-scope items in the RFC; a ruling in a MADR whose context quotes the user with a
+  date and whose decision makers name the user; a design decision in a MADR or a
+  component; a gate in a requirement with its negative fixture, and per task in its
+  `gate`; risks in the design doc and in each MADR's consequences.
+- Good, because a plan needs no Files section (the files are the `spec` paths of the
+  components its tasks build) and no Amendments section (an accepted MADR changes only
+  by supersession; an RFC, design doc or plan changes in git and is reviewed again).
 - Good, because a plan links to one design doc, so a design element no task builds is a
   finding.
 - Bad, because the superpowers skills write their own one-file template; `tools/new.py`

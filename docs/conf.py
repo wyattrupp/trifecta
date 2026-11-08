@@ -11,6 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
 
+import plans  # noqa: E402
+
 project = "trifecta"
 extensions = ["myst_parser", "sphinx_needs", "trifecta"]
 exclude_patterns = ["_build"]
@@ -127,8 +129,8 @@ needs_types = [
         },
     ),
     dict(
-        directive="task", title="Task", prefix="TASK_", id_regex=r"^TASK_\d{4}_\d{2,}$",
-        fields={"gate": _text("What decides the task is done: fixtures, commands, checks.")},
+        directive="task", title="Task", prefix="TASK_", id_regex=plans.TASK_ID_RE.pattern,
+        fields={"gate": _text("The task's gate (TERM_GATE).")},
         links={"builds": _link("builds", "built by", ["component", "interface"])},
     ),
     # --- Review (RFC, design doc, plan) -----------------------------------------
@@ -213,13 +215,13 @@ needs_schema_definitions = {"schemas": [
     {
         "id": "REQ_REVIEWED",
         "message": f"{label} records at least one review",
-        "select": _select(type=need_type, status=statuses),
+        "select": _select(type=need_type, status=list(statuses)),
         "validate": {"local": {"required": ["reviewed_by"]}},
     }
     for need_type, statuses, label in [
         ("rfc", ["accepted"], "an accepted RFC"),
         ("design", ["approved", "implemented"], "an approved or implemented design doc"),
-        ("plan", ["active", "done"], "an active or done plan"),
+        ("plan", plans.RELIED_ON, "an active or done plan"),
     ]
 ] + [
     {
