@@ -17,10 +17,19 @@ jobs:
           python-version: "3.12"
       - run: make setup
       - name: Check (with MADR immutability against the base)
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          # The tip of main before this push, so every commit in a multi-commit push is
+          # covered. All zeros when the branch is new.
+          BEFORE: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            make check BASE=origin/${{ github.base_ref }}
+          if [ "$EVENT" = "pull_request" ]; then
+            make check BASE="origin/$BASE_REF"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            make check BASE="$BEFORE"
           elif git rev-parse -q --verify HEAD^ >/dev/null; then
+            echo "::warning::push base $BEFORE is not in the clone; checking against HEAD^ only"
             make check BASE=HEAD^
           else
             make check

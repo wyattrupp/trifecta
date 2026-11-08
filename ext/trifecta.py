@@ -59,6 +59,13 @@ DOC_TYPES: dict[str, dict] = {
 FILENAME_RE = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*$")
 OPTION_RE = re.compile(r"^:([A-Za-z_][\w-]*):(.*)$")
 CHOSEN_RE = re.compile(r"Chosen option: \{need\}`([A-Z0-9_]+)`")
+#: ATX H2 lines as CommonMark reads them: up to 3 leading spaces, optional closing #s.
+H2_RE = re.compile(r"^ {0,3}##(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+
+
+def _h2_title(line: str) -> str | None:
+    m = H2_RE.match(line)
+    return (m.group(1) or "") if m else None
 
 
 class _NoTimestampLoader(yaml.SafeLoader):
@@ -209,11 +216,10 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
 def _check_chosen_sentence(lines: list[str], chosen: list[str], docname: str) -> None:
     if len(chosen) != 1:
         return  # cardinality is REQ_DECISION_OPTIONS's to report
-    try:
-        begin = lines.index("## Decision Outcome")
-    except ValueError:
-        return  # the skeleton check reports the missing section
-    end = next((i for i in range(begin + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    begin = next((i for i, l in enumerate(lines) if _h2_title(l) == "Decision Outcome"), None)
+    if begin is None:
+        return  # REQ_SECTION_SKELETON reports a missing or renamed section
+    end = next((i for i in range(begin + 1, len(lines)) if _h2_title(lines[i]) is not None), len(lines))
     hits = [(i, m.group(1)) for i in range(begin, end) for m in CHOSEN_RE.finditer(lines[i])]
     if len(hits) != 1:
         _warn(
