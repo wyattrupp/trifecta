@@ -242,3 +242,10 @@ proven by CI itself and the push base by the workflow's own run. The medium and 
 findings that held up were fixed in the pull requests that followed, with fixtures where
 a corpus mutation can show them.
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0001_2
+:k: 2
+:date: 2026-11-08
+The new text of REQ_FIXTURE_PER_INVARIANT, in the review recorded as {need}`REV_RFC_0003_1`.
+:::

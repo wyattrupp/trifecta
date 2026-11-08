@@ -30,9 +30,10 @@ is a claim.
 
 :::{opt} Standard-library tests that declare the requirements they prove
 :id: OPT_0015_NAMED_TESTS
-Good, because the fixture audit counts a test that names a requirement as its proof, and
-`unittest` needs no new dependency. Bad, because a test can name a requirement it does
-not really exercise; review judges that, as it does for fixtures.
+Good, because the fixture audit counts a test that names a requirement as its proof
+once the test runs and passes, and `unittest` needs no new dependency. Bad, because a test
+can name a requirement it does not really exercise; review judges that, as it does for
+fixtures.
 :::
 
 :::{opt} Exempt such requirements from the audit

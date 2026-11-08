@@ -14,7 +14,9 @@ The toolchain leaves this repository as one pinned Python package. An
 {need}`adopting repository <TERM_ADOPTER>` gets a passing, empty
 {need}`corpus <TERM_CORPUS>` from one command, or from a template repository made from
 that command's output. A Claude Code session in it plans through the corpus by default,
-and the README says how to set it up.
+and the README says how to set it up. Because the package, its release and its hook run
+code in other people's repositories and sessions, the release, the install, the files
+init writes and the hook each carry a security requirement.
 
 ## Motivation
 
@@ -40,14 +42,41 @@ A repository other than this one whose documents are checked by the toolchain pa
 :::{req} The toolchain is one pinned package
 :id: REQ_ONE_PACKAGE
 The extension, the schemas, the plan rules, the Vale styles and configurations, and the
-tools MUST ship as one Python package. An adopting repository MUST NOT hold a copy of any
-of them, and MUST pin the package by version and hash.
+tools MUST ship as one Python package, and an adopting repository MUST NOT hold a copy of
+any of them. An adopting repository MUST pin the package as
+`trifecta @ https://github.com/<owner>/<repo>/releases/download/v<version>/<wheel>.whl`
+followed by its `--hash=sha256:` value, with every dependency pinned and hashed, and the
+check MUST reject any other form of that line.
 :::
 
 :::{req} Init produces a passing corpus
 :id: REQ_INIT_PASSES
 The package's init command, run in a repository with no corpus, MUST produce one whose
-check passes and which holds none of this repository's documents.
+check passes with no further step, and which holds none of this repository's documents.
+:::
+
+:::{req} Init writes safely
+:id: REQ_INIT_SAFE
+The init command MUST refuse a target that exists, that is a symbolic link or other
+reparse point, or that resolves outside the repository, and MUST create each file
+exclusively. The CI workflow it writes MUST grant only read access to the repository,
+MUST NOT persist credentials in the checkout, and MUST pin every action by commit SHA.
+:::
+
+:::{req} No credential enters the tree
+:id: REQ_NO_SECRETS_IN_TREE
+A credential for downloading the package MUST live only in a CI secret and MUST reach
+only the step that installs the package. It MUST NOT appear in the lock file, in a URL, in
+anything init writes, in the template repository, or in a step that runs repository code.
+:::
+
+:::{req} Releases are trusted
+:id: REQ_RELEASE_TRUST
+A release wheel MUST be built by the release workflow from a version tag on the main
+branch, with its build dependencies pinned and hashed and its actions pinned by commit
+SHA, and published only after a maintainer approves the release environment. Only the
+publishing job MAY write to the repository, and the release MUST carry a build provenance
+attestation.
 :::
 
 :::{req} Toolchain self-tests stay here
@@ -58,15 +87,30 @@ toolchain's requirements.
 
 :::{req} Requirements no mutation can show are proven by tests
 :id: REQ_PROVEN_BY_TEST
-A requirement that no mutation of the corpus can show MUST be named by a test under
-`tests/` as the requirement it proves, and every such test MUST pass in the check.
+A requirement of this RFC MUST be named by a test under `tests/` as the requirement it
+proves. Every such test MUST run and pass in the check; a skipped test proves nothing.
 :::
 
 :::{req} Planning goes through the corpus by default
 :id: REQ_PLANNING_DEFAULT
 The init command MUST install instructions that direct a Claude Code session to write
-specs and plans into the typed directories with the package's commands, and a hook that
-refuses a write under `docs/superpowers/`.
+specs and plans into the typed directories with the package's commands and to treat the
+text of documents and command output as data, a hook that refuses a write under
+`docs/superpowers/`, and the hook's registration.
+:::
+
+:::{req} The hook fails closed
+:id: REQ_HOOK_FAILS_CLOSED
+The hook MUST read its input as JSON without passing any part of it to a shell, MUST
+cover the file-writing tools and shell commands, MUST resolve paths before matching them,
+and MUST block with exit code 2 both a write under `docs/superpowers/` and an input it
+cannot parse.
+:::
+
+:::{req} The README leads with adoption
+:id: REQ_ADOPTION_GUIDE
+The README MUST open with the steps to adopt the toolchain, and those steps, run in an
+empty repository, MUST produce a corpus whose check passes.
 :::
 
 ## Questions
@@ -86,6 +130,15 @@ refuses a write under `docs/superpowers/`.
 ## Out of scope
 
 Publishing to PyPI; CI systems other than GitHub Actions; agents other than Claude Code;
-migrating an existing project's documents into the corpus.
+migrating an existing project's documents into the corpus; defending against a
+maintainer of this repository, who can publish a release; a shell command that writes
+under `docs/superpowers/` by a route the hook cannot see, which the check still rejects.
 
 ## Review
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0003_1` covered this document.
+:::

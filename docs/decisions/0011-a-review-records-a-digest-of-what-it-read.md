@@ -22,7 +22,8 @@ with the document as it is now.
 ## Decision Drivers
 
 - The check is deterministic and runs without git history, as the fixture copies do
-- Ticking a step or writing an As built entry does not invalidate a plan's review
+- Building a plan, by ticking steps, adding `spec` paths, writing As built and moving
+  statuses forward, does not invalidate its reviews
 - Any other edit to a reviewed document does
 
 ## Considered Options
@@ -52,7 +53,9 @@ needs nothing but the file.
 
 ## Consequences
 
-- Good, because a plan's digest reads every step as open and leaves out As built, so the
-  build itself never makes the review stale.
-- Bad, because the frontmatter status is left out of the digest too, so that accepting a
-  reviewed document is not an edit; a change of status is held by the lifecycle rules.
+- Good, because the reviewer takes the digest when the review starts and the command
+  refuses to stamp it if the file has changed since, so a stamp names the text read.
+- Bad, because the digest is an unkeyed hash: it binds a record to text and proves
+  nothing about who reviewed it. Pull request approval is the proof of review.
+- Bad, because the status line is outside the digest, so a draft's review covers the same
+  text once accepted; moving status backwards is held by REQ_STATUS_FORWARD.

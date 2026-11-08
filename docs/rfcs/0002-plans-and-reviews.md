@@ -145,3 +145,10 @@ directories rejected, and one home each for plan statuses, frontmatter parsing, 
 directories and the design doc's derived views. Deferred, and listed under Out of scope:
 freezing resolved tasks against a base ref, and review staleness.
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0002_2
+:k: 2
+:date: 2026-11-08
+The new Out of scope, in the review recorded as {need}`REV_RFC_0003_1`.
+:::

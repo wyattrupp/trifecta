@@ -4,8 +4,7 @@ RFCs, MADRs, design docs and plans as one deterministically validated graph, bui
 sphinx-needs, MyST and Vale. The repository is its own example: its documentation
 describes this validation system, and this validation system checks that documentation.
 
-The requirements live in `docs/rfcs/0001-documentation-as-a-validated-graph.md` and
-`docs/rfcs/0002-plans-and-reviews.md`. This README does not restate them; every finding the check prints begins with the ID of the
+The requirements live in the RFCs under `docs/rfcs/`. This README does not restate them; every finding the check prints begins with the ID of the
 requirement it violates.
 
 ## Run it
@@ -57,4 +56,5 @@ metadata; the filename carries the number; the H1 carries the title. The documen
 directive (`:::{rfc}`, `:::{decision}`, `:::{design}`, `:::{plan}`) carries only links, and the
 extension injects the rest. Use colon fences for every need directive.
 
-A new requirement needs a negative fixture in `tests/fixtures/` before the check passes.
+A requirement needs a negative fixture in `tests/fixtures/` once a component of an
+implemented design doc satisfies it; until then it is planned, not enforced.

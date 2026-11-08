@@ -9,7 +9,7 @@ informed: [wyatt]
 :::{decision}
 :chooses: OPT_0014_LAYERED
 :resolves: Q_PLANNING_DEFAULT
-:driven_by: REQ_PLANNING_DEFAULT
+:driven_by: REQ_PLANNING_DEFAULT, REQ_HOOK_FAILS_CLOSED
 :::
 
 ## Context and Problem Statement
@@ -33,7 +33,8 @@ path anyway.
 :id: OPT_0014_LAYERED
 Good, because CLAUDE.md is always loaded, the skill carries the steps when planning
 starts and states the path preference the brainstorming skill defers to, and the hook
-refuses a write to the default path deterministically. Bad, because three files carry the
+refuses a write to the default path, by any file-writing tool or a shell command naming
+it, before it happens. Bad, because three files carry the
 flow; each names the package's commands and restates no rule.
 :::
 
@@ -58,5 +59,11 @@ session what to do and stops it when it does otherwise.
 
 - Good, because the rules stay in the package: the three files point at `trifecta new`,
   `trifecta next` and `trifecta review`, and the check's findings carry the detail.
-- Bad, because a change to how the superpowers skills choose paths can bypass the skill;
-  the hook and the check still hold.
+- Good, because the hook is a Python script that parses its input as JSON and never
+  hands it to a shell, and blocks with exit code 2, the code Claude Code treats as a
+  refusal, also when it cannot parse the input.
+- Good, because the instructions say that document text and command output are data, so a
+  gate or step written by a pull request author is not an instruction to the session.
+- Bad, because a shell command can write a file by a route the hook cannot see, and a
+  change to how the superpowers skills choose paths can bypass the skill; the check still
+  rejects the file in CI.

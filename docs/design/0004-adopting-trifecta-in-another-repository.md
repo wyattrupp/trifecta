@@ -10,12 +10,14 @@ authors: [claude]
 ## Overview
 
 The extension, schemas, plan rules, tools and Vale styles move into one package with a
-`trifecta` command. In this repository the package is installed from source and runs the
-fixture audit and the self-tests; anywhere else it is installed from a release wheel
-pinned by hash and runs only the corpus checks. `trifecta init` writes an adopting
-repository's corpus skeleton, build files, CI workflow, and the three files that make a
-Claude Code session plan through the corpus. A template repository holds exactly what
-init writes. The README leads with the steps to adopt, and a test runs those steps.
+`trifecta` command that reads the corpus from the working directory. In this repository
+the package is installed from source with its hashed build backend, and runs the fixture
+audit and the self-tests; anywhere else it is installed from a release wheel pinned by
+URL and hash and runs only the corpus checks and the adopter's own tests. `trifecta init`
+writes an adopting repository's corpus skeleton, build files, hashed lock, hardened CI
+workflow, and the files that make a Claude Code session plan through the corpus. A
+template repository holds exactly what init writes. The README leads with the steps to
+adopt, and a test runs those steps.
 
 Components here have no `spec` until they are built; the plan that builds them adds it.
 
@@ -43,8 +45,10 @@ Components here have no `spec` until they are built; the plan that builds them a
 :constrained_by: DEC_0013
 :provides: IF_CLI
 A `src/trifecta/` package holding the extension, schemas, plan rules, tools, Vale styles
-and configurations, with a `pyproject.toml` and a `trifecta` command. It reads the
-corpus from the working directory.
+and configurations, with a `pyproject.toml` and a `trifecta` command. Every path is
+resolved from the working directory or from the package's own data, never from a
+source-tree location. The pipeline accepts the package's lock line only in the pinned
+URL form.
 :::
 
 :::{component} Self-test switch
@@ -59,35 +63,40 @@ check runs the fixture audit.
 :id: COMP_TEST_PROOFS
 :satisfies: REQ_PROVEN_BY_TEST
 :constrained_by: DEC_0015
-`unittest` modules under `tests/` that declare the requirements they prove; the check
-runs them and the fixture audit counts each declaration as a proof.
+`unittest` modules under `tests/` that declare the requirements they prove. The check runs
+them, reports a declared test that fails or is skipped, and counts a passing declaration
+as a proof in the fixture audit.
 :::
 
 :::{component} Init command
 :id: COMP_INIT_COMMAND
-:satisfies: REQ_INIT_PASSES
+:satisfies: REQ_INIT_PASSES, REQ_INIT_SAFE, REQ_NO_SECRETS_IN_TREE
 :constrained_by: DEC_0013
 :consumes: IF_CLI
 Writes `docs/` with a configuration that loads the package, an index, the typed
-directories, a Makefile, the CI workflow, a lock line pinning the package, and the
-planning files. It refuses to overwrite a file and lists what it wrote.
+directories, a Makefile, the hardened CI workflow, the hashed lock, a CODEOWNERS entry for
+the files that steer the check and the session, and the planning files. It checks every
+target with `lstat`, creates each file exclusively, and lists what it wrote.
 :::
 
 :::{component} Planning default
 :id: COMP_PLANNING_DEFAULT
-:satisfies: REQ_PLANNING_DEFAULT
+:satisfies: REQ_PLANNING_DEFAULT, REQ_HOOK_FAILS_CLOSED
 :constrained_by: DEC_0014
 :consumes: IF_CLI
-The CLAUDE.md section, the project skill and the PreToolUse hook that init installs. They
-name the commands and the typed directories, and the hook refuses a write under
-`docs/superpowers/` with a message that names `trifecta new`.
+The CLAUDE.md section, the project skill, the PreToolUse hook script and its registration
+in `.claude/settings.json`, all written by init. The hook covers the file-writing tools
+and Bash, and refuses a write under `docs/superpowers/` with a message that names
+`trifecta new`.
 :::
 
 :::{component} Release workflow
 :id: COMP_RELEASE
+:satisfies: REQ_RELEASE_TRUST
 :constrained_by: DEC_0013
-Builds the wheel on a version tag and attaches it to the release with its SHA-256, which
-is the line an adopting repository pins.
+Builds the wheel on a version tag on main with hashed build dependencies, and after a
+maintainer approves the release environment, attaches it to the release with its SHA-256
+and a provenance attestation.
 :::
 
 :::{component} Template repository
@@ -99,10 +108,12 @@ else, pinned to the latest release.
 
 :::{component} Adoption guide
 :id: COMP_ADOPTION_GUIDE
+:satisfies: REQ_ADOPTION_GUIDE
 :constrained_by: DEC_0013, DEC_0014
 The README, leading with "Run this in your repo": from the template, or with
-`trifecta init` in an existing repository; the lock line; `make check` and CI; planning
-with Claude Code. A test runs its commands in an empty directory against the built wheel.
+`trifecta init` in an existing repository; the lock line and how to verify the release's
+attestation; `make check` and CI; planning with Claude Code. A test runs its commands in
+an empty directory against the wheel built from the workspace.
 :::
 
 ## Interfaces
@@ -112,16 +123,25 @@ with Claude Code. A test runs its commands in an empty directory against the bui
 :constrained_by: DEC_0013
 `trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`, `trifecta next`,
 `trifecta review` and `trifecta init`. Each command MUST read the corpus from the working
-directory, and MUST exit non-zero on any finding or refusal.
+directory, MUST exit non-zero on any finding or refusal, and MUST refuse a path argument
+that resolves outside the repository.
 :::
 
 ## Risks
 
 This repository is private, so an adopting repository on another account cannot download
 a release wheel without a token; the release task asks wyatt whether to make the
-repository public or to authenticate downloads. Moving the code changes every `spec` path
-in the design docs at once; the first task moves them together, and REQ_SPEC_RESOLVES
-catches any it misses. A change to how the superpowers skills choose paths can bypass the
-skill; the hook and the check still hold.
+repository public, after a scan of its history for secrets, or to authenticate downloads.
+Moving the code changes every `spec` path in the design docs at once; the first task
+moves them together, and REQ_SPEC_RESOLVES catches any it misses. A pull request runs its
+own workflow, Makefile, tools and configuration in CI, so it can weaken the check it is
+judged by; protection of main and code-owner review of those files hold that line.
 
 ## Review
+
+:::{review} Correctness; security
+:id: REV_DES_0004_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0003_1` covered this document.
+:::

@@ -9,7 +9,7 @@ informed: [wyatt]
 :::{decision}
 :chooses: OPT_0013_PACKAGE
 :resolves: Q_DISTRIBUTION
-:driven_by: REQ_ONE_PACKAGE, REQ_INIT_PASSES, REQ_SELF_TESTS_SCOPED, REQ_PINNED_TOOLCHAIN
+:driven_by: REQ_ONE_PACKAGE, REQ_INIT_PASSES, REQ_SELF_TESTS_SCOPED, REQ_PINNED_TOOLCHAIN, REQ_RELEASE_TRUST, REQ_NO_SECRETS_IN_TREE
 :::
 
 ## Context and Problem Statement
@@ -55,5 +55,11 @@ for the rules and leaves this repository's documents behind.
 
 - Good, because the template repository is a convenience, not a source: it can be
   regenerated from init at any time.
-- Bad, because the package is pinned by a release wheel's URL and hash, and a private
-  repository's release assets need a token to download.
+- Good, because an adopter pins one line, the release wheel's HTTPS URL with its
+  SHA-256, beside the hashed closure of its dependencies, and the check accepts no other
+  form of that line.
+- Good, because this repository installs its own package with `--no-build-isolation`
+  after the hashed build backend, since pip does not hash-check an isolated build's
+  dependencies.
+- Bad, because a private repository's release assets need a token to download, which
+  lives only in a CI secret given to the install step.
