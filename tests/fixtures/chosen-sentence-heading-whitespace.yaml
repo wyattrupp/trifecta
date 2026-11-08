@@ -1,0 +1,7 @@
+# The Decision Outcome heading has trailing whitespace, which Markdown ignores; the
+# sentence check must still find the section and catch the wrong citation.
+expect: REQ_CHOSEN_SENTENCE
+mutations:
+- file: docs/decisions/0003-validate-the-chosen-option-sentence.md
+  find: "## Decision Outcome\n\nChosen option: {need}`OPT_0003_VALIDATE`"
+  replace: "## Decision Outcome \n\nChosen option: {need}`OPT_0003_GENERATE`"
