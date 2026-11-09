@@ -192,8 +192,8 @@ pinned by version and checksum.
 
 :::{req} Every invariant has a negative fixture
 :id: REQ_FIXTURE_PER_INVARIANT
-Every requirement in this RFC MUST be the expected finding of at least one negative
-fixture, and the unmutated corpus MUST pass.
+Every requirement satisfied by a component of an implemented design doc MUST be the
+expected finding of at least one negative fixture, and the unmutated corpus MUST pass.
 :::
 
 ## Questions
@@ -241,4 +241,11 @@ chosen-option sentence check. The trailing-space fix has a fixture; the colour f
 proven by CI itself and the push base by the workflow's own run. The medium and low
 findings that held up were fixed in the pull requests that followed, with fixtures where
 a corpus mutation can show them.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0001_2
+:k: 2
+:date: 2026-11-08
+The new text of REQ_FIXTURE_PER_INVARIANT, in the review recorded as {need}`REV_RFC_0003_1`.
 :::

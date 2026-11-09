@@ -124,9 +124,8 @@ each record at least one review, and every review MUST state its k and its date.
 
 ## Out of scope
 
-Freezing a resolved task against a base ref, as MADRs are frozen; checking that a review
-is newer than the document's last change; the wording of an As built entry, including
-why a step was dropped. Each is convention until a requirement says otherwise.
+Freezing resolved tasks, binding a review to the text it read, and the reasons for
+dropped steps, which {need}`RFC_0003` takes up; the rest of an As built entry's wording.
 
 ## Review
 
@@ -145,4 +144,11 @@ sections, the user's ruling quoted in {need}`DEC_0008`, documents outside the ty
 directories rejected, and one home each for plan statuses, frontmatter parsing, the lint
 directories and the design doc's derived views. Deferred, and listed under Out of scope:
 freezing resolved tasks against a base ref, and review staleness.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0002_2
+:k: 2
+:date: 2026-11-08
+The new Out of scope, in the review recorded as {need}`REV_RFC_0003_1`.
 :::

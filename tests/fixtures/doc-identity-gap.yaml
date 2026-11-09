@@ -1,7 +1,7 @@
-# A MADR numbered 0012 leaves 0011 missing.
+# A MADR numbered far past the last one leaves a gap.
 expect: REQ_DOC_IDENTITY
 mutations:
-- file: docs/decisions/0012-skip-a-number.md
+- file: docs/decisions/0099-skip-a-number.md
   create: |
     ---
     status: proposed

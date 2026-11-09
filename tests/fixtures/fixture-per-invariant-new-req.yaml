@@ -1,6 +1,9 @@
-# A new requirement added without a negative fixture.
+# A new requirement, built by an implemented component, without a negative fixture.
 expect: REQ_FIXTURE_PER_INVARIANT
 mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: ':satisfies: REQ_WARNINGS_FATAL, REQ_PINNED_TOOLCHAIN'
+  replace: ':satisfies: REQ_WARNINGS_FATAL, REQ_PINNED_TOOLCHAIN, REQ_FAST_BUILD'
 - file: docs/rfcs/0001-documentation-as-a-validated-graph.md
   find: |
     :::{req} The toolchain is pinned

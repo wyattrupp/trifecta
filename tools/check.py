@@ -129,11 +129,17 @@ def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
     expected = set()
     for path in sorted(fixtures.glob("*.yaml")):
         expected.add((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("expect"))
+    # A requirement is enforced once a component of an implemented design satisfies it;
+    # before that it is planned, and its fixture arrives with the build.
+    def enforced(req: dict) -> bool:
+        return any(needs.get(c, {}).get("doc_status") == "implemented"
+                   for c in req.get("satisfies_back") or [])
+
     return [
         Finding("REQ_FIXTURE_PER_INVARIANT", f"{fixtures.name}/",
                 f"no negative fixture expects {need['id']}")
         for need in needs.values()
-        if need["type"] == "req" and need["id"] not in expected
+        if need["type"] == "req" and enforced(need) and need["id"] not in expected
     ]
 
 
