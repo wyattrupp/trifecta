@@ -49,6 +49,38 @@ def check_toolchain(root: Path) -> list[Finding]:
     return findings
 
 
+#: The one line the root .gitattributes holds (REQ_ONE_LINE_ENDING).
+GITATTRIBUTES = "* text=auto eol=lf\n"
+
+
+def repo_files(root: Path) -> list[str]:
+    """Every file git tracks or would track: committed, or untracked and not ignored."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, encoding="utf-8", check=True,
+    )
+    return sorted({name for name in proc.stdout.split("\0") if name})
+
+
+def check_line_endings(root: Path, files: list[str]) -> list[Finding]:
+    findings = []
+    path = root / ".gitattributes"
+    if not path.is_file():
+        findings.append(Finding(
+            "REQ_ONE_LINE_ENDING", ".gitattributes", f"missing; it holds exactly {GITATTRIBUTES!r}",
+        ))
+    elif path.read_text(encoding="utf-8") != GITATTRIBUTES:
+        findings.append(Finding(
+            "REQ_ONE_LINE_ENDING", ".gitattributes", f"must hold exactly {GITATTRIBUTES!r}",
+        ))
+    for name in files:
+        if name != ".gitattributes" and Path(name).name == ".gitattributes":
+            findings.append(Finding(
+                "REQ_ONE_LINE_ENDING", name, "the root .gitattributes is the only one",
+            ))
+    return findings
+
+
 def _locate(finding: Finding, needs: dict[str, dict]) -> Finding:
     """Replace a 'need:<ID>' location with the source file and line of that need."""
     if not finding.location.startswith("need:"):
@@ -153,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     vale = (args.vale or root / "bin" / "vale").resolve()
 
     findings = check_toolchain(root)
+    findings += check_line_endings(root, repo_files(root))
     findings += run_sphinx(root)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():

@@ -1,0 +1,6 @@
+# A task saved with CRLF line endings and a step gap: the parser reads CRLF as LF.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: "with their lines.\n- [x] **2.3** Add the plans type to `DOC_TYPES` and call the rules from `on_source_read`.\n"
+  replace: "with their lines.\r\n- [x] **2.4** Add the plans type to `DOC_TYPES` and call the rules from `on_source_read`.\r\n"

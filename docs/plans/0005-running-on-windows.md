@@ -31,10 +31,10 @@ setting waits for wyatt's yes.
 :gate: The fixtures that delete `.gitattributes`, change its line, add a `diff` attribute, and add a second `.gitattributes` under `docs/` are rejected under REQ_ONE_LINE_ENDING; the fixture that saves a plan with CRLF line endings and a step gap is rejected under REQ_TASK_SHAPE; the corpus passes.
 First, so every later checkout is LF.
 
-- [ ] **1.1** Add `.gitattributes` holding `* text=auto eol=lf`; the index already holds LF, so no stored content changes.
-- [ ] **1.2** Add the stage that reports the file missing or different, and any other tracked `.gitattributes`.
-- [ ] **1.3** Make the fixture runner write mutated files with `newline=""`, so a fixture's CRLF stays CRLF and its LF stays LF on every platform.
-- [ ] **1.4** Add the fixtures, and set the component's `spec` path.
+- [x] **1.1** Add `.gitattributes` holding `* text=auto eol=lf`; the index already holds LF, so no stored content changes.
+- [x] **1.2** Add the stage that reports the file missing or different, and any other tracked `.gitattributes`.
+- [x] **1.3** Make the fixture runner write mutated files with `newline=""`, so a fixture's CRLF stays CRLF and its LF stays LF on every platform.
+- [x] **1.4** Add the fixtures, and set the component's `spec` path.
 :::
 
 :::{task} Portable locations
@@ -84,3 +84,10 @@ The review recorded as {need}`REV_RFC_0006_1` covered this document.
 :::
 
 ## As built
+
+### Task 1 (2026-11-08)
+
+"Tracked" in the stage means what git tracks or would track: committed, or untracked and
+not ignored, since a fixture's created file is never committed in the copy. The CRLF
+fixture rewrites one task of plan 0001 with CRLF endings and a step gap, so the plan's
+other lines stay LF; the parser reads the mixed file as LF.

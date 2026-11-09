@@ -1,0 +1,6 @@
+# The line-ending rule loosened to git's guess.
+expect: REQ_ONE_LINE_ENDING
+mutations:
+- file: .gitattributes
+  find: '* text=auto eol=lf'
+  replace: '* text=auto'

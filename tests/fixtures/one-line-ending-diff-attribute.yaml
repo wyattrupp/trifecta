@@ -1,0 +1,6 @@
+# A diff attribute that could hide a document's changes from review.
+expect: REQ_ONE_LINE_ENDING
+mutations:
+- file: .gitattributes
+  find: "* text=auto eol=lf\n"
+  replace: "* text=auto eol=lf\n*.md -diff\n"

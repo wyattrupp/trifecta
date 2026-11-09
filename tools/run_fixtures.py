@@ -45,6 +45,8 @@ def make_base(tmp: Path) -> Path:
 
 
 def apply(copy: Path, mutations: list[dict]) -> None:
+    """Apply mutations. Writes translate no newlines, so a fixture's CRLF stays CRLF and its
+    LF stays LF on every platform (REQ_ONE_LINE_ENDING)."""
     for m in mutations:
         target = (copy / m["file"]).resolve()
         if not target.is_relative_to(copy.resolve()):
@@ -55,10 +57,11 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             if count != 1:
                 raise FixtureError(f"{m['file']}: anchor occurs {count} times, expected 1: "
                                    f"{m['find']!r}")
-            target.write_text(text.replace(m["find"], m["replace"]), encoding="utf-8")
+            target.write_text(text.replace(m["find"], m["replace"]), encoding="utf-8",
+                              newline="")
         elif "create" in m:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(m["create"], encoding="utf-8")
+            target.write_text(m["create"], encoding="utf-8", newline="")
         elif m.get("delete"):
             target.unlink()
         else:

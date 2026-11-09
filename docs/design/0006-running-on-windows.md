@@ -61,6 +61,7 @@ absolute path.
 
 :::{component} Line endings
 :id: COMP_LINE_ENDINGS
+:spec: tools/check.py#def check_line_endings
 :satisfies: REQ_ONE_LINE_ENDING
 :constrained_by: DEC_0024
 A `.gitattributes` holding exactly `* text=auto eol=lf`, and a pipeline stage that
