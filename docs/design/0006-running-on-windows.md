@@ -9,13 +9,14 @@ authors: [claude]
 
 ## Overview
 
-A Python setup script with one table of Vale release files and hashes fetches Vale for the
-platform it runs on. A `.gitattributes` checks text out with LF, the check reports it
-missing, and every reader of a document converts CRLF to LF. The pipeline strips the
-repository root from each location in the form the platform writes it, converts what is
-left to forward slashes, and reports any location still absolute. A second CI job runs
-setup, the check and the fixtures on Windows with `python` commands. Plan 0003 moves the
-script into the package as `trifecta setup`, and its init writes the `.gitattributes`.
+A Python setup script installs the hashed Python dependencies and fetches Vale for the
+platform it runs on, from one table of Vale release files and hashes. A `.gitattributes`
+checks text out with LF, and the check holds it to one content. One helper maps every
+location the check reports to a repository-relative path with forward slashes, a last
+stage reports any location it could not map, and every program's output is read as
+UTF-8. A second CI job runs setup, the check and the fixtures on Windows. Plan 0003 moves
+the script into the package as `trifecta setup`, and its init writes the
+`.gitattributes`.
 
 Components here have no `spec` until they are built; the plan that builds them adds it.
 
@@ -41,49 +42,71 @@ Components here have no `spec` until they are built; the plan that builds them a
 :id: COMP_VALE_SETUP
 :satisfies: REQ_PLATFORM_TOOLCHAIN
 :constrained_by: DEC_0023
-`tools/setup.py`, holding the table of Vale's version and, per platform key such as
-`linux-x86_64` or `windows-amd64`, the release file name and its SHA-256. It picks the
-key from `platform.system()` and `platform.machine()`, refuses a platform with no row,
-downloads the file over `https` from Vale's release page into memory, compares the
-SHA-256, and extracts the one member named `vale` or `vale.exe` to `bin/`, writing a
-per-version stamp. The Makefile's `setup` target calls it, and the pipeline's toolchain
-stage checks every row of the table in place of the Makefile variables, and finds the
-executable under either name.
+`tools/setup.py`, holding the table of Vale's version and, per platform key, the release
+file name and its SHA-256. It runs the hashed `pip install` from the lock, then maps
+`platform.system()` and `platform.machine()` through an explicit table (`x86_64` and
+`AMD64` to x86-64, `aarch64` and `arm64` to ARM) and refuses anything unmapped. It
+refuses a `bin` that is a link or reparse point or resolves outside the repository,
+downloads from Vale's release URL for the pinned version, built in the script, following
+redirects only over `https` to GitHub's hosts and reading no more than twice the expected
+size, and compares the SHA-256 before opening the archive. It reads the one top-level
+regular-file member named `vale` or `vale.exe` by name, refusing a link member or a
+duplicate, writes it to a temporary file in `bin/`, sets it executable and moves it into
+place, then runs `vale --version`. The stamp it writes records the version and the
+archive's hash, so a changed hash fetches again. The Makefile's targets call the script,
+and the pipeline's toolchain stage checks the table and reports files tracked under
+`bin/`. The check runs exactly `bin/vale.exe` on Windows and `bin/vale` elsewhere, by
+absolute path.
 :::
 
 :::{component} Line endings
 :id: COMP_LINE_ENDINGS
 :satisfies: REQ_ONE_LINE_ENDING
 :constrained_by: DEC_0024
-A `.gitattributes` holding `* text=auto eol=lf`; a pipeline stage that reports the file
-missing or without that line; and CRLF converted to LF wherever a document is read as
-text: the plan parser, the frontmatter reader, the fixture runner's anchors, and plan
-0002's review digest.
+A `.gitattributes` holding exactly `* text=auto eol=lf`, and a pipeline stage that
+reports it missing or different, and any other tracked `.gitattributes`. Every reader
+opens documents in text mode or strips trailing whitespace, and the fixture runner writes
+mutated files with no newline translation, so a fixture's content is the same on every
+platform.
 :::
 
 :::{component} Portable locations
 :id: COMP_PORTABLE_PATHS
 :satisfies: REQ_PORTABLE_FINDINGS
-:constrained_by: DEC_0023
-Location mapping that strips the repository root in both its native form and its form
-with forward slashes, then converts backslashes to forward slashes, followed by a last
-pipeline stage that reports each finding whose location still starts at a drive, a root
-or a UNC prefix.
+One helper in `tools/findings.py`, used for Sphinx's and Vale's locations alike, that
+makes a location relative to the resolved repository root, comparing without case on
+Windows and converting the platform's separator to a forward slash; a last pipeline stage
+that reports a location starting at a root, a drive or a UNC prefix, or holding a `..`
+segment or a backslash; and `encoding="utf-8"` on every program the check runs.
 :::
 
 :::{component} Windows CI job
 :id: COMP_WINDOWS_CI
 :constrained_by: DEC_0025
 A `check-windows` job in the CI workflow, beside the existing `check` job, on a Windows
-runner with the same permissions, checkout settings, SHA-pinned actions and base ref. It
-runs `python tools/setup.py`, the check and the fixture runner without `make`.
+runner with the same permissions, checkout settings, SHA-pinned actions and base-ref
+logic, with `bash` as its shell, so a failing command fails the step and the event
+values reach it through `env`. It sets `PYTHONUTF8=1` and runs `python tools/setup.py`,
+the check and the fixture runner without `make`.
 :::
 
 ## Interfaces
 
 ## Risks
 
-Renormalizing line endings touches every text file once; that commit changes nothing
-else, so a review can confirm it with `git diff --ignore-all-space`. Until the protected
-branch requires `check-windows`, a pull request can merge with it failing. A Vale release
-that drops a platform leaves its row unable to download, which setup reports by name.
+Until the protected branch requires `check-windows`, a pull request can merge with it
+failing; the maintainer does not merge while it is red. A Vale release that drops a
+platform leaves its row unable to download, which setup reports by name. The table's
+hashes are taken from the release they pin: each is recomputed from an independent
+download and compared with Vale's checksum file when the table is written, which catches
+a corrupted download but not a release compromised before it was pinned. A macOS-only
+fault would go unseen, since no job runs there.
+
+## Review
+
+:::{review} Correctness; security
+:id: REV_DES_0006_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0006_1` covered this document.
+:::

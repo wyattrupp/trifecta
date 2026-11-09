@@ -50,7 +50,10 @@ back unseen.
 ## Decision Outcome
 
 Chosen option: {need}`OPT_0025_LINUX_WINDOWS`, because Windows is free here and is the
-platform the change is for, while a macOS job would be the third job wyatt ruled out.
+platform the change is for. A macOS job would also be free, so wyatt's ruling permits it,
+but it checks what the Linux job already checks, its runners are the slowest to start, and
+it would gate every pull request; it is left out on those grounds, and wyatt can overrule
+this record with a superseding one.
 
 ## Consequences
 

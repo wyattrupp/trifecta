@@ -56,7 +56,12 @@ and it runs the check on Windows itself with nothing installed but Python.
 
 - Good, because the Makefile keeps its targets, now calling the script, and every command
   also runs as `python tools/...` without `make`.
-- Good, because the table is one home for Vale's version and hashes, and the pipeline
-  checks it in place of the Makefile variables.
+- Good, because the table is one home for Vale's version and hashes: the Makefile's
+  Vale variables go, its targets call the script, and the pipeline checks the table.
+- Good, because the script, not the check, is where the download happens, so it carries
+  its own rules: a fixed release URL, a refused redirect off GitHub's hosts, a refused
+  `bin` that is a link or leaves the repository, an archive opened only after its hash
+  matches, and one regular-file member read out by name, never extracted by the archive's
+  own paths.
 - Bad, because a Vale upgrade means copying five hashes from Vale's checksum file into the
   table.

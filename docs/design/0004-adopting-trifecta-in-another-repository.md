@@ -74,8 +74,9 @@ as a proof in the fixture audit.
 :constrained_by: DEC_0013
 :consumes: IF_CLI
 Writes `docs/` with a configuration that loads the package, an index, the typed
-directories, a Makefile, the hardened CI workflow, the hashed lock, a CODEOWNERS entry for
-the files that steer the check and the session, and the planning files. It checks every
+directories, a Makefile, the hardened CI workflow, the hashed lock, the `.gitattributes`
+that DES_0006 holds the repository to, a CODEOWNERS entry for the files that steer the
+check and the session, and the planning files. It checks every
 target with `lstat`, creates each file exclusively, and lists what it wrote.
 :::
 
@@ -132,8 +133,8 @@ an empty directory against the wheel built from the workspace.
 :::{interface} Command line
 :id: IF_CLI
 :constrained_by: DEC_0013
-`trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`, `trifecta next`,
-`trifecta review` and `trifecta init`. Each command MUST read the corpus from the working
+`trifecta setup`, `trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`,
+`trifecta next`, `trifecta review` and `trifecta init`. Each command MUST read the corpus from the working
 directory, MUST exit non-zero on any finding or refusal, and MUST refuse a path argument
 that resolves outside the repository.
 :::
@@ -162,4 +163,11 @@ The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0004_2` covered this change.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_3
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :::
