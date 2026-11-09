@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Running on Windows
@@ -18,7 +18,7 @@ UTF-8. A second CI job runs setup, the check and the fixtures on Windows. Plan 0
 the script into the package as `trifecta setup`, and its init writes the
 `.gitattributes`.
 
-Components here have no `spec` until they are built; the plan that builds them adds it.
+Plan 0005 built every component here and set its `spec`.
 
 ## Requirements
 
@@ -98,8 +98,8 @@ the check and the fixture runner without `make`.
 
 ## Risks
 
-Until the protected branch requires `check-windows`, a pull request can merge with it
-failing; the maintainer does not merge while it is red. A Vale release that drops a
+The main ruleset requires `check-windows` beside `check`, so a pull request cannot merge
+while either is red. A Vale release that drops a
 platform leaves its row unable to download, which setup reports by name. The table's
 hashes are taken from the release they pin: each is recomputed from an independent
 download and compared with Vale's checksum file when the table is written, which catches
@@ -113,4 +113,12 @@ fault would go unseen, since no job runs there.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0006_1` covered this document.
+:::
+
+:::{review} Correctness; documentation standard
+:id: REV_DES_0006_2
+:k: 2
+:date: 2026-11-09
+Reviewed the move to implemented and the updated overview and risks, with
+{need}`REV_PLAN_0005_2`.
 :::
