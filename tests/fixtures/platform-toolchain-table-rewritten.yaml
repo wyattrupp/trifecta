@@ -1,0 +1,6 @@
+# The table rewritten after it is bound, so setup would fetch what the check never read.
+expect: REQ_PLATFORM_TOOLCHAIN
+mutations:
+- file: tools/setup.py
+  find: "SYSTEMS = {"
+  replace: "VALE_FILES[\"linux-x86_64\"] = (\"vale_3.13.0_Linux_64-bit.tar.gz\", 64 * \"0\", 1)\nSYSTEMS = {"

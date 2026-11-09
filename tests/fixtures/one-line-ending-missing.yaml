@@ -1,0 +1,5 @@
+# The root .gitattributes deleted, so checkouts fall back to core.autocrlf.
+expect: REQ_ONE_LINE_ENDING
+mutations:
+- file: .gitattributes
+  delete: true

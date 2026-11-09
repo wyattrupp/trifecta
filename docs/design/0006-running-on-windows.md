@@ -40,6 +40,7 @@ Components here have no `spec` until they are built; the plan that builds them a
 
 :::{component} Vale setup
 :id: COMP_VALE_SETUP
+:spec: tools/setup.py#VALE_FILES
 :satisfies: REQ_PLATFORM_TOOLCHAIN
 :constrained_by: DEC_0023
 `tools/setup.py`, holding the table of Vale's version and, per platform key, the release
@@ -61,6 +62,7 @@ absolute path.
 
 :::{component} Line endings
 :id: COMP_LINE_ENDINGS
+:spec: tools/check.py#def check_line_endings
 :satisfies: REQ_ONE_LINE_ENDING
 :constrained_by: DEC_0024
 A `.gitattributes` holding exactly `* text=auto eol=lf`, and a pipeline stage that
@@ -72,6 +74,7 @@ platform.
 
 :::{component} Portable locations
 :id: COMP_PORTABLE_PATHS
+:spec: tools/findings.py#def relative_location
 :satisfies: REQ_PORTABLE_FINDINGS
 One helper in `tools/findings.py`, used for Sphinx's and Vale's locations alike, that
 makes a location relative to the resolved repository root, comparing without case on
@@ -82,6 +85,7 @@ segment or a backslash; and `encoding="utf-8"` on every program the check runs.
 
 :::{component} Windows CI job
 :id: COMP_WINDOWS_CI
+:spec: .github/workflows/check.yml#check-windows
 :constrained_by: DEC_0025
 A `check-windows` job in the CI workflow, beside the existing `check` job, on a Windows
 runner with the same permissions, checkout settings, SHA-pinned actions and base-ref

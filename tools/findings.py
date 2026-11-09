@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+#: The environment every Python program the check starts runs with, so its output is UTF-8.
+CHILD_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 
 @dataclass(frozen=True, order=True)
@@ -39,6 +44,33 @@ _NATIVE = {
 _CODE = re.compile(r"\[([a-z_]+\.[a-z_]+)\]\s*$", re.M)
 
 
+_LOCATION = re.compile(r"^(?P<path>.*?)(?P<suffix>(?::\d+)*)$", re.S)
+_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def relative_location(location: str, root: Path) -> str:
+    """Map a program's location to a path relative to ``root``, with forward slashes.
+
+    The comparison ignores case where the platform does. A location this cannot map is
+    left as it is, for ``unportable`` to report (REQ_PORTABLE_FINDINGS).
+    """
+    m = _LOCATION.match(location)
+    path, suffix = m.group("path"), m.group("suffix")
+    if not path:
+        return location
+    prefix = os.path.normcase(str(root)).rstrip(os.sep) + os.sep
+    if os.path.isabs(path) and os.path.normcase(path).startswith(prefix):
+        return path[len(prefix):].replace(os.sep, "/") + suffix
+    return location
+
+
+def unportable(location: str) -> bool:
+    """A location that starts at a root, a drive or a UNC prefix, or holds ``..`` or a backslash."""
+    path = _LOCATION.match(location).group("path")
+    return (path.startswith("/") or "\\" in path or bool(_DRIVE.match(path))
+            or ".." in path.split("/"))
+
+
 def _entries(stderr: str) -> list[str]:
     entries: list[list[str]] = []
     for raw in stderr.splitlines():
@@ -49,7 +81,7 @@ def _entries(stderr: str) -> list[str]:
     return ["\n".join(e) for e in entries]
 
 
-def from_sphinx(stderr: str, docs_prefix: str) -> list[Finding]:
+def from_sphinx(stderr: str, root: Path) -> list[Finding]:
     """Map every Sphinx warning or error to the requirement it violates.
 
     Anything no requirement claims is still a failure, under REQ_WARNINGS_FATAL.
@@ -58,8 +90,7 @@ def from_sphinx(stderr: str, docs_prefix: str) -> list[Finding]:
     for entry in _entries(stderr):
         head = entry.splitlines()[0]
         m = _ENTRY_START.match(head)
-        loc = (m.group("loc") or "") if m else ""
-        loc = loc.split(docs_prefix, 1)[-1] if docs_prefix in loc else loc
+        loc = relative_location((m.group("loc") or "") if m else "", root)
         text = _ENTRY_START.sub("", head)
         if (own := _OWN.search(entry)):
             req = own.group(1)

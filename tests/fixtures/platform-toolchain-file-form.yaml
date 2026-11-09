@@ -1,0 +1,6 @@
+# A release file named in another form than Vale names it for the pinned version.
+expect: REQ_PLATFORM_TOOLCHAIN
+mutations:
+- file: tools/setup.py
+  find: '"vale_3.13.0_Windows_64-bit.zip"'
+  replace: '"vale_3.12.0_Windows_64-bit.zip"'

@@ -10,10 +10,21 @@ requirement it violates.
 ## Run it
 
 ```sh
-make setup             # pip install --require-hashes -r requirements.lock; fetch Vale (Linux x86_64) and verify its checksum
+make setup             # pip install --require-hashes -r requirements.lock; fetch Vale for this platform and verify its hash
 make check             # build, validate, lint; prints findings and exits 1 if there are any
 make check BASE=main   # also check MADR immutability against a git ref
 make fixtures          # prove the corpus passes and every negative fixture is rejected
+```
+
+Without `make`, on Windows or anywhere, the same commands run as `python`:
+
+```sh
+python tools/setup.py                    # make setup
+python tools/check.py [--base main]      # make check
+python tools/run_fixtures.py             # make fixtures
+```
+
+```sh
 python tools/new.py rfc <slug>                          # a draft of a type: rfc, decision, design
 python tools/new.py plan <slug> --implements DES_NNNN   # a draft plan, its first task building the whole design
 python tools/next.py docs/plans/NNNN-slug.md            # the task holding an active plan's next open step

@@ -2,3 +2,5 @@ bin/
 docs/_build/
 styles/TrifectaGenerated/
 __pycache__/
+venv/
+.venv/

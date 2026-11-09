@@ -1,0 +1,8 @@
+# bin/ no longer ignored and a binary added there, so it would be committed.
+expect: REQ_PLATFORM_TOOLCHAIN
+mutations:
+- file: .gitignore
+  find: "bin/\n"
+  replace: ""
+- file: bin/vale
+  create: "#!/bin/sh\n"

@@ -1,0 +1,5 @@
+# A second .gitattributes, which would override the root one under docs/.
+expect: REQ_ONE_LINE_ENDING
+mutations:
+- file: docs/.gitattributes
+  create: "* text=auto eol=crlf\n"
