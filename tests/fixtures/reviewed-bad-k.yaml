@@ -1,0 +1,10 @@
+# A review whose k is not a number.
+expect: REQ_REVIEWED
+mutations:
+- file: docs/rfcs/0001-documentation-as-a-validated-graph.md
+  find: |
+    :id: REV_RFC_0001_1
+    :k: 2
+  replace: |
+    :id: REV_RFC_0001_1
+    :k: two

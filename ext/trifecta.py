@@ -20,6 +20,8 @@ from docutils import nodes
 from sphinx.application import Sphinx
 from sphinx.util import logging
 
+import plans
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = Path(__file__).parent / "schemas"
@@ -31,7 +33,10 @@ DOC_TYPES: dict[str, dict] = {
         "directive": "rfc",
         "prefix": "RFC",
         "schema": "rfc.json",
-        "sections": ["Summary", "Motivation", "Terms", "Requirements", "Questions"],
+        "sections": [
+            "Summary", "Motivation", "Terms", "Requirements", "Questions", "Out of scope",
+            "Review",
+        ],
         "derived": [],
     },
     "decisions": {
@@ -51,8 +56,35 @@ DOC_TYPES: dict[str, dict] = {
         "directive": "design",
         "prefix": "DES",
         "schema": "design.json",
-        "sections": ["Overview", "Requirements", "Constraints", "Components", "Interfaces"],
+        "sections": [
+            "Overview", "Requirements", "Constraints", "Components", "Interfaces", "Risks",
+            "Review",
+        ],
         "derived": ["Requirements", "Constraints"],
+        #: The one needtable each derived section holds. tools/new.py writes these.
+        "views": {
+            "Requirements": [
+                ":::{needtable}",
+                ":filter: type == 'req' and len(satisfies_back) > 0",
+                ':columns: id, title, satisfies_back as "Satisfied by"',
+                ":style: table",
+                ":::",
+            ],
+            "Constraints": [
+                ":::{needtable}",
+                ":filter: type == 'decision' and len(constrained_by_back) > 0",
+                ":columns: id, title, status",
+                ":style: table",
+                ":::",
+            ],
+        },
+    },
+    "plans": {
+        "directive": "plan",
+        "prefix": "PLAN",
+        "schema": "plan.json",
+        "sections": ["Read before starting", "Rules for every task", "Tasks", "Review", "As built"],
+        "derived": [],
     },
 }
 
@@ -68,14 +100,7 @@ def _h2_title(line: str) -> str | None:
     return (m.group(1) or "") if m else None
 
 
-class _NoTimestampLoader(yaml.SafeLoader):
-    """Frontmatter dates stay strings, so the JSON Schema sees what the author wrote."""
-
-
-_NoTimestampLoader.yaml_implicit_resolvers = {
-    k: [(tag, rx) for tag, rx in v if tag != "tag:yaml.org,2002:timestamp"]
-    for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
+_NoTimestampLoader = plans.NoTimestampLoader
 
 
 def doc_type(docname: str) -> tuple[str, dict] | None:
@@ -113,8 +138,13 @@ def _field_name(key: str) -> str:
     return key.replace("-", "_")
 
 
+#: Characters MyST's option parser reads as syntax: a comment, a quote, an escape.
+_OPTION_SYNTAX = re.compile(r"[#\"'\\]|^\s|\s$")
+
+
 def _field_value(value) -> str:
-    return ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+    text = ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+    return json.dumps(text) if _OPTION_SYNTAX.search(text) else text
 
 
 def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
@@ -182,8 +212,9 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
             docname,
             authored[key][1],
         )
+    code = plans.fenced(lines)
     for i, line in enumerate(lines):
-        if i >= opt_end and line.startswith(":status:"):
+        if i >= opt_end and not code[i] and line.startswith(":status:"):
             _warn(
                 "REQ_STATUS_SINGLE_SOURCE",
                 "child needs carry no status; their status is their document's",
@@ -195,6 +226,12 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
     if spec["directive"] == "decision":
         chosen = [c.strip() for c in authored.get("chooses", ("", 0))[0].split(",") if c.strip()]
         _check_chosen_sentence(lines, chosen, docname)
+
+    # REQ_TASK_ORDER, REQ_TASK_SHAPE, REQ_LINEAR_EXECUTION, REQ_AS_BUILT (DEC_0009).
+    if spec["directive"] == "plan":
+        number = need_id.split("_", 1)[1]
+        for req, msg, line in plans.problems(plans.parse(lines), number, meta.get("status")):
+            _warn(req, msg, docname, line)
 
     # Inject the owned facts. The frontmatter block is replaced by blank lines, k fewer
     # than it had, and k option lines are inserted into the directive, so every line
@@ -241,7 +278,17 @@ def _check_chosen_sentence(lines: list[str], chosen: list[str], docname: str) ->
 
 
 def on_env_before_read_docs(app: Sphinx, env, docnames: list[str]) -> None:
-    """REQ_DOC_IDENTITY: per type, numbers run 0001..N with no gaps."""
+    """REQ_DOC_IDENTITY: every document but the index lives in a typed directory, and per
+    type, numbers run 0001..N with no gaps."""
+    for docname in sorted(env.found_docs):
+        if docname != app.config.root_doc and not doc_type(docname):
+            _warn(
+                "REQ_DOC_IDENTITY",
+                f"{docname} is in no typed directory; documents live in "
+                f"{', '.join(d + '/' for d in DOC_TYPES)} (tools/new.py writes them there)",
+                docname,
+                1,
+            )
     for directory in DOC_TYPES:
         numbers = sorted(
             int(m.group(1))

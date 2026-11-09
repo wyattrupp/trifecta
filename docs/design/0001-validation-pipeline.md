@@ -133,3 +133,19 @@ One violation per line: `REQ_ID`, a tab, a location, a tab, a message. Every fin
 MUST begin with the ID of the requirement it violates, and output MUST be sorted so two
 runs over the same input are byte-identical.
 :::
+
+## Risks
+
+A sphinx-needs upgrade can change warning codes or schema output; the fixture runner
+catches it, because each fixture names the finding it expects. Vale runs only on Linux,
+so a Windows session can run every stage but the prose lint.
+
+## Review
+
+:::{review} Correctness; security
+:id: REV_DES_0001_1
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0001_1` covered this design doc and the code it
+describes.
+:::

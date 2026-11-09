@@ -22,3 +22,10 @@ decisions/*
 
 design/*
 ```
+
+```{toctree}
+:caption: Plans
+:glob:
+
+plans/*
+```

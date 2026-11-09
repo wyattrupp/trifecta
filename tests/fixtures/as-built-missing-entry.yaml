@@ -1,0 +1,10 @@
+# A resolved task with no As built entry.
+expect: REQ_AS_BUILT
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: |
+    ### Task 3 (2026-11-08)
+
+    As designed.
+
+  replace: ''

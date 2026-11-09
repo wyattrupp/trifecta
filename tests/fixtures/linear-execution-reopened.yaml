@@ -1,0 +1,6 @@
+# The first step is reopened while later steps stay done.
+expect: REQ_LINEAR_EXECUTION
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: '- [x] **1.1**'
+  replace: '- [ ] **1.1**'

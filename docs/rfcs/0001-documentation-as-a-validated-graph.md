@@ -10,7 +10,7 @@ created: 2026-11-07
 
 ## Summary
 
-RFCs, MADRs and design docs form one {need}`corpus <TERM_CORPUS>` whose structure,
+RFCs, MADRs, design docs and plans form one {need}`corpus <TERM_CORPUS>` whose structure,
 graph and prose are checked deterministically on every change. Each fact is defined
 once, as a {need}`need <TERM_NEED>` with an ID, and every other mention references it.
 This repository is the reference implementation and is checked by its own rules.
@@ -37,7 +37,7 @@ A typed, identified node in the documentation graph, defined by a sphinx-needs d
 :::{term} Corpus
 :id: TERM_CORPUS
 :synonyms: doc set, documentation set
-Every RFC, MADR and design doc under `docs/`.
+Every RFC, MADR, design doc and plan under `docs/`.
 :::
 
 :::{term} Decision record
@@ -78,8 +78,8 @@ Every need ID MUST be unique across the corpus and MUST match its type's ID patt
 
 :::{req} Document identity comes from the filename
 :id: REQ_DOC_IDENTITY
-A typed document MUST be named `NNNN-kebab-slug.md`. Its document-level need ID MUST be
-derived from that number. Within each document type, numbers MUST run from 0001 without
+Every document other than the index MUST live in a typed directory and MUST be named
+`NNNN-kebab-slug.md`. Its document-level need ID MUST be derived from that number. Within each document type, numbers MUST run from 0001 without
 gaps.
 :::
 
@@ -220,4 +220,25 @@ fixture, and the unmutated corpus MUST pass.
 
 :::{question} What is a negative fixture made of?
 :id: Q_FIXTURE_FORM
+:::
+
+## Out of scope
+
+Publishing or hosting the rendered HTML; documents outside `docs/`; the content of a
+requirement, which review judges and no check can.
+
+## Review
+
+:::{review} Correctness; security
+:id: REV_RFC_0001_1
+:k: 2
+:date: 2026-11-08
+Whole repository at commit 75a489c, lenses as titled; the local cross-check model was
+unreachable, so no pass came from another model lineage. Every finding was verified
+against the code. Three were rated high: Sphinx colour codes broke finding mapping in
+CI, the push check compared only the last commit, and a trailing space skipped the
+chosen-option sentence check. The trailing-space fix has a fixture; the colour fix is
+proven by CI itself and the push base by the workflow's own run. The medium and low
+findings that held up were fixed in the pull requests that followed, with fixtures where
+a corpus mutation can show them.
 :::

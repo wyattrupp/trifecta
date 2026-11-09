@@ -1,0 +1,6 @@
+# A done plan with a step still reading as the skeleton placeholder.
+expect: REQ_TASK_SHAPE
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: '- [x] **5.6** Record the review in RFC_0002, DES_0002 and this plan, and add the fixtures.'
+  replace: '- [x] **5.6** TODO.'

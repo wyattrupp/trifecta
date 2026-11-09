@@ -1,0 +1,10 @@
+# A spec written where the superpowers skill writes by default, outside the typed directories.
+expect: REQ_DOC_IDENTITY
+mutations:
+- file: docs/superpowers/specs/2026-11-08-example-design.md
+  create: |
+    # Example (design)
+
+    ## Why
+
+    A spec in the superpowers default place.

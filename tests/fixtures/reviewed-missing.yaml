@@ -1,0 +1,9 @@
+# An implemented design doc whose review record was removed.
+expect: REQ_REVIEWED
+mutations:
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :::{review} Correctness; security
+    :id: REV_DES_0001_1
+  replace: |
+    :::{note}

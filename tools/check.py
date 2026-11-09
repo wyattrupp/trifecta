@@ -18,6 +18,10 @@ from check_lifecycle import check as check_lifecycle  # noqa: E402
 from findings import Finding, from_sphinx  # noqa: E402
 from gen_vale import generate  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
+
+from trifecta import DOC_TYPES  # noqa: E402
+
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
 LOCK_LINE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],]*==[^\s=<>~!;]+(?: --hash=sha256:[0-9a-f]{64})+$"
@@ -74,7 +78,7 @@ def run_sphinx(root: Path) -> list[Finding]:
 
 
 META_ROW = re.compile(r'<tr class="need meta.*?</tr>', re.S)
-TYPED_DIRS = ("rfcs", "decisions", "design")
+TYPED_DIRS = tuple(DOC_TYPES)
 
 
 def build_lint_view(root: Path) -> Path:
