@@ -68,8 +68,8 @@ Replace the Makefile download.
 The last task, so it also closes the design.
 
 - [x] **4.1** Add the `check-windows` job as COMP_WINDOWS_CI states, and set the component's `spec` path.
-- [ ] **4.2** Push a commit that breaks the check, confirm the job fails, and drop the commit.
-- [ ] **4.3** Add the `python` commands to the README beside the `make` targets.
+- [x] **4.2** Push a commit that breaks the check, confirm the job fails, and drop the commit.
+- [x] **4.3** Add the `python` commands to the README beside the `make` targets.
 - [ ] **4.4** Once the job has passed on main, ask wyatt to add `check-windows` to the main ruleset's required checks; with his yes, add it, with the integration of the existing `check` context, and update `.github/settings/rulesets.json`; without it, drop this step.
 - [ ] **4.5** Mark DES_0006 implemented, check that every requirement of RFC_0006 has its fixture, and review this plan's As built k=2.
 :::
