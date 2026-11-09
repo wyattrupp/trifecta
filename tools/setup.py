@@ -18,6 +18,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -89,11 +91,29 @@ class _GitHubOnly(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def download(name: str, sha256: str, size: int) -> bytes:
+#: Seconds to wait before each retry of a download GitHub failed on its side.
+RETRY_DELAYS = (5, 15, 45)
+
+
+def _fetch(url: str, limit: int) -> bytes:
     opener = urllib.request.build_opener(_GitHubOnly)
-    url = f"{RELEASES}v{VALE_VERSION}/{name}"
-    with opener.open(url, timeout=60) as response:
-        data = response.read(2 * size + 1)
+    for delay in (*RETRY_DELAYS, None):
+        try:
+            with opener.open(url, timeout=60) as response:
+                return response.read(limit)
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or delay is None:
+                raise
+        except (urllib.error.URLError, TimeoutError, http.client.HTTPException) as exc:
+            if isinstance(getattr(exc, "reason", None), SetupError) or delay is None:
+                raise
+        print(f"download failed, retrying in {delay}s", file=sys.stderr)
+        time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def download(name: str, sha256: str, size: int) -> bytes:
+    data = _fetch(f"{RELEASES}v{VALE_VERSION}/{name}", 2 * size + 1)
     if len(data) > 2 * size:
         raise SetupError(f"{name} is larger than twice its expected {size} bytes")
     digest = hashlib.sha256(data).hexdigest()

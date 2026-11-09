@@ -127,4 +127,6 @@ sets `GIT_LFS_SKIP_SMUDGE`, since the attribute rule detects a change only after
 Setup ran on Windows here: it fetched, verified and installed `bin/vale.exe`, ran it, and
 reused it on a second run; the check and every fixture then passed on Windows with Vale.
 On pull request #9, the Linux job's `make setup` ran the script and the Linux and
-Windows jobs both passed.
+Windows jobs both passed. GitHub then answered two downloads with `504`, so setup retries
+a download that fails on GitHub's side, a server error or a dropped connection, three
+times after 5, 15 and 45 seconds; a refused redirect or a bad hash is never retried.
