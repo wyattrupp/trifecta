@@ -50,9 +50,18 @@ adopting repository and was approved after a clean scan.
 ## Consequences
 
 - Good, because the scan covered every blob and commit message on every ref, every pull
-  request with its comments, and every CI log, and found nothing to remove.
+  request with its comments, and every CI log; its one hit was a file path, and nothing
+  had to be removed.
 - Good, because main refuses deletion and force pushes, takes changes only by pull request,
-  and requires the check job to pass, with no bypass; version tags can be created, moved
-  or deleted only by a repository admin.
-- Bad, because required approvals stay at zero and code-owner review stays off while one
-  maintainer approves every pull request; a second maintainer brings both back.
+  and requires the check job to pass, with no bypass actors; every tag can be created,
+  moved or deleted only by a repository admin. Actions are limited to GitHub-owned ones
+  pinned by SHA, outside contributors' workflows wait for approval, and private
+  vulnerability reporting, Dependabot alerts and security updates are on. The settings
+  are exported to `.github/settings/`.
+- Bad, because the check a pull request must pass runs that pull request's own workflow
+  and tools, and required approvals stay at zero while one maintainer authors and merges
+  every pull request; the maintainer's review is the only safeguard against a change that
+  weakens the check, until a second maintainer brings required review and code owners.
+- Bad, because a repository admin can still edit or delete the rulesets, and secret
+  scanning for generic patterns and validity checks stayed off: GitHub did not enable
+  them for this account.

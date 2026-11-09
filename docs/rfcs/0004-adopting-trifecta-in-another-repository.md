@@ -65,9 +65,10 @@ MUST NOT persist credentials in the checkout, and MUST pin every action by commi
 
 :::{req} No credential enters the tree
 :id: REQ_NO_SECRETS_IN_TREE
-A credential for downloading the package MUST live only in a CI secret and MUST reach
-only the step that installs the package. It MUST NOT appear in the lock file, in a URL, in
-anything init writes, in the template repository, or in a step that runs repository code.
+No credential MUST appear in the lock file, in a URL, in anything init writes, or in the
+template repository. If downloading the package ever needs a credential, it MUST live
+only in a CI secret and MUST reach only the step that installs the package, never a step
+that runs repository code.
 :::
 
 :::{req} Releases are trusted
@@ -145,4 +146,18 @@ under `docs/superpowers/` by a route the hook cannot see, which the check still 
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0003_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_2
+:k: 2
+:date: 2026-11-08
+The amendment recording {need}`DEC_0016`, at commit c7c9d8f, and the live repository
+settings it records. Folded in: a repository-protection component with the exported
+settings as its artifact, every tag protected, Actions limited and SHA-pinned, outside
+contributors' workflows held for approval, private vulnerability reporting and Dependabot
+on, a release step that requires the tagged commit on main and an approval environment,
+the credential requirement made conditional, and a plain statement that review, not the
+check, guards changes to the check. Not taken: required review and code owners, which no
+single maintainer could satisfy; signed commits and tags.
 :::

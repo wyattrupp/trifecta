@@ -28,14 +28,16 @@ from the wheel built in the workspace.
 
 :::{task} Repository protection and visibility
 :id: TASK_0003_01
-:builds: COMP_RELEASE
-:gate: main refuses deletion and force pushes, takes changes only by pull request and requires the check job; version tags are admin-only; the repository is public with secret scanning and push protection on.
+:builds: COMP_REPO_PROTECTION
+:gate: `gh api` output for the rulesets and security settings matches `.github/settings/`, which shows main refusing deletion and force pushes, taking changes only by pull request and requiring the check job, every tag admin-only, and the repository public with secret scanning and push protection on.
 Done first on wyatt's ruling in DEC_0016, since none of it depends on the package.
 
 - [x] **1.1** Scan every blob and commit message on every ref, every pull request with its comments, and every CI log, for secrets and personal data.
 - [x] **1.2** Make the repository public, and turn on secret scanning and push protection.
 - [x] **1.3** Add a ruleset on main: no deletion, no force push, changes by pull request, the check job required, no bypass.
-- [x] **1.4** Add a ruleset on `v*` tags: creation, update and deletion by repository admins only.
+- [x] **1.4** Add a ruleset on every tag: creation, update and deletion by repository admins only.
+- [x] **1.5** Limit Actions to GitHub-owned actions pinned by SHA, require approval for outside contributors' workflows, and turn on private vulnerability reporting with a SECURITY.md, and Dependabot alerts and security updates.
+- [x] **1.6** Export the rulesets and security settings to `.github/settings/`.
 :::
 
 :::{task} Toolchain package
@@ -93,10 +95,10 @@ The files init adds for Claude Code.
 :id: TASK_0003_06
 :builds: COMP_RELEASE, COMP_TEMPLATE_REPO
 :gate: The release carries its wheel, SHA-256 and attestation; a repository created from the template passes its CI with the released wheel.
-Steps outside this repository; the template repository waits for wyatt's yes.
+Each step outside this repository waits for wyatt's yes.
 
-- [ ] **6.1** Add the release workflow: on a version tag on main, build with hashed build dependencies and SHA-pinned actions, wait for approval of the release environment, then publish the wheel, its SHA-256 and a provenance attestation from the only job that may write.
-- [ ] **6.2** Tag the first release on main.
+- [ ] **6.1** Create a `release` environment with wyatt as required reviewer and a `v*` tag deployment rule, and add the release workflow: on a version tag, fail unless the tagged commit is reachable from main, build with hashed build dependencies and SHA-pinned actions, wait for the environment's approval, then publish the wheel, its SHA-256 and a provenance attestation from the only job that may write.
+- [ ] **6.2** Confirm that creating a release through the API cannot make a tag the ruleset refuses, then tag the first release on main.
 - [ ] **6.3** Create the template repository from `trifecta init` output pinned to that release, and mark it a template.
 - [ ] **6.4** Create a repository from the template and confirm its CI passes.
 :::
@@ -121,6 +123,13 @@ The last task, so it also closes the design.
 The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0003_2
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0004_2` covered this change.
+:::
+
 ## As built
 
 ### Task 1 (2026-11-08)
@@ -129,5 +138,9 @@ The scan read 162 blobs across 12 commits on every ref, the commit messages, the
 pull requests with their comments, and every CI log, with patterns for tokens, keys,
 credentials in URLs, emails and local paths plus a high-entropy sweep; its one hit was a
 file path. Every commit carries a GitHub noreply address. The main ruleset requires no
-approvals and no code-owner review, since one maintainer approves every pull request, and
-does not require branches to be up to date, so stacked pull requests can merge.
+approvals and no code-owner review, since one maintainer authors and merges every pull
+request, and does not require branches to be up to date, so stacked pull requests can
+merge. The tag ruleset first covered `v*` only; review widened it to every tag. Steps 1.5
+and 1.6 came from the same review. Secret scanning for generic patterns and validity
+checks were requested and stayed off, since GitHub did not enable them for this account.
+Not taken: required signatures on main and tags, since commits here are not signed.

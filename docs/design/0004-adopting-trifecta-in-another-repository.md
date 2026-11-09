@@ -90,6 +90,17 @@ and Bash, and refuses a write under `docs/superpowers/` with a message that name
 `trifecta new`.
 :::
 
+:::{component} Repository protection
+:id: COMP_REPO_PROTECTION
+:spec: .github/settings/rulesets.json
+:satisfies: REQ_RELEASE_TRUST
+:constrained_by: DEC_0016
+The GitHub settings releases are built under, exported to `.github/settings/`: rulesets
+on the default branch and on every tag, secret scanning and push protection, Actions
+limited to GitHub-owned actions pinned by SHA, approval for workflows from outside
+contributors, private vulnerability reporting, and Dependabot alerts.
+:::
+
 :::{component} Release workflow
 :id: COMP_RELEASE
 :satisfies: REQ_RELEASE_TRUST
@@ -129,12 +140,13 @@ that resolves outside the repository.
 
 ## Risks
 
-Moving the code changes every `spec` path in the design docs at once; the first task
-moves them together, and REQ_SPEC_RESOLVES catches any it misses. A pull request runs its
-own workflow, Makefile, tools and configuration in CI, so it can weaken the check it is
-judged by; the protected main branch, where the check must pass and changes arrive only by
-pull request, holds that line, and code-owner review is not required while one maintainer
-approves every pull request.
+Moving the code changes every `spec` path
+in the design docs at once; task 2 moves them together, and REQ_SPEC_RESOLVES catches any
+it misses. A pull request runs its own workflow, Makefile, tools and configuration in CI,
+so it can weaken the check it is judged by, and a passing check proves nothing about such
+a change. The only safeguard is the maintainer's review before merging: with one
+maintainer, GitHub cannot require an approval the author cannot give, so the ruleset
+requires none. A second maintainer brings required review and code owners back.
 
 ## Review
 
@@ -143,4 +155,11 @@ approves every pull request.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0003_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_2
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0004_2` covered this change.
 :::
