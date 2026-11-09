@@ -1,16 +1,18 @@
 """Set up the toolchain (COMP_VALE_SETUP): the hashed Python lock, then Vale for this platform.
 
 Vale comes from one table of release files and hashes (REQ_PLATFORM_TOOLCHAIN). The
-check reads the table as data, so it holds literals only.
+check reads the table and the release address as data, so they hold literals only.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import io
 import os
 import platform
+import re
 import stat
 import subprocess
 import sys
@@ -20,6 +22,10 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from toolchain import vale_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,21 +38,17 @@ VALE_FILES = {
     "macos-arm64": ("vale_3.13.0_macOS_arm64.tar.gz", "2e89bd82cadfffa6abebda80a141529db2799df5d4197e6aa0489a4d711d8a3b", 9852125),
     "windows-x86_64": ("vale_3.13.0_Windows_64-bit.zip", "fb1141183d783ef1b9278ea5b1cc04e85801256b1539fc47147b90f6bf082341", 10464855),
 }
+#: Where every release file is fetched from; the check holds it to this text.
+RELEASES = "https://github.com/errata-ai/vale/releases/download/"
+#: The only hosts a download may be redirected to; the check holds this set too.
+HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 
 SYSTEMS = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}
 MACHINES = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}
-RELEASES = f"https://github.com/errata-ai/vale/releases/download/v{VALE_VERSION}/"
-#: The only hosts a download may be redirected to.
-HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 
 
 class SetupError(Exception):
     pass
-
-
-def vale_path(root: Path) -> Path:
-    """The one executable the check runs."""
-    return root / "bin" / ("vale.exe" if platform.system() == "Windows" else "vale")
 
 
 def platform_key() -> str:
@@ -65,6 +67,10 @@ def _is_link(path: Path) -> bool:
 
 def bin_dir(root: Path) -> Path:
     path = root / "bin"
+    tracked = subprocess.run(["git", "-C", str(root), "ls-files", "--", "bin"],
+                             capture_output=True, encoding="utf-8", errors="replace").stdout
+    if tracked.strip():
+        raise SetupError(f"git tracks files under bin/, which only setup writes: {tracked.split()}")
     if os.path.lexists(path):
         if _is_link(path) or not path.is_dir():
             raise SetupError(f"{path} is a link or not a directory")
@@ -78,14 +84,15 @@ def bin_dir(root: Path) -> Path:
 class _GitHubOnly(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         url = urllib.parse.urlsplit(newurl)
-        if url.scheme != "https" or url.hostname not in HOSTS:
+        if url.scheme != "https" or url.hostname not in HOSTS or url.port not in (None, 443):
             raise SetupError(f"refused redirect to {newurl}")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def download(name: str, sha256: str, size: int) -> bytes:
     opener = urllib.request.build_opener(_GitHubOnly)
-    with opener.open(RELEASES + name, timeout=60) as response:
+    url = f"{RELEASES}v{VALE_VERSION}/{name}"
+    with opener.open(url, timeout=60) as response:
         data = response.read(2 * size + 1)
     if len(data) > 2 * size:
         raise SetupError(f"{name} is larger than twice its expected {size} bytes")
@@ -111,12 +118,18 @@ def executable(name: str, data: bytes, member: str) -> bytes:
 
 
 def install_vale(root: Path) -> Path:
-    name, sha256, size = VALE_FILES[platform_key()]
+    key = platform_key()
+    name, sha256, size = VALE_FILES[key]
     target = vale_path(root)
     directory = bin_dir(root)
-    stamp = directory / ".vale-stamp"
+    stamp = directory / f".vale-stamp-{key}"
     want = f"{VALE_VERSION} {sha256}\n"
-    if not (target.is_file() and stamp.is_file() and stamp.read_text(encoding="utf-8") == want):
+    for path in (target, stamp):
+        if os.path.lexists(path) and _is_link(path):
+            raise SetupError(f"{path} is a link")
+    current = (target.is_file() and stamp.is_file()
+               and stamp.read_text(encoding="utf-8", errors="replace") == want)
+    if not current:
         stamp.unlink(missing_ok=True)
         binary = executable(name, download(name, sha256, size), target.name)
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".vale-")
@@ -124,6 +137,8 @@ def install_vale(root: Path) -> Path:
             with os.fdopen(fd, "wb") as out:
                 out.write(binary)
             os.chmod(tmp, 0o755)
+            if _is_link(directory) or (os.path.lexists(target) and _is_link(target)):
+                raise SetupError(f"{directory} or {target} became a link while Vale was written")
             os.replace(tmp, target)
         finally:
             if os.path.exists(tmp):
@@ -131,7 +146,7 @@ def install_vale(root: Path) -> Path:
         stamp.write_text(want, encoding="utf-8")
     version = subprocess.run([str(target), "--version"], capture_output=True,
                              encoding="utf-8", errors="replace", check=True).stdout
-    if VALE_VERSION not in version:
+    if not re.search(rf"(?<![\w.]){re.escape(VALE_VERSION)}(?![\w.])", version):
         raise SetupError(f"{target} reports {version.strip()!r}, expected {VALE_VERSION}")
     return target
 
@@ -145,7 +160,8 @@ def main(argv: list[str] | None = None) -> int:
             subprocess.run([sys.executable, "-m", "pip", "install", "--require-hashes",
                             "-r", str(ROOT / "requirements.lock")], check=True)
         print(f"vale {VALE_VERSION} at {install_vale(ROOT)}")
-    except (SetupError, OSError, subprocess.CalledProcessError) as exc:
+    except (SetupError, OSError, ValueError, subprocess.CalledProcessError,
+            http.client.HTTPException, tarfile.TarError, zipfile.BadZipFile) as exc:
         print(f"setup failed: {exc}", file=sys.stderr)
         return 1
     return 0

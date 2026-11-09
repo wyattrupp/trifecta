@@ -88,26 +88,43 @@ The review recorded as {need}`REV_RFC_0006_1` covered this document.
 ### Task 1 (2026-11-08)
 
 "Tracked" in the stage means what git tracks or would track: committed, or untracked and
-not ignored, since a fixture's created file is never committed in the copy. The CRLF
-fixture rewrites one task of plan 0001 with CRLF endings and a step gap, so the plan's
-other lines stay LF; the parser reads the mixed file as LF.
+not ignored, since a fixture's created file is never committed in the copy; names compare
+without case, as git on Windows and macOS reads them. The `.gitattributes` is compared
+byte for byte. Sphinx turns CRLF into LF before the plan parser sees a line, so a step gap
+alone is caught whatever the line ending; the CRLF fixture also ends the task's As built
+heading with CRLF, whose pattern stops at the line end, and its new `only: true` key makes
+the fixture runner fail it on any requirement but the expected one. A probe with that
+heading broken was reported under REQ_AS_BUILT as well, and failed. `venv/` and `.venv/`
+are ignored, so a local environment is not listed as files git would track.
 
 ### Task 2 (2026-11-08)
 
 Every Python program the check starts also runs with `PYTHONIOENCODING=utf-8`, since a
 child Python writes to a pipe in the locale's encoding, and every decode replaces a byte
 it cannot read so a stray byte changes one character, not the run. `tools/new.py` reads
-`git config` as UTF-8 too. A location with no path, such as `(build)` or `need:ID`, is
-left as it is; the guard reports only paths.
+`git config` as UTF-8 too. Only a location the helper made relative has its separators
+turned to slashes; any other location is left as it was, so a relative path with a
+backslash is reported on Windows as on Linux. A location with no path, such as `(build)`
+or `need:ID`, is left as it is; the guard reports only paths. Vale's findings stay located
+in the built lint page, as before this plan; mapping them to the source document is not
+part of it. Messages may still name an absolute path; the requirement covers locations.
 
 ### Task 3 (2026-11-08)
 
 The five 3.13.0 files were downloaded on their own and hashed; each SHA-256 matched
 `vale_3.13.0_checksums.txt` from the same release, and each archive's listing showed one
 top-level regular `vale`, or `vale.exe` in the zip. The table also holds each file's size,
-which the twice-the-size read limit needs, and the check reports a size that is not a
-positive number. The check reads the table with `ast`, never running the script, and
-"tracked under `bin/`" means what git tracks or would track, as in task 1, so its fixture
-removes `bin/` from `.gitignore`. The Makefile gains a `vale` target, which `check` and
-`fixtures` depend on, running the script with `--vale-only`. Setup ran on Windows here:
-it fetched, verified and installed `bin/vale.exe`, ran it, and reused it on a second run.
+which the twice-the-size read limit needs. `tools/toolchain.py` holds the executable's
+path and the file-name suffix per platform, for the script and the check alike, so the
+check never imports the script: it reads the script with `ast`, holds `VALE_VERSION`,
+`VALE_FILES`, `RELEASES` and `HOSTS` to one top-level binding each that nothing later
+changes, and holds the address and hosts to exact values. "Tracked under `bin/`" means
+what git tracks or would track, as in task 1, so its fixture removes `bin/` from
+`.gitignore`; setup itself refuses to run while git tracks anything there, refuses a
+linked executable or stamp, and keys its stamp by platform. The Makefile gains a `vale`
+target, which `check` and `fixtures` depend on, running the script with `--vale-only`. CI
+sets `GIT_LFS_SKIP_SMUDGE`, since the attribute rule detects a change only after checkout.
+Setup ran on Windows here: it fetched, verified and installed `bin/vale.exe`, ran it, and
+reused it on a second run; the check and every fixture then passed on Windows with Vale.
+On pull request #9, the Linux job's `make setup` ran the script and the Linux and
+Windows jobs both passed.

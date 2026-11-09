@@ -60,8 +60,8 @@ def relative_location(location: str, root: Path) -> str:
         return location
     prefix = os.path.normcase(str(root)).rstrip(os.sep) + os.sep
     if os.path.isabs(path) and os.path.normcase(path).startswith(prefix):
-        path = path[len(prefix):]
-    return path.replace(os.sep, "/") + suffix
+        return path[len(prefix):].replace(os.sep, "/") + suffix
+    return location
 
 
 def unportable(location: str) -> bool:

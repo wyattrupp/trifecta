@@ -20,7 +20,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from findings import CHILD_ENV, Finding  # noqa: E402
-from setup import vale_path  # noqa: E402
+from toolchain import vale_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 IGNORE = shutil.ignore_patterns("_build", "bin", ".git", "__pycache__", "TrifectaGenerated", "venv", ".venv")
@@ -90,7 +90,10 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, boo
         return path.stem, False, f"fixture error: {exc}"
     code, findings = run_check(copy, vale)
     hits = [f for f in findings if f.req == spec["expect"]]
-    if code != 0 and hits:
+    # `only: true` also fails the fixture on any other requirement, for a fixture whose
+    # point is that a mutation is read correctly, not only that its error is caught.
+    others = spec.get("only") and any(f.req != spec["expect"] for f in findings)
+    if code != 0 and hits and not others:
         return path.stem, True, f"{spec['expect']}: {hits[0].message}"
     got = sorted({f.req for f in findings}) or ["no findings"]
     return path.stem, False, f"expected {spec['expect']}, got {', '.join(got)}"

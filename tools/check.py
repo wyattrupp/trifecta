@@ -18,7 +18,7 @@ from check_graph import check as check_graph, load_needs  # noqa: E402
 from check_lifecycle import check as check_lifecycle  # noqa: E402
 from findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable  # noqa: E402
 from gen_vale import generate  # noqa: E402
-from setup import vale_path  # noqa: E402
+from toolchain import VALE_SUFFIXES, vale_path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
 
@@ -28,40 +28,76 @@ from trifecta import DOC_TYPES  # noqa: E402
 LOCK_LINE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],]*==[^\s=<>~!;]+(?: --hash=sha256:[0-9a-f]{64})+$"
 )
-#: The release file Vale names for each platform the table pins (REQ_PLATFORM_TOOLCHAIN).
-VALE_PLATFORMS = {
-    "linux-x86_64": "Linux_64-bit.tar.gz",
-    "linux-arm64": "Linux_arm64.tar.gz",
-    "macos-x86_64": "macOS_64-bit.tar.gz",
-    "macos-arm64": "macOS_arm64.tar.gz",
-    "windows-x86_64": "Windows_64-bit.zip",
-}
+#: The release address and the redirect hosts the setup script's copies are held to
+#: (REQ_PLATFORM_TOOLCHAIN); the release file names come from toolchain.VALE_SUFFIXES.
+RELEASES = "https://github.com/errata-ai/vale/releases/download/"
+HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
+#: The names the setup script binds once, at top level, to a literal; nothing else writes them.
+TABLE_NAMES = ("VALE_VERSION", "VALE_FILES", "RELEASES", "HOSTS")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 VALE_LINE = re.compile(r"^(?P<loc>.+?:\d+:\d+):(?P<check>[\w.]+):(?P<msg>.*)$")
 
 
-def _vale_table(source: str) -> tuple[object, object]:
-    """VALE_VERSION and VALE_FILES from the setup script, read as literals, never run."""
-    values = {}
-    for node in ast.parse(source).body:
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)):
+def _written_names(node: ast.AST) -> set[str]:
+    """Names a statement assigns, or changes in place through a subscript, attribute or call."""
+    targets: list[ast.AST] = []
+    if isinstance(node, (ast.Assign, ast.Delete)):
+        targets = list(node.targets)
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor, ast.NamedExpr)):
+        targets = [node.target]
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        targets = [i.optional_vars for i in node.items if i.optional_vars]
+    elif isinstance(node, (ast.Global, ast.Nonlocal)):
+        return set(node.names)
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        targets = [node.func.value]
+    return {sub.id for t in targets for sub in ast.walk(t) if isinstance(sub, ast.Name)}
+
+
+def _vale_table(source: str) -> tuple[dict, list[str]]:
+    """The setup script's table names, read as literals and never run, and what is wrong."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError) as exc:
+        return {}, [f"does not parse: {exc}"]
+    values, problems = {}, []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        else:
+            continue
+        if value is not None and isinstance(target, ast.Name) and target.id in TABLE_NAMES:
             try:
-                values[node.targets[0].id] = ast.literal_eval(node.value)
-            except ValueError:
-                pass
-    return values.get("VALE_VERSION"), values.get("VALE_FILES")
+                values[target.id] = ast.literal_eval(value)
+            except Exception:  # literal_eval raises several types on non-literals
+                problems.append(f"{target.id} is not a literal")
+    writes: dict[str, int] = {}
+    for node in ast.walk(tree):
+        for name in _written_names(node) & set(TABLE_NAMES):
+            writes[name] = writes.get(name, 0) + 1
+    for name in TABLE_NAMES:
+        if writes.get(name, 0) != 1:
+            problems.append(f"{name} must be bound once, at top level, and never changed")
+    return values, problems
 
 
 def check_vale_table(root: Path, files: list[str]) -> list[Finding]:
     where = "tools/setup.py"
-    version, table = _vale_table((root / where).read_text(encoding="utf-8"))
-    if (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version)
-            or not isinstance(table, dict)):
-        return [Finding("REQ_PLATFORM_TOOLCHAIN", where,
-                        "VALE_VERSION and VALE_FILES must be literals: a version and a table")]
-    findings = []
-    for key, suffix in VALE_PLATFORMS.items():
+    values, problems = _vale_table((root / where).read_text(encoding="utf-8"))
+    findings = [Finding("REQ_PLATFORM_TOOLCHAIN", where, p) for p in problems]
+    version, table = values.get("VALE_VERSION"), values.get("VALE_FILES")
+    if values.get("RELEASES") != RELEASES:
+        findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where, f"RELEASES must be {RELEASES!r}"))
+    if values.get("HOSTS") != HOSTS:
+        findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where, f"HOSTS must be {sorted(HOSTS)}"))
+    if not (isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version)
+            and isinstance(table, dict)):
+        findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                                "VALE_VERSION must be a version and VALE_FILES a table"))
+        table = {}
+    for key, suffix in VALE_SUFFIXES.items() if table else ():
         row = table.get(key)
         if not (isinstance(row, tuple) and len(row) == 3):
             findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
@@ -74,13 +110,14 @@ def check_vale_table(root: Path, files: list[str]) -> list[Finding]:
         if not (isinstance(sha256, str) and SHA256.match(sha256)):
             findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
                                     f"{key}: hash is not 64 lowercase hexadecimal digits"))
-        if not (isinstance(size, int) and size > 0):
+        if not (type(size) is int and size > 0):
             findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
                                     f"{key}: size is not a positive number of bytes"))
-    for key in sorted(set(table) - set(VALE_PLATFORMS)):
+    for key in sorted(map(str, set(table) - set(VALE_SUFFIXES))):
         findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where, f"unknown platform {key!r}"))
     for name in files:
-        if name.startswith("bin/"):
+        # Case-blind, since Windows and macOS put Bin/ and bin/ in one place.
+        if name.lower().startswith("bin/"):
             findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", name,
                                     "bin/ holds only what setup writes; nothing there is tracked"))
     return findings
@@ -98,17 +135,21 @@ def check_toolchain(root: Path) -> list[Finding]:
     return findings
 
 
-#: The one line the root .gitattributes holds (REQ_ONE_LINE_ENDING).
-GITATTRIBUTES = "* text=auto eol=lf\n"
+#: The one line the root .gitattributes holds, byte for byte (REQ_ONE_LINE_ENDING).
+GITATTRIBUTES = b"* text=auto eol=lf\n"
 
 
-def repo_files(root: Path) -> list[str]:
+def repo_files(root: Path) -> tuple[list[str], list[Finding]]:
     """Every file git tracks or would track: committed, or untracked and not ignored."""
-    proc = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        capture_output=True, encoding="utf-8", errors="replace", check=True,
-    )
-    return sorted({name for name in proc.stdout.split("\0") if name})
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            capture_output=True, encoding="utf-8", errors="replace", check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return [], [Finding("REQ_WARNINGS_FATAL", "(git)",
+                            f"cannot list the repository's files with git: {exc}")]
+    return sorted({name for name in proc.stdout.split("\0") if name}), []
 
 
 def check_line_endings(root: Path, files: list[str]) -> list[Finding]:
@@ -118,12 +159,13 @@ def check_line_endings(root: Path, files: list[str]) -> list[Finding]:
         findings.append(Finding(
             "REQ_ONE_LINE_ENDING", ".gitattributes", f"missing; it holds exactly {GITATTRIBUTES!r}",
         ))
-    elif path.read_text(encoding="utf-8") != GITATTRIBUTES:
+    elif path.read_bytes() != GITATTRIBUTES:
         findings.append(Finding(
             "REQ_ONE_LINE_ENDING", ".gitattributes", f"must hold exactly {GITATTRIBUTES!r}",
         ))
     for name in files:
-        if name != ".gitattributes" and Path(name).name == ".gitattributes":
+        # Case-blind, since git on Windows and macOS reads .GitAttributes too.
+        if name != ".gitattributes" and Path(name).name.lower() == ".gitattributes":
             findings.append(Finding(
                 "REQ_ONE_LINE_ENDING", name, "the root .gitattributes is the only one",
             ))
@@ -242,8 +284,8 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     vale = (args.vale or vale_path(root)).resolve()
 
-    files = repo_files(root)
-    findings = check_toolchain(root)
+    files, findings = repo_files(root)
+    findings += check_toolchain(root)
     findings += check_vale_table(root, files)
     findings += check_line_endings(root, files)
     findings += run_sphinx(root)

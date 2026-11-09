@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's attributes could name LFS for a file; never fetch LFS content.
+env:
+  GIT_LFS_SKIP_SMUDGE: "1"
+
 jobs:
   check:
     runs-on: ubuntu-24.04
