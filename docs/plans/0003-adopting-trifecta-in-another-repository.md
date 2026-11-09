@@ -48,7 +48,7 @@ Move the code without changing what it checks.
 
 - [ ] **2.1** Move the extension, schemas, plan rules, tools, Vale styles and configurations into `src/trifecta/`, with the extension as a submodule so its name no longer collides with the package, and rewrite every import as a package import.
 - [ ] **2.2** Add `pyproject.toml`, pin its build backend in the lock, and install this repository's package with `--no-build-isolation` after the backend.
-- [ ] **2.3** Add the `trifecta` command with `check`, `fixtures`, `new`, `next` and `review`; resolve the corpus from the working directory everywhere, including the fixture runner's path to the check, and make the Makefile call the command.
+- [ ] **2.3** Add the `trifecta` command with `setup`, `check`, `fixtures`, `new`, `next` and `review`, `setup` being plan 0005's setup script; resolve the corpus from the working directory everywhere, including the fixture runner's path to the check, and make the Makefile call the command.
 - [ ] **2.4** Accept the package's lock line only in the URL form REQ_ONE_PACKAGE states, and reject `http`, other hosts, non-wheel files and a missing hash.
 - [ ] **2.5** Add the test that the wheel holds every part REQ_ONE_PACKAGE lists, and the fixtures for each rejected lock form.
 - [ ] **2.6** Move the `spec` paths of DES_0001, DES_0002 and DES_0003 to the new files.
@@ -73,7 +73,7 @@ Write the adopting repository's starting point.
 
 - [ ] **4.1** Add the configuration value that turns on the fixture audit, set only in this repository's `docs/conf.py`.
 - [ ] **4.2** Let a corpus with no typed document pass: the lint stage reports missing pages only when typed documents exist.
-- [ ] **4.3** Write `trifecta init`: the configuration that loads the package, the index, the typed directories, the Makefile, the hashed lock with the package's URL line, the CI workflow with read-only permissions, no persisted credentials and SHA-pinned actions, and a CODEOWNERS entry for `CLAUDE.md`, `.claude/`, `.github/`, `docs/conf.py`, the Makefile and the lock.
+- [ ] **4.3** Write `trifecta init`: the configuration that loads the package, the index, the typed directories, the Makefile, the hashed lock with the package's URL line, the `.gitattributes`, the CI workflow with read-only permissions, no persisted credentials and SHA-pinned actions, and a CODEOWNERS entry for `CLAUDE.md`, `.claude/`, `.github/`, `docs/conf.py`, the Makefile and the lock.
 - [ ] **4.4** Check every target with `lstat`, refuse one that exists, is a link or reparse point, or resolves outside the repository, create each file exclusively, and list what was written.
 - [ ] **4.5** Add the tests: bare init passes the check; init plus a draft of each type passes; an existing file, a link, a dangling link and a path outside the repository are each refused; nothing init writes matches a token pattern; an adopting repository with an unproven requirement passes, since the audit is off.
 :::
@@ -128,6 +128,13 @@ The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0004_2` covered this change.
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0003_3
+:k: 2
+:date: 2026-11-08
+The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :::
 
 ## As built
