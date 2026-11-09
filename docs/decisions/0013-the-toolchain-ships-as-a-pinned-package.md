@@ -61,5 +61,5 @@ for the rules and leaves this repository's documents behind.
 - Good, because this repository installs its own package with `--no-build-isolation`
   after the hashed build backend, since pip does not hash-check an isolated build's
   dependencies.
-- Bad, because a private repository's release assets need a token to download, which
-  lives only in a CI secret given to the install step.
+- Good, because release wheels are public downloads ({need}`DEC_0016`), so an adopter's
+  CI needs no credential to install the package.

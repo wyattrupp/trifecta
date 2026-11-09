@@ -129,13 +129,12 @@ that resolves outside the repository.
 
 ## Risks
 
-This repository is private, so an adopting repository on another account cannot download
-a release wheel without a token; the release task asks wyatt whether to make the
-repository public, after a scan of its history for secrets, or to authenticate downloads.
 Moving the code changes every `spec` path in the design docs at once; the first task
 moves them together, and REQ_SPEC_RESOLVES catches any it misses. A pull request runs its
 own workflow, Makefile, tools and configuration in CI, so it can weaken the check it is
-judged by; protection of main and code-owner review of those files hold that line.
+judged by; the protected main branch, where the check must pass and changes arrive only by
+pull request, holds that line, and code-owner review is not required while one maintainer
+approves every pull request.
 
 ## Review
 

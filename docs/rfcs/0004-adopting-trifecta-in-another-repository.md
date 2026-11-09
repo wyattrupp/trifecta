@@ -127,6 +127,10 @@ empty repository, MUST produce a corpus whose check passes.
 :id: Q_NON_CORPUS_PROOF
 :::
 
+:::{question} Who may download a release, and how is this repository protected?
+:id: Q_WHEEL_ACCESS
+:::
+
 ## Out of scope
 
 Publishing to PyPI; CI systems other than GitHub Actions; agents other than Claude Code;
