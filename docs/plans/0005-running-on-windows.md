@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 authors: [claude]
 created: 2026-11-08
 ---
@@ -70,8 +70,8 @@ The last task, so it also closes the design.
 - [x] **4.1** Add the `check-windows` job as COMP_WINDOWS_CI states, and set the component's `spec` path.
 - [x] **4.2** Push a commit that breaks the check, confirm the job fails, and drop the commit.
 - [x] **4.3** Add the `python` commands to the README beside the `make` targets.
-- [ ] **4.4** Once the job has passed on main, ask wyatt to add `check-windows` to the main ruleset's required checks; with his yes, add it, with the integration of the existing `check` context, and update `.github/settings/rulesets.json`; without it, drop this step.
-- [ ] **4.5** Mark DES_0006 implemented, check that every requirement of RFC_0006 has its fixture, and review this plan's As built k=2.
+- [x] **4.4** Once the job has passed on main, ask wyatt to add `check-windows` to the main ruleset's required checks; with his yes, add it, with the integration of the existing `check` context, and update `.github/settings/rulesets.json`; without it, drop this step.
+- [x] **4.5** Mark DES_0006 implemented, check that every requirement of RFC_0006 has its fixture, and review this plan's As built k=2.
 :::
 
 ## Review
@@ -81,6 +81,15 @@ The last task, so it also closes the design.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0006_1` covered this document.
+:::
+
+:::{review} Correctness; documentation standard
+:id: REV_PLAN_0005_2
+:k: 2
+:date: 2026-11-09
+Reviewed the task 4 As built entry, the ruleset mirror and the move to done. Not taken: a
+`digest` on the design's reviews, since no document carries one yet and plan 0002 builds
+that check.
 :::
 
 ## As built
@@ -130,3 +139,16 @@ On pull request #9, the Linux job's `make setup` ran the script and the Linux an
 Windows jobs both passed. GitHub then answered two downloads with `504`, so setup retries
 a download that fails on GitHub's side, a server error or a dropped connection, three
 times after 5, 15 and 45 seconds; a refused redirect or a bad hash is never retried.
+
+### Task 4 (2026-11-09)
+
+Both jobs passed on pull request #9 and on main. For step 4.2 a commit that broke the
+`.gitattributes` was pushed, both jobs failed under REQ_ONE_LINE_ENDING, and a following
+commit reverted it, so both commits stay in main's history. wyatt said "Yes, require it"
+in the session on 2026-11-09, so the main ruleset requires `check-windows` beside
+`check`, both with integration 15368, GitHub Actions, and
+`.github/settings/rulesets.json` holds the same rule. Each requirement of RFC_0006 has at
+least one fixture. Some clauses have none: REQ_PORTABLE_FINDINGS's fixture covers a
+location outside the repository, not a backslash, a `..` segment or UTF-8 output, and no
+REQ_ONE_LINE_ENDING fixture shows a reader treating CRLF as LF; the CRLF step-gap fixture
+does that under REQ_TASK_SHAPE.
