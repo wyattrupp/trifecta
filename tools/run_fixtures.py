@@ -19,7 +19,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from findings import Finding  # noqa: E402
+from findings import CHILD_ENV, Finding  # noqa: E402
+from setup import vale_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 IGNORE = shutil.ignore_patterns("_build", "bin", ".git", "__pycache__", "TrifectaGenerated", "venv", ".venv")
@@ -30,7 +31,8 @@ class FixtureError(Exception):
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
+                   encoding="utf-8", errors="replace")
 
 
 def make_base(tmp: Path) -> Path:
@@ -72,7 +74,7 @@ def run_check(copy: Path, vale: Path) -> tuple[int, list[Finding]]:
     proc = subprocess.run(
         [sys.executable, str(copy / "tools" / "check.py"), "--root", str(copy),
          "--base", "HEAD", "--vale", str(vale)],
-        capture_output=True, text=True,
+        capture_output=True, encoding="utf-8", errors="replace", env=CHILD_ENV,
     )
     findings = [Finding.parse(l) for l in proc.stdout.splitlines() if l.count("\t") >= 2]
     return proc.returncode, findings
@@ -97,7 +99,7 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, boo
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("names", nargs="*", help="run only these fixtures")
-    parser.add_argument("--vale", type=Path, default=ROOT / "bin" / "vale")
+    parser.add_argument("--vale", type=Path, default=vale_path(ROOT))
     args = parser.parse_args(argv)
     vale = args.vale.resolve()
     fixtures = sorted((ROOT / "tests" / "fixtures").glob("*.yaml"))

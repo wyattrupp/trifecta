@@ -1,29 +1,21 @@
-# Pinned toolchain (REQ_PINNED_TOOLCHAIN). Vale is fetched by version and verified by checksum.
-VALE_VERSION := 3.13.0
-VALE_SHA256 := 4378ee4bc7c2493760826270e55d5569cda35d7c89582e9fdc3070e2a1089193
+# Pinned toolchain (REQ_PINNED_TOOLCHAIN, REQ_PLATFORM_TOOLCHAIN): tools/setup.py installs the
+# hashed lock and fetches Vale for this platform from its table of release files and hashes.
 PY ?= python3
-# A per-version stamp, so bumping VALE_VERSION re-fetches instead of reusing an old binary.
-VALE := bin/.vale-$(VALE_VERSION)
 
-.PHONY: setup check fixtures clean
+.PHONY: setup vale check fixtures clean
 
-$(VALE):
-	rm -f bin/vale bin/.vale-*
-	mkdir -p bin
-	curl -fsSL -o bin/vale.tgz https://github.com/errata-ai/vale/releases/download/v$(VALE_VERSION)/vale_$(VALE_VERSION)_Linux_64-bit.tar.gz
-	echo "$(VALE_SHA256)  bin/vale.tgz" | sha256sum -c -
-	tar -xzf bin/vale.tgz -C bin vale && rm bin/vale.tgz
-	touch $@
+setup:
+	$(PY) tools/setup.py
 
-setup: $(VALE)
-	$(PY) -m pip install --require-hashes -r requirements.lock
+vale:
+	$(PY) tools/setup.py --vale-only
 
 ## check: run the pipeline. Set BASE=<git ref> to also check MADR immutability.
-check: $(VALE)
+check: vale
 	$(PY) tools/check.py $(if $(BASE),--base $(BASE))
 
 ## fixtures: prove the corpus passes and every negative fixture fails as expected.
-fixtures: $(VALE)
+fixtures: vale
 	$(PY) tools/run_fixtures.py
 
 clean:

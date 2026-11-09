@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import shutil
 import subprocess
@@ -15,8 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_graph import check as check_graph, load_needs  # noqa: E402
 from check_lifecycle import check as check_lifecycle  # noqa: E402
-from findings import Finding, from_sphinx  # noqa: E402
+from findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable  # noqa: E402
 from gen_vale import generate  # noqa: E402
+from setup import vale_path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
 
@@ -26,9 +28,62 @@ from trifecta import DOC_TYPES  # noqa: E402
 LOCK_LINE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],]*==[^\s=<>~!;]+(?: --hash=sha256:[0-9a-f]{64})+$"
 )
-VALE_VERSION = re.compile(r"^VALE_VERSION := \d+\.\d+\.\d+$", re.M)
-VALE_SHA = re.compile(r"^VALE_SHA256 := [0-9a-f]{64}$", re.M)
+#: The release file Vale names for each platform the table pins (REQ_PLATFORM_TOOLCHAIN).
+VALE_PLATFORMS = {
+    "linux-x86_64": "Linux_64-bit.tar.gz",
+    "linux-arm64": "Linux_arm64.tar.gz",
+    "macos-x86_64": "macOS_64-bit.tar.gz",
+    "macos-arm64": "macOS_arm64.tar.gz",
+    "windows-x86_64": "Windows_64-bit.zip",
+}
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 VALE_LINE = re.compile(r"^(?P<loc>.+?:\d+:\d+):(?P<check>[\w.]+):(?P<msg>.*)$")
+
+
+def _vale_table(source: str) -> tuple[object, object]:
+    """VALE_VERSION and VALE_FILES from the setup script, read as literals, never run."""
+    values = {}
+    for node in ast.parse(source).body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            try:
+                values[node.targets[0].id] = ast.literal_eval(node.value)
+            except ValueError:
+                pass
+    return values.get("VALE_VERSION"), values.get("VALE_FILES")
+
+
+def check_vale_table(root: Path, files: list[str]) -> list[Finding]:
+    where = "tools/setup.py"
+    version, table = _vale_table((root / where).read_text(encoding="utf-8"))
+    if (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version)
+            or not isinstance(table, dict)):
+        return [Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                        "VALE_VERSION and VALE_FILES must be literals: a version and a table")]
+    findings = []
+    for key, suffix in VALE_PLATFORMS.items():
+        row = table.get(key)
+        if not (isinstance(row, tuple) and len(row) == 3):
+            findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                                    f"no (file, sha256, size) row for {key}"))
+            continue
+        name, sha256, size = row
+        if name != f"vale_{version}_{suffix}":
+            findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                                    f"{key}: file {name!r} is not vale_{version}_{suffix}"))
+        if not (isinstance(sha256, str) and SHA256.match(sha256)):
+            findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                                    f"{key}: hash is not 64 lowercase hexadecimal digits"))
+        if not (isinstance(size, int) and size > 0):
+            findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where,
+                                    f"{key}: size is not a positive number of bytes"))
+    for key in sorted(set(table) - set(VALE_PLATFORMS)):
+        findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", where, f"unknown platform {key!r}"))
+    for name in files:
+        if name.startswith("bin/"):
+            findings.append(Finding("REQ_PLATFORM_TOOLCHAIN", name,
+                                    "bin/ holds only what setup writes; nothing there is tracked"))
+    return findings
 
 
 def check_toolchain(root: Path) -> list[Finding]:
@@ -40,12 +95,6 @@ def check_toolchain(root: Path) -> list[Finding]:
             findings.append(Finding(
                 "REQ_PINNED_TOOLCHAIN", f"requirements.lock:{n}", f"not an exact pin with --hash: {line[:80]}",
             ))
-    makefile = (root / "Makefile").read_text(encoding="utf-8")
-    if not VALE_VERSION.search(makefile) or not VALE_SHA.search(makefile):
-        findings.append(Finding(
-            "REQ_PINNED_TOOLCHAIN", "Makefile",
-            "Vale must be pinned by VALE_VERSION and VALE_SHA256",
-        ))
     return findings
 
 
@@ -57,7 +106,7 @@ def repo_files(root: Path) -> list[str]:
     """Every file git tracks or would track: committed, or untracked and not ignored."""
     proc = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        capture_output=True, encoding="utf-8", check=True,
+        capture_output=True, encoding="utf-8", errors="replace", check=True,
     )
     return sorted({name for name in proc.stdout.split("\0") if name})
 
@@ -101,9 +150,9 @@ def run_sphinx(root: Path) -> list[Finding]:
     proc = subprocess.run(
         [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going", "--no-color",
          "-b", "html", str(docs), str(docs / "_build" / "html")],
-        capture_output=True, text=True,
+        capture_output=True, encoding="utf-8", errors="replace", env=CHILD_ENV,
     )
-    findings = from_sphinx(proc.stderr, str(root) + "/")
+    findings = from_sphinx(proc.stderr, root)
     if proc.returncode != 0 and not findings:
         findings.append(Finding("REQ_WARNINGS_FATAL", "(build)", proc.stderr.strip()[-500:]))
     return findings
@@ -140,7 +189,7 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
         proc = subprocess.run(
             [str(vale), f"--config={root / 'vale' / config}", "--output=line",
              "--no-exit", *targets],
-            capture_output=True, text=True, cwd=root,
+            capture_output=True, encoding="utf-8", errors="replace", cwd=root,
         )
     except OSError as exc:
         return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", f"cannot run {vale}: {exc}")]
@@ -151,10 +200,19 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
         if not (m := VALE_LINE.match(line)):
             continue
         req = re.search(r"REQ_[A-Z_]+", m.group("check"))
-        loc = m.group("loc").split(str(root) + "/", 1)[-1]
+        loc = relative_location(m.group("loc"), root)
         msg = m.group("msg").split(": ", 1)[-1] if req else m.group("msg")
         findings.append(Finding(req.group(0) if req else "REQ_WARNINGS_FATAL", loc, msg))
     return findings
+
+
+def check_portable(findings: list[Finding]) -> list[Finding]:
+    """The last stage: report every location no stage could map (REQ_PORTABLE_FINDINGS)."""
+    return [
+        Finding("REQ_PORTABLE_FINDINGS", "(location)",
+                f"{f.req} is located at {f.location!r}, not a repository-relative path")
+        for f in findings if unportable(f.location)
+    ]
 
 
 def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
@@ -182,10 +240,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vale", type=Path, default=None)
     args = parser.parse_args(argv)
     root = args.root.resolve()
-    vale = (args.vale or root / "bin" / "vale").resolve()
+    vale = (args.vale or vale_path(root)).resolve()
 
+    files = repo_files(root)
     findings = check_toolchain(root)
-    findings += check_line_endings(root, repo_files(root))
+    findings += check_vale_table(root, files)
+    findings += check_line_endings(root, files)
     findings += run_sphinx(root)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():
@@ -205,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.base:
         findings += check_lifecycle(root, args.base)
 
+    findings += check_portable(findings)
     for finding in sorted(set(findings)):
         print(finding.line())
     return 1 if findings else 0

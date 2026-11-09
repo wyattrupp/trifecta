@@ -43,10 +43,10 @@ First, so every later checkout is LF.
 :gate: The fixture that makes `docs/conf.py` log a Sphinx warning located at `/outside.md` is rejected under REQ_PORTABLE_FINDINGS; the corpus passes.
 Fix the mapping, then catch what it misses.
 
-- [ ] **2.1** Add the location helper to `tools/findings.py`, and route the Sphinx and Vale mappings through it.
-- [ ] **2.2** Add the last stage that reports a location it could not map.
-- [ ] **2.3** Pass `encoding="utf-8"` to every subprocess the check, the lifecycle checker and the fixture runner start.
-- [ ] **2.4** Add the fixture, and set the component's `spec` path.
+- [x] **2.1** Add the location helper to `tools/findings.py`, and route the Sphinx and Vale mappings through it.
+- [x] **2.2** Add the last stage that reports a location it could not map.
+- [x] **2.3** Pass `encoding="utf-8"` to every subprocess the check, the lifecycle checker and the fixture runner start.
+- [x] **2.4** Add the fixture, and set the component's `spec` path.
 :::
 
 :::{task} Vale setup
@@ -55,10 +55,10 @@ Fix the mapping, then catch what it misses.
 :gate: The fixtures that drop a platform's row, name a file of another form, give a hash of the wrong length, and track a file under `bin/`, are rejected under REQ_PLATFORM_TOOLCHAIN; `python tools/setup.py` installs a Vale that runs, on Linux and Windows.
 Replace the Makefile download.
 
-- [ ] **3.1** Write the table for the pinned version: download each of the five files, compute its SHA-256, compare it with Vale's checksum file, and record in the As built entry what was compared.
-- [ ] **3.2** Write `tools/setup.py` as COMP_VALE_SETUP states.
-- [ ] **3.3** Remove the Vale variables from the Makefile, make its `setup`, `check` and `fixtures` targets call the script, and make the toolchain stage check the table, report files tracked under `bin/`, and run the executable by its exact name.
-- [ ] **3.4** Add the fixtures beside the existing lock fixture, and set the component's `spec` path.
+- [x] **3.1** Write the table for the pinned version: download each of the five files, compute its SHA-256, compare it with Vale's checksum file, and record in the As built entry what was compared.
+- [x] **3.2** Write `tools/setup.py` as COMP_VALE_SETUP states.
+- [x] **3.3** Remove the Vale variables from the Makefile, make its `setup`, `check` and `fixtures` targets call the script, and make the toolchain stage check the table, report files tracked under `bin/`, and run the executable by its exact name.
+- [x] **3.4** Add the fixtures beside the existing lock fixture, and set the component's `spec` path.
 :::
 
 :::{task} Windows CI job
@@ -67,7 +67,7 @@ Replace the Makefile download.
 :gate: The `check-windows` job passes on a pull request, and fails on a commit that breaks the check.
 The last task, so it also closes the design.
 
-- [ ] **4.1** Add the `check-windows` job as COMP_WINDOWS_CI states, and set the component's `spec` path.
+- [x] **4.1** Add the `check-windows` job as COMP_WINDOWS_CI states, and set the component's `spec` path.
 - [ ] **4.2** Push a commit that breaks the check, confirm the job fails, and drop the commit.
 - [ ] **4.3** Add the `python` commands to the README beside the `make` targets.
 - [ ] **4.4** Once the job has passed on main, ask wyatt to add `check-windows` to the main ruleset's required checks; with his yes, add it, with the integration of the existing `check` context, and update `.github/settings/rulesets.json`; without it, drop this step.
@@ -91,3 +91,23 @@ The review recorded as {need}`REV_RFC_0006_1` covered this document.
 not ignored, since a fixture's created file is never committed in the copy. The CRLF
 fixture rewrites one task of plan 0001 with CRLF endings and a step gap, so the plan's
 other lines stay LF; the parser reads the mixed file as LF.
+
+### Task 2 (2026-11-08)
+
+Every Python program the check starts also runs with `PYTHONIOENCODING=utf-8`, since a
+child Python writes to a pipe in the locale's encoding, and every decode replaces a byte
+it cannot read so a stray byte changes one character, not the run. `tools/new.py` reads
+`git config` as UTF-8 too. A location with no path, such as `(build)` or `need:ID`, is
+left as it is; the guard reports only paths.
+
+### Task 3 (2026-11-08)
+
+The five 3.13.0 files were downloaded on their own and hashed; each SHA-256 matched
+`vale_3.13.0_checksums.txt` from the same release, and each archive's listing showed one
+top-level regular `vale`, or `vale.exe` in the zip. The table also holds each file's size,
+which the twice-the-size read limit needs, and the check reports a size that is not a
+positive number. The check reads the table with `ast`, never running the script, and
+"tracked under `bin/`" means what git tracks or would track, as in task 1, so its fixture
+removes `bin/` from `.gitignore`. The Makefile gains a `vale` target, which `check` and
+`fixtures` depend on, running the script with `--vale-only`. Setup ran on Windows here:
+it fetched, verified and installed `bin/vale.exe`, ran it, and reused it on a second run.

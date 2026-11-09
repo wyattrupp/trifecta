@@ -40,3 +40,39 @@ jobs:
             make check
           fi
       - run: make fixtures
+
+  # The same check on Windows (DEC_0025), run with python commands and no make. bash, so a
+  # failing command fails its step.
+  check-windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python tools/setup.py
+      - name: Check (with MADR immutability against the base)
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            python tools/check.py --base "origin/$BASE_REF"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            python tools/check.py --base "$BEFORE"
+          elif git rev-parse -q --verify HEAD^ >/dev/null; then
+            echo "::warning::push base $BEFORE is not in the clone; checking against HEAD^ only"
+            python tools/check.py --base HEAD^
+          else
+            python tools/check.py
+          fi
+      - run: python tools/run_fixtures.py

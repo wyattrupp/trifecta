@@ -36,7 +36,8 @@ TODO = plans.PLACEHOLDER
 def _author() -> str:
     try:
         name = subprocess.run(["git", "-C", str(ROOT), "config", "user.name"],
-                              capture_output=True, text=True, check=True).stdout.strip()
+                              capture_output=True, encoding="utf-8", errors="replace",
+                              check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         name = ""
     return name or "unknown"
