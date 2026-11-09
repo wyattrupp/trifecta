@@ -55,6 +55,11 @@ one home with no rule for combining levels.
 ## Consequences
 
 - Good, because the check reads one value, and a fixture proves each level by changing
-  that one line.
+  that one line. The check applies the stricter of the value at the base ref and the
+  value in the tree, so a pull request cannot lower the level and use the lower level in
+  the same change.
+- Bad, because accepted MADRs are frozen, so a repository that raises its level after
+  accepting decisions without evidence has to supersede each of them; the adoption guide
+  says to choose the level before the first decision.
 - Bad, because a repository that needs strict rigor for one study holds every decision to
   it; a separate repository for the research is the way out.

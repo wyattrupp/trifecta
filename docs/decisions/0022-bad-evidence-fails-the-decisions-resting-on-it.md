@@ -15,7 +15,7 @@ consulted: [claude]
 ## Context and Problem Statement
 
 wyatt, 2026-11-08, answered "A" when asked what happens when evidence goes bad: a source
-is retracted, or an experiment refutes its prediction. Accepted MADRs are frozen, so a
+is retracted, or an experiment fails to support what a decision took from it. Accepted MADRs are frozen, so a
 decision cannot be edited to drop the evidence it rests on.
 
 ## Decision Drivers
@@ -31,8 +31,8 @@ decision cannot be edited to drop the evidence it rests on.
 Good, because `supported_by` may point only at claims of sources that are not retracted
 and at results of experiments concluded `supported`, `informed_by` cites anything without
 counting as support, and a retraction makes every accepted decision supported by it a
-finding until a new MADR supersedes it. Bad, because one retraction can fail the check on
-a pull request that did not touch the decision.
+finding until a new MADR supersedes it. Bad, because a retraction cannot merge on its own:
+the pull request that records it also carries the superseding MADR.
 :::
 
 :::{opt} Leave it to review
@@ -55,8 +55,10 @@ that makes a retraction reach the decisions it undermines.
 ## Consequences
 
 - Good, because the fix is a superseding MADR, so the history shows the old decision, the
-  retraction and the new decision.
-- Good, because evidence that supports an accepted decision is reviewed k=2 like any
-  relied-on document, so a claim is read against its source before it carries weight.
+  retraction and the new decision. A concluded experiment that turns out wrong is
+  retracted the same way, since its verdict is frozen.
+- Good, because evidence that supports an accepted decision is reviewed like any relied-on
+  document, and its review goes stale when its text changes, so a claim is read against
+  its source before it carries weight.
 - Bad, because the rule holds at every rigor level, so a repository at `off` that uses
   `supported_by` takes on this duty too.

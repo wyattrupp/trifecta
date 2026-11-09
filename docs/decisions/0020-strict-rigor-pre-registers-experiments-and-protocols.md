@@ -28,10 +28,10 @@ sources picked because they agree.
 
 :::{opt} Pre-registration, pinned data and survey protocols
 :id: OPT_0020_PREREGISTRATION
-Good, because once an experiment is `running` on the base ref its hypothesis, prediction
-and method are frozen by the lifecycle checker that freezes resolved tasks, results appear
-only when it is `concluded`, and each survey states where and how it searched before it
-lists sources. Bad, because a running experiment whose method turns out wrong has to be
+Good, because an experiment arrives `planned` and moves one status at a time, once it
+is `running` on the base ref its hypothesis, prediction and method are frozen by the
+lifecycle checker that freezes resolved tasks, results appear only when it is
+`concluded`, and each survey states where and how it searched, frozen once merged. Bad, because a running experiment whose method turns out wrong has to be
 abandoned and started again as a new one.
 :::
 
@@ -55,7 +55,8 @@ three weak points without asking for evidence an engineering decision cannot hav
 
 - Good, because pre-registration is enforced by the check against the base ref, not by
   trust in the author.
-- Good, because a concluded experiment is frozen whole, so a verdict cannot change under a
-  decision that rests on it.
-- Bad, because the check proves only that the prediction came first; whether the method
-  tests the hypothesis stays with the review.
+- Good, because a concluded experiment is frozen whole but for its review and a
+  retraction, so a verdict cannot change under a decision that rests on it.
+- Bad, because the check proves only that the prediction was merged before the results
+  were; whether they already existed, and whether the method tests the hypothesis, stays
+  with the review.

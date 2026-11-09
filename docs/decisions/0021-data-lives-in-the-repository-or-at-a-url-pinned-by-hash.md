@@ -53,9 +53,14 @@ can without letting the check touch the network.
 
 ## Consequences
 
-- Good, because in-repository data is checked on every run, and a link or a path outside
-  the repository is refused.
-- Good, because the download command fetches only `https`, stops at the declared size,
-  and never writes or runs what it reads, since the URL comes from a document anyone can
-  propose in a pull request.
+- Good, because in-repository data is checked on every run, and a path that is not a
+  plain relative path, a link, an untracked file or a Git LFS pointer is refused before it
+  is opened.
+- Good, because the download command treats every URL as hostile, since it comes from a
+  document anyone can propose in a pull request: it fetches only `https` from public
+  addresses, checks every redirect, caps size and time, reads no credentials from the
+  environment, and never writes or runs what it reads.
+- Bad, because data in Git LFS has to be fetched before the check, and data committed to
+  a public repository is public and, once its experiment is concluded, frozen; credentials
+  and personal data have to come out before it is committed.
 - Bad, because external data is only as current as the last run of the download command.
