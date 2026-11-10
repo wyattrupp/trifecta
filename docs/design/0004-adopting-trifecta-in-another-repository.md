@@ -77,8 +77,21 @@ as a proof in the fixture audit.
 Writes `docs/` with a configuration that loads the package, an index, the typed
 directories, a Makefile, the hardened CI workflow, the hashed lock, the `.gitattributes`
 that DES_0006 holds the repository to, a CODEOWNERS entry for the files that steer the
-check and the session, and the planning files. It checks every
-target with `lstat`, creates each file exclusively, and lists what it wrote.
+check and the session, and the planning files. Before it writes any file it checks every
+target with `lstat`, and reads, parses and validates an existing `.claude/settings.json`,
+so every refusal comes before the first write. It creates each file exclusively and
+lists what it wrote. The settings file is the one target it changes, and its merge is
+the last write; on any failure it removes every file it created in the run, so the
+registration never points at a script that was not written. When the
+registration is already there it writes nothing to the file and does not list it;
+otherwise it lists it as changed. It reads the file as UTF-8 through a handle that does
+not follow links, merges the hook's registration in as REQ_INIT_SAFE states, and writes
+the result to a new file under the fixed name `.claude/settings.json.trifecta-new`,
+created exclusively with mode 0600 and then given the original's mode bits; a file left
+at that name by an earlier run is refused and named. Just before the move it checks with
+`lstat` that `.claude/` is still not a link or other reparse point, and that the
+original's identity and modification time are unchanged; then it moves the new file over
+the original. On any failure it removes the new file and leaves the original as it was.
 :::
 
 :::{component} Planning default
@@ -87,7 +100,8 @@ target with `lstat`, creates each file exclusively, and lists what it wrote.
 :constrained_by: DEC_0014
 :consumes: IF_CLI
 The CLAUDE.md section, the project skill, the PreToolUse hook script and its registration
-in `.claude/settings.json`, all written by init. The hook covers the file-writing tools
+in `.claude/settings.json`, written by init or, for an existing settings file, merged
+into it. The hook covers the file-writing tools
 and Bash, and refuses a write under `docs/superpowers/` with a message that names
 `trifecta new`.
 :::
@@ -156,6 +170,13 @@ live settings can drift from it. A test's declaration of the requirements it pro
 taken as given. `trifecta check` runs the checked repository's own `docs/conf.py` and the
 Vale in its `bin/`. The session instructions init writes are guidance to the model, not a
 boundary. A CODEOWNERS entry gates nothing unless the ruleset requires code-owner review.
+The hook can be switched off where init cannot see it: `.claude/settings.local.json`,
+user settings and managed settings can each disable hooks, so the hook stops a mistake
+only in a session that runs it. On Windows the merged settings file takes its access
+rules from `.claude/`, not from the original, so a file locked down more tightly than its
+directory loses that. An `env` in the settings file that sets `PATH` or
+`CLAUDE_PROJECT_DIR` may send the registered command to another interpreter or script;
+init does not look for one.
 
 ## Review
 
@@ -185,4 +206,11 @@ The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :k: 2
 :date: 2026-11-09
 :digest: 2d6fd9d99b590d2fa958c2521a220c7cf4db7e6a8994a6c76f4d599d6825573d
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_5
+:k: 2
+:date: 2026-11-10
+:digest: e3a02b82028be8c615e7ac2b493a37a0704ec94bf4334d05edf8f8dc9b873878
 :::
