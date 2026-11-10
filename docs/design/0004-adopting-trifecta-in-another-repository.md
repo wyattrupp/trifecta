@@ -209,9 +209,14 @@ contributors, private vulnerability reporting, and Dependabot alerts.
 :id: COMP_RELEASE
 :satisfies: REQ_RELEASE_TRUST
 :constrained_by: DEC_0013
-Builds the wheel on a version tag on main with hashed build dependencies, and after a
-maintainer approves the release environment, attaches it to the release with its SHA-256
-and a provenance attestation.
+Two workflows. `release-build` builds the wheel and its SHA-256 on a version tag, with
+the hashed build backend and read access only; it runs the tag's own copy of itself, so
+nothing it does is trusted to publish. `release-publish` runs from main's copy whenever a
+build finishes: a guard job checks the tag still names the built commit and that commit
+is on main, which the tag ruleset makes hold, and then, after a maintainer approves the
+release environment, the only job that may write attests the build's provenance, naming
+the tag, its commit and the build run, and attaches the wheel and its SHA-256 to the
+release.
 :::
 
 :::{component} Template repository

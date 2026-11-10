@@ -37,6 +37,7 @@ class ReleaseBuild(unittest.TestCase):
     @proves("REQ_RELEASE_TRUST")
     def test_a_version_tag_builds_with_read_access_only(self):
         data = load(BUILD)
+        self.assertEqual(data["name"], "release-build", "release-publish waits on this name")
         self.assertEqual(data["on"], {"push": {"tags": ["v*"]}})
         self.assertEqual(data["permissions"], {})
         self.assertEqual(list(data["jobs"]), ["build"])
@@ -68,39 +69,49 @@ class ReleasePublish(unittest.TestCase):
         data = load(PUBLISH)
         self.assertEqual(data["on"], {"workflow_run": {"workflows": ["release-build"],
                                                        "types": ["completed"]}})
-        job = data["jobs"]["publish"]
+        guard = data["jobs"]["guard"]
         for condition in ("github.event.workflow_run.conclusion == 'success'",
                           "github.event.workflow_run.event == 'push'",
                           "github.event.workflow_run.path == '.github/workflows/release-build.yml'"):
-            self.assertIn(condition, job["if"])
-        steps = job["steps"]
-        guard = steps[index(steps, "compare/$SHA...main")]["run"]
-        self.assertIn('case "$TAG" in v[0-9]*)', guard)
-        self.assertIn('test "$tagged" = "$SHA"', guard)
-        self.assertIn("ahead|identical", guard)
-        self.assertEqual(index(steps, "compare/$SHA...main"), 0, "the guard comes first")
+            self.assertIn(condition, guard["if"])
+        self.assertEqual(guard["permissions"], {"contents": "read"})
+        self.assertNotIn("environment", guard, "a bad tag fails before anyone is asked")
+        check = "\n".join(runs(guard["steps"]))
+        self.assertIn('case "$TAG" in v[0-9]*)', check)
+        self.assertIn('test "$tagged" = "$SHA"', check)
+        self.assertIn("git/ref/heads/main", check)
+        self.assertIn("compare/$SHA...$main", check)
+        self.assertIn("ahead|identical", check)
+        self.assertEqual(data["jobs"]["publish"]["needs"], "guard")
 
     @proves("REQ_RELEASE_TRUST")
     def test_only_the_publishing_job_writes_and_it_waits_for_the_environment(self):
         data = load(PUBLISH)
         self.assertEqual(data["permissions"], {})
-        self.assertEqual(list(data["jobs"]), ["publish"])
+        self.assertEqual(list(data["jobs"]), ["guard", "publish"])
         job = data["jobs"]["publish"]
         self.assertEqual(job["environment"], "release")
-        self.assertEqual(job["permissions"]["contents"], "write")
+        self.assertEqual(job["permissions"], {"contents": "write", "id-token": "write",
+                                              "attestations": "write", "actions": "read"})
 
     @proves("REQ_RELEASE_TRUST")
     def test_publishes_the_wheel_its_sha256_and_an_attestation_to_the_existing_tag(self):
         steps = load(PUBLISH)["jobs"]["publish"]["steps"]
         download = steps[index(steps, "actions/download-artifact@")]
         self.assertEqual(download["with"]["run-id"], "${{ github.event.workflow_run.id }}")
-        attest = index(steps, "actions/attest-build-provenance@")
+        self.assertEqual(download["with"]["github-token"], "${{ github.token }}")
+        provenance = steps[index(steps, "provenance.json")]["run"]
+        for part in (r'ref: "refs/tags/\($tag)"', "gitCommit: $sha", r"actions/runs/\($run)"):
+            self.assertIn(part, provenance)
+        attest = index(steps, "actions/attest@")
         self.assertEqual(steps[attest]["with"]["subject-path"], "dist/trifecta-*.whl")
+        self.assertEqual(steps[attest]["with"]["predicate-type"], "https://slsa.dev/provenance/v1")
         publish = index(steps, "gh release create")
         command = steps[publish]["run"]
         for part in ("dist/trifecta-*.whl", "dist/SHA256SUMS", "--verify-tag",
-                     '--jq .sha)" = "$SHA"', "--signer-workflow"):
+                     '--jq .sha)" = "$SHA"', "--signer-workflow", "--notes-file"):
             self.assertIn(part, command)
+        self.assertLess(index(steps, "provenance.json"), attest)
         self.assertLess(attest, publish)
 
 
