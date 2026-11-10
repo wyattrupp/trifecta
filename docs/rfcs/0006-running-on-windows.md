@@ -37,10 +37,11 @@ only on Linux, so none of this is caught.
 :::{req} Findings are the same on every platform
 :id: REQ_PORTABLE_FINDINGS
 The check MUST report the same requirements at the same locations on Linux, macOS and
-Windows, and MUST locate each finding by a path relative to the repository root, written
-with forward slashes. After mapping, a location that starts at a root, a drive or a UNC
-prefix, or that holds a `..` segment or a backslash, MUST itself be reported. The check
-MUST read the output of every program it runs as UTF-8.
+Windows, apart from the findings that REQ_PROVEN_BY_TEST lets differ by system, and MUST
+locate each finding by a path relative to the repository root, written with forward
+slashes. After mapping, a location that starts at a root, a drive or a UNC prefix, or
+that holds a `..` segment or a backslash, MUST itself be reported. The check MUST read
+the output of every program it runs as UTF-8.
 :::
 
 :::{req} Vale is pinned for each platform
@@ -111,4 +112,11 @@ links and case collisions, now out of scope.
 :k: 2
 :date: 2026-11-09
 :digest: b7a923a6e18c7645de2f2e72fa5a0a03f9aae1b48daa0b0f163b680cf06fb14a
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0006_3
+:k: 2
+:date: 2026-11-10
+:digest: d36f64b7ab661e48d3a37720f9bb426cdb1ac221b308ac03d6e9d96314eae7f1
 :::

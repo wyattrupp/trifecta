@@ -115,7 +115,18 @@ toolchain's requirements.
 :::{req} Requirements no mutation can show are proven by tests
 :id: REQ_PROVEN_BY_TEST
 A requirement of this RFC MUST be named by a test under `tests/` as the requirement it
-proves. Every such test MUST run and pass in the check; a skipped test proves nothing.
+proves. Every such test MUST run and pass in the check, except as follows for a test that
+applies to one system only; a skipped test proves nothing. Such a test MUST say so with a
+system value of exactly `posix` or `nt`, the values of `os.name`, and MUST run and pass
+in the check on that system, which CI's job for it runs (wyatt, 2026-11-10: "Yes, its
+OS's job"): the Linux job for `posix`, the Windows job for `nt`; CI has no macOS job
+(DEC_0025). Where the check runs on the system the test does not name, the test is not
+collected, which is not a skip. A test's result can differ by system, so findings under
+this requirement that come from running the tests, from their results or from the system
+they run on, and the fixture audit's findings that follow from them, are an exception to
+REQ_PORTABLE_FINDINGS. A test whose system value is anything else proves nothing, nor
+does a declaration whose own test has no result of plain success in the check, on its own
+system for a test that names one; each MUST be reported.
 :::
 
 :::{req} Planning goes through the corpus by default
@@ -207,4 +218,11 @@ single maintainer could satisfy; signed commits and tags.
 :k: 2
 :date: 2026-11-10
 :digest: 8aff69356d34e501da51b963e00f3f6663dae51e90cea9d831aa5d241b2e4041
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_6
+:k: 2
+:date: 2026-11-10
+:digest: f90c739b03aee0de28d03556142cb3400684b44dc606e632df57b4a0aeb2f52a
 :::
