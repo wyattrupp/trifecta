@@ -183,6 +183,7 @@ original is left as it was. If that restore is refused or fails, init reports th
 
 :::{component} Planning default
 :id: COMP_PLANNING_DEFAULT
+:spec: src/trifecta/claude/trifecta_guard.py#def _guarded
 :satisfies: REQ_PLANNING_DEFAULT, REQ_HOOK_FAILS_CLOSED
 :constrained_by: DEC_0014
 :consumes: IF_CLI
