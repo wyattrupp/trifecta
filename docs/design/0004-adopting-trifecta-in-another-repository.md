@@ -259,7 +259,11 @@ checks are not strict (DES_0003), so a job may have passed against an older base
 push check on main reports what that missed. In an adopting repository, a test that
 applies only to a system its CI has no job for is never run, and nothing reports it. A
 Python whose `os.name` is `posix` on Windows, such as Cygwin's or MSYS2's, runs the
-`posix` tests there; CI's Windows job uses one whose `os.name` is `nt`.
+`posix` tests there; CI's Windows job uses one whose `os.name` is `nt`. No time limit
+bounds the test run (wyatt, 2026-11-10: "No limit for now"), so a test that never returns
+holds the check until something outside it stops it: locally, the person running it; in
+CI, GitHub's default limit of 360 minutes per job, since no workflow sets
+`timeout-minutes`.
 
 The template repository is not protected, and nothing compares it with init's output for
 the release it pins. The settings exported to `.github/settings/` are a snapshot, and the
@@ -335,4 +339,11 @@ test for an import failure in a module whose tests name the other system; readin
 names case-sensitively; and importing only one of the two decorators.
 COMP_SELF_TEST_SCOPE reads the minimal corpora this repository's own tests build as part
 of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_8
+:k: 2
+:date: 2026-11-10
+:digest: 7e8ef7e2e253652d715ad19b12d49fb0652cced7506ccc93d8bae5e118dd00e4
 :::
