@@ -1,0 +1,6 @@
+# An async declared method in a plain TestCase, whose body never runs.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\nclass T(unittest.TestCase):\n    @proves(\"REQ_ONE_PACKAGE\")\n    async def test_a(self):\n        self.fail()\n"

@@ -61,9 +61,9 @@ Move the code without changing what it checks.
 :gate: Each fixture step 3.3 adds is rejected under REQ_PROVEN_BY_TEST, and each test it adds passes.
 Let tests prove what fixtures cannot, before the tasks that need them.
 
-- [ ] **3.1** Add `trifecta.testing` with `proves` and `only_on`, and run the proof modules under `tests/` in the check as COMP_TEST_PROOFS states, and report REQ_PROVEN_BY_TEST for each case it lists. A test that applies to one system has a system value of exactly `posix` or `nt` and is not collected on the system it does not name, which is not a skip (wyatt, 2026-11-10: "Yes, its OS's job"). CI requires both jobs (DEC_0025, DES_0006), so each such test runs and passes in one job, and on its own system a test that cannot make a link or a short name is skipped and so reported.
-- [ ] **3.2** Count a declaration as proof in the fixture audit when its test passes as COMP_TEST_PROOFS states and, when its test names the system the check is not running on, without running it, listing those as counted but not run; and name tests as proof in the text of REQ_FIXTURE_PER_INVARIANT.
-- [ ] **3.3** Add `tests/__init__.py`. Add a fixture for each case COMP_TEST_PROOFS reports, none of them naming `posix` or `nt` except the fixtures for two system values on one method and for a system value on a class, which use those values and are rejected on both systems; a child `os.name` that differs before the imports, one that differs after the run, a malformed record, an unrecognised record and a child that ends early are proven instead by tests that drive the check against a stub child, and a `RUNNER_OS` that does not match by a test that runs the check, on a corpus holding a proof module, with it set to the other system's name. Add tests, declared as proving REQ_PROVEN_BY_TEST and written against the running `os.name`, each building its own minimal corpus with the fixture audit on and never a copy of this repository, showing that a test for the system the check is not running on is neither run nor reported while its declaration counts and is listed as counted but not run; that a declaration whose test names the running system but is not collected is reported; and that a declared test naming the running system is reported when it is skipped and when it fails.
+- [x] **3.1** Add `trifecta.testing` with `proves` and `only_on`, and run the proof modules under `tests/` in the check as COMP_TEST_PROOFS states, and report REQ_PROVEN_BY_TEST for each case it lists. A test that applies to one system has a system value of exactly `posix` or `nt` and is not collected on the system it does not name, which is not a skip (wyatt, 2026-11-10: "Yes, its OS's job"). CI requires both jobs (DEC_0025, DES_0006), so each such test runs and passes in one job, and on its own system a test that cannot make a link or a short name is skipped and so reported.
+- [x] **3.2** Count a declaration as proof in the fixture audit when its test passes as COMP_TEST_PROOFS states and, when its test names the system the check is not running on, without running it, listing those as counted but not run; and name tests as proof in the text of REQ_FIXTURE_PER_INVARIANT.
+- [x] **3.3** Add `tests/__init__.py`. Add a fixture for each case COMP_TEST_PROOFS reports, none of them naming `posix` or `nt` except the fixtures for two system values on one method and for a system value on a class, which use those values and are rejected on both systems; a child `os.name` that differs before the imports, one that differs after the run, a malformed record, an unrecognised record and a child that ends early are proven instead by tests that drive the check against a stub child, and a `RUNNER_OS` that does not match by a test that runs the check, on a corpus holding a proof module, with it set to the other system's name. Add tests, declared as proving REQ_PROVEN_BY_TEST and written against the running `os.name`, each building its own minimal corpus with the fixture audit on and never a copy of this repository, showing that a test for the system the check is not running on is neither run nor reported while its declaration counts and is listed as counted but not run; that a declaration whose test names the running system but is not collected is reported; and that a declared test naming the running system is reported when it is skipped and when it fails.
 :::
 
 :::{task} Init command and self-test switch
@@ -202,3 +202,21 @@ whichever runs. Setup installs the package editable only when `pyproject.toml` n
 `python -m unittest discover -s tests` until task 3 runs tests in the check. Prose in
 done plans, design docs and MADRs still names the old `tools/` and `ext/` paths, as
 history.
+
+### Task 3 (2026-11-10)
+
+The stage is `trifecta.proofs`, run before the build, and the child is
+`trifecta.proof_child`, started as `python -E -X utf8 -c` with the running package's
+parent first on its path, so a fixture copy's child runs the copy's package. The child
+writes JSON lines to a file in a temporary directory, and imports each proof module
+itself, so any exception on import, `SystemExit` included, is a record. A declaration
+whose test is also reported for its shape, such as a class defined twice, still counts
+when its result is plain success, since the check already fails. The thirty-four fixtures
+create a test file each; the five child cases and the `RUNNER_OS` cases are tests in
+`tests/test_proofs.py` against a stub child. The tests under `tests/` run in every
+fixture copy, so `tests/test_package.py` builds a wheel in each. Task 2's components had
+no `spec` paths; COMP_PACKAGE and IF_CLI got them here, with COMP_TEST_PROOFS's. The
+child's output goes to a file, so a process a test leaves running cannot hold the check
+open; no timeout bounds the child itself, since its length is wyatt's ruling and has not
+been asked. REQ_FIXTURE_PER_INVARIANT now names a proving test beside a negative fixture,
+as step 3.2 asked.

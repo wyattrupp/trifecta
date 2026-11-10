@@ -1,0 +1,6 @@
+# A match statement binds proves again.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\nmatch 1:\n    case proves:\n        pass\n\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n"

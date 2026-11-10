@@ -1,0 +1,6 @@
+# A declaration in a file the loader's pattern does not collect.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/helpers.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\nclass T(unittest.TestCase):\n    @proves(\"REQ_ONE_PACKAGE\")\n    def test_a(self):\n        pass\n"
