@@ -1,0 +1,6 @@
+# The decorators reached through the module, not the bare names.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nimport trifecta.testing\n\n\nclass T(unittest.TestCase):\n    @trifecta.testing.proves(\"REQ_ONE_PACKAGE\")\n    def test_a(self):\n        pass\n"

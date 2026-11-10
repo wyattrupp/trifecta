@@ -1,5 +1,5 @@
 """REQ_ONE_PACKAGE: the wheel holds every part of the toolchain, and the check accepts the
-package's own release URL. Task 3 of PLAN_0003 adds the declaration the check reads."""
+package's own release URL."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 
 from trifecta.check import package_url_problem
+from trifecta.testing import proves
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,6 +40,7 @@ PARTS = {
 
 
 class WheelHoldsTheToolchain(unittest.TestCase):
+    @proves("REQ_ONE_PACKAGE")
     def test_every_part_is_in_the_wheel(self):
         with tempfile.TemporaryDirectory() as out:
             subprocess.run([sys.executable, "-m", "pip", "wheel", "--no-deps",
@@ -55,6 +57,7 @@ class WheelHoldsTheToolchain(unittest.TestCase):
 
 
 class LockLineAcceptsTheOwnRelease(unittest.TestCase):
+    @proves("REQ_ONE_PACKAGE")
     def test_own_release_wheel_is_accepted(self):
         url = ("https://github.com/wyattrupp/trifecta/releases/download/v0.1.0/"
                "trifecta-0.1.0-py3-none-any.whl")

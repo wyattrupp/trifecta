@@ -41,6 +41,7 @@ Components here have no `spec` until they are built; the plan that builds them a
 
 :::{component} Toolchain package
 :id: COMP_PACKAGE
+:spec: pyproject.toml
 :satisfies: REQ_ONE_PACKAGE
 :constrained_by: DEC_0013
 :provides: IF_CLI
@@ -63,6 +64,7 @@ fixture audit.
 
 :::{component} Test proofs
 :id: COMP_TEST_PROOFS
+:spec: src/trifecta/proofs.py#def check_proofs
 :satisfies: REQ_PROVEN_BY_TEST
 :constrained_by: DEC_0015
 `unittest` modules under `tests/` whose tests declare the requirements they prove. A
@@ -230,6 +232,7 @@ an empty directory against the wheel built from the workspace.
 
 :::{interface} Command line
 :id: IF_CLI
+:spec: src/trifecta/cli.py#COMMANDS
 :constrained_by: DEC_0013
 `trifecta setup`, `trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`,
 `trifecta next`, `trifecta review` and `trifecta init`. Each command MUST read the corpus from the working

@@ -1,0 +1,7 @@
+# A module set-up that skips, in a module holding a declared test.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\ndef setUpModule():\n    raise unittest.SkipTest(\"no\")\n\n\nclass T(unittest.TestCase):\n    @proves(\"REQ_ONE_PACKAGE\"\
+    )\n    def test_a(self):\n        pass\n"

@@ -1,0 +1,9 @@
+# A result for a class the check did not read, added by load_tests.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\nfrom tests.support_fx import Other\n\n\nclass T(unittest.TestCase):\n    @proves(\"REQ_ONE_PACKAGE\")\n    def test_a(self):\n\
+    \        pass\n\n\ndef load_tests(loader, tests, pattern):\n    tests.addTests(loader.loadTestsFromTestCase(Other))\n    return tests\n"
+- file: tests/support_fx.py
+  create: "import unittest\n\n\nclass Other(unittest.TestCase):\n    def test_x(self):\n        pass\n"

@@ -1,0 +1,6 @@
+# A decorator imported under another name.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves as p\n\n\nclass T(unittest.TestCase):\n    @p(\"REQ_ONE_PACKAGE\")\n    def test_a(self):\n        pass\n"

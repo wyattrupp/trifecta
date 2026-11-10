@@ -19,6 +19,7 @@ from .check_lifecycle import check as check_lifecycle
 from .ext import DOC_TYPES
 from .findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable
 from .gen_vale import generate
+from .proofs import check_proofs
 from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, corpus_root, vale_path
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
@@ -333,7 +334,7 @@ def check_portable(findings: list[Finding]) -> list[Finding]:
     ]
 
 
-def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
+def audit_fixtures(needs: dict[str, dict], fixtures: Path, proven: set[str]) -> list[Finding]:
     expected = set()
     for path in sorted(fixtures.glob("*.yaml")):
         expected.add((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("expect"))
@@ -345,9 +346,10 @@ def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
 
     return [
         Finding("REQ_FIXTURE_PER_INVARIANT", f"{fixtures.name}/",
-                f"no negative fixture expects {need['id']}")
+                f"no negative fixture expects {need['id']} and no counted test proves it")
         for need in needs.values()
-        if need["type"] == "req" and enforced(need) and need["id"] not in expected
+        if need["type"] == "req" and enforced(need)
+        and need["id"] not in expected and need["id"] not in proven
     ]
 
 
@@ -362,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     findings += check_toolchain(root)
     findings += check_vale_table(root, files)
     findings += check_line_endings(root, files)
+    proof_findings, proven, unrun = check_proofs(root)
+    findings += proof_findings
     findings += run_sphinx(root)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():
@@ -374,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         findings += check_vale_version(vale)
         findings += run_vale(root, vale, "normative.ini")
         findings += run_vale(root, vale, "prose.ini")
-        findings += audit_fixtures(needs, root / "tests" / "fixtures")
+        findings += audit_fixtures(needs, root / "tests" / "fixtures", proven)
     else:
         findings.append(Finding(
             "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",
@@ -384,6 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         findings += check_lifecycle(root, args.base)
 
     findings += check_portable(findings)
+    for line in unrun:
+        print(f"counted but not run: {line}", file=sys.stderr)
     for finding in sorted(set(findings)):
         print(finding.line())
     return 1 if findings else 0
