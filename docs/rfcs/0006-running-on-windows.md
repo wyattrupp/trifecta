@@ -105,3 +105,10 @@ permits a free macOS job and why it is left out. Not taken: a positive-fixture m
 since a CRLF fixture with a step gap proves the parser reads CRLF; checking symbolic
 links and case collisions, now out of scope.
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0006_2
+:k: 2
+:date: 2026-11-09
+:digest: b7a923a6e18c7645de2f2e72fa5a0a03f9aae1b48daa0b0f163b680cf06fb14a
+:::

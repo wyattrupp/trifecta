@@ -1,0 +1,8 @@
+# An accepted RFC whose requirement changes after its review was stamped: no review carries
+# the new digest. Nothing else changes, so nothing else is reported.
+expect: REQ_REVIEW_CURRENT
+only: true
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "An approved design doc MUST be implemented by a draft, active or done plan."
+  replace: "An approved design doc MUST be implemented by an active or done plan."

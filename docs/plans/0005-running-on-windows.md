@@ -92,6 +92,13 @@ Reviewed the task 4 As built entry, the ruleset mirror and the move to done. Not
 that check.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0005_3
+:k: 2
+:date: 2026-11-09
+:digest: e3ea1702d286f4984b97c826c676be448d8b9d1ada34959642446c9f3b49a4c5
+:::
+
 ## As built
 
 ### Task 1 (2026-11-08)

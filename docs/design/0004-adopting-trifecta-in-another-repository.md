@@ -48,7 +48,8 @@ A `src/trifecta/` package holding the extension, schemas, plan rules, tools, Val
 and configurations, with a `pyproject.toml` and a `trifecta` command. Every path is
 resolved from the working directory or from the package's own data, never from a
 source-tree location. The pipeline accepts the package's lock line only in the pinned
-URL form.
+URL form, and only when the URL's owner and repository are the package's own project, so
+the line cannot name another project's release.
 :::
 
 :::{component} Self-test switch
@@ -149,6 +150,13 @@ a change. The only safeguard is the maintainer's review before merging: with one
 maintainer, GitHub cannot require an approval the author cannot give, so the ruleset
 requires none. A second maintainer brings required review and code owners back.
 
+The template repository is not protected, and nothing compares it with init's output for
+the release it pins. The settings exported to `.github/settings/` are a snapshot, and the
+live settings can drift from it. A test's declaration of the requirements it proves is
+taken as given. `trifecta check` runs the checked repository's own `docs/conf.py` and the
+Vale in its `bin/`. The session instructions init writes are guidance to the model, not a
+boundary. A CODEOWNERS entry gates nothing unless the ruleset requires code-owner review.
+
 ## Review
 
 :::{review} Correctness; security
@@ -170,4 +178,11 @@ The review recorded as {need}`REV_RFC_0004_2` covered this change.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0006_1` covered this change.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_4
+:k: 2
+:date: 2026-11-09
+:digest: 2d6fd9d99b590d2fa958c2521a220c7cf4db7e6a8994a6c76f4d599d6825573d
 :::

@@ -1,0 +1,7 @@
+# A line that looks like a backtick fence but holds a backtick in its info string, so
+# CommonMark opens no fence; the Review section after it is still found.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "\n## Review\n"
+  replace: "\n```a`b\n\n## Review\n"

@@ -1,0 +1,10 @@
+# A Review heading and a record inside an HTML comment after an edit: MyST renders
+# neither, so neither counts, and the comment itself is reported.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "An approved design doc MUST be implemented by a draft, active or done plan."
+  replace: "An approved design doc MUST be implemented by an active or done plan."
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "\n## Review\n"
+  replace: "\n## Review\n\n<!--\n## Review\n-->\n"

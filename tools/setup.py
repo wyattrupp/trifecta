@@ -69,10 +69,12 @@ def _is_link(path: Path) -> bool:
 
 def bin_dir(root: Path) -> Path:
     path = root / "bin"
-    tracked = subprocess.run(["git", "-C", str(root), "ls-files", "--", "bin"],
-                             capture_output=True, encoding="utf-8", errors="replace").stdout
-    if tracked.strip():
-        raise SetupError(f"git tracks files under bin/, which only setup writes: {tracked.split()}")
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                            capture_output=True, encoding="utf-8", errors="replace").stdout
+    # Case-blind, as the check reads it, since Windows and macOS put Bin/ and bin/ in one place.
+    tracked = [n for n in listed.split("\0") if n.lower().startswith("bin/")]
+    if tracked:
+        raise SetupError(f"git tracks files under bin/, which only setup writes: {tracked}")
     if os.path.lexists(path):
         if _is_link(path) or not path.is_dir():
             raise SetupError(f"{path} is a link or not a directory")
@@ -104,7 +106,8 @@ def _fetch(url: str, limit: int) -> bytes:
         except urllib.error.HTTPError as exc:
             if exc.code < 500 or delay is None:
                 raise
-        except (urllib.error.URLError, TimeoutError, http.client.HTTPException) as exc:
+        # URLError, a timeout and a reset during the read are all OSError.
+        except (OSError, http.client.HTTPException) as exc:
             if isinstance(getattr(exc, "reason", None), SetupError) or delay is None:
                 raise
         print(f"download failed, retrying in {delay}s", file=sys.stderr)

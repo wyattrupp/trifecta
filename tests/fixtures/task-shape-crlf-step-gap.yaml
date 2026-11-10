@@ -1,8 +1,10 @@
 # A task and its As built heading saved with CRLF line endings, with a step gap. Only the
 # gap may be reported: the heading's pattern ends at the line end, so a reader that kept
-# the CR would also report REQ_AS_BUILT, and `only` fails the fixture on that.
+# the CR would also report REQ_AS_BUILT, and `only` fails the fixture on that. A renumbered
+# step is a change to the plan's reviewed content, so its review is no longer current.
 expect: REQ_TASK_SHAPE
 only: true
+allow: [REQ_REVIEW_CURRENT]
 mutations:
 - file: docs/plans/0001-plans-and-reviews.md
   find: "with their lines.\n- [x] **2.3** Add the plans type to `DOC_TYPES` and call the rules from `on_source_read`.\n"

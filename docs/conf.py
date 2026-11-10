@@ -11,13 +11,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
 
+import digest  # noqa: E402
 import plans  # noqa: E402
 
 project = "trifecta"
 extensions = ["myst_parser", "sphinx_needs", "trifecta"]
 exclude_patterns = ["_build"]
 nitpicky = True
-myst_enable_extensions = ["colon_fence"]
+myst_enable_extensions = list(digest.MYST_EXTENSIONS)
 
 needs_build_json = True
 needs_id_required = True
@@ -136,7 +137,11 @@ needs_types = [
     # --- Review (RFC, design doc, plan) -----------------------------------------
     dict(
         directive="review", title="Review", prefix="REV_", id_regex=r"^REV_[A-Z0-9_]+$",
-        fields={"k": _text("Number of distinct-lens passes."), "date": _text("Review date.")},
+        fields={
+            "k": _text("Number of distinct-lens passes."),
+            "date": _text("Review date."),
+            "digest": _text("SHA-256 of the reviewed content the review started from."),
+        },
     ),
 ]
 
@@ -219,20 +224,22 @@ needs_schema_definitions = {"schemas": [
         "validate": {"local": {"required": ["reviewed_by"]}},
     }
     for need_type, statuses, label in [
-        ("rfc", ["accepted"], "an accepted RFC"),
-        ("design", ["approved", "implemented"], "an approved or implemented design doc"),
-        ("plan", plans.RELIED_ON, "an active or done plan"),
+        ("rfc", digest.RELIED_ON["rfc"], "an accepted RFC"),
+        ("design", digest.RELIED_ON["design"], "an approved or implemented design doc"),
+        ("plan", digest.RELIED_ON["plan"], "an active or done plan"),
     ]
 ] + [
     {
         "id": "REQ_REVIEWED",
-        "message": "a review states k as a positive number and its date as YYYY-MM-DD",
+        "message": "a review states k as a positive number, its date as YYYY-MM-DD, and any "
+                   "digest as 64 lowercase hexadecimal digits",
         "select": _select(type="review"),
         "validate": {"local": {
             "required": ["k", "date"],
             "properties": {
                 "k": {"type": "string", "pattern": "^[1-9][0-9]*$"},
                 "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+                "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
             },
         }},
     },

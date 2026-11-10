@@ -1,0 +1,7 @@
+# A line of requirement prose that starts like a spec option. Only the spec option lines of
+# a component or interface leave the digest, so this edit still makes the review stale.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "An approved design doc MUST be implemented by a draft, active or done plan.\n"
+  replace: "An approved design doc MUST be implemented by a draft, active or done plan.\n:spec: and by nothing else.\n"

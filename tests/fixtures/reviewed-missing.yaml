@@ -1,9 +1,15 @@
-# An implemented design doc whose review record was removed.
+# An implemented design doc whose review records were all removed.
 expect: REQ_REVIEWED
 mutations:
 - file: docs/design/0001-validation-pipeline.md
   find: |
     :::{review} Correctness; security
     :id: REV_DES_0001_1
+  replace: |
+    :::{note}
+- file: docs/design/0001-validation-pipeline.md
+  find: |
+    :::{review} Correctness; security
+    :id: REV_DES_0001_2
   replace: |
     :::{note}

@@ -109,13 +109,14 @@ def fenced(lines: list[str]) -> list[bool]:
     for line in lines:
         m = FENCE_RE.match(line)
         if closer is None:
-            if m:
+            # CommonMark: a backtick fence's info string holds no backtick, or it is no fence.
+            if m and not (m.group("fence")[0] == "`" and "`" in line[m.end():]):
                 closer = m.group("fence")
             mask.append(closer is not None)
         else:
             mask.append(True)
             if m and m.group("fence")[0] == closer[0] and len(m.group("fence")) >= len(closer) \
-                    and not line.strip()[len(m.group("fence")):].strip():
+                    and not line.strip(" \t")[len(m.group("fence")):].strip(" \t"):
                 closer = None
     return mask
 
@@ -183,11 +184,17 @@ def parse(lines: list[str]) -> Plan:
     return Plan(tasks, sections, as_built, bad, stray)
 
 
+def frontmatter_end(lines: list[str]) -> int | None:
+    """Index of the line closing the first ``---`` block, or None if there is none. The one
+    reading of where frontmatter ends, for the extension, the digest and the tools."""
+    if not lines or lines[0].strip() != "---":
+        return None
+    return next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+
+
 def frontmatter(lines: list[str]) -> dict:
     """The YAML frontmatter as written (dates stay strings), or {} if there is none."""
-    if not lines or lines[0].strip() != "---":
-        return {}
-    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    end = frontmatter_end(lines)
     if end is None:
         return {}
     try:

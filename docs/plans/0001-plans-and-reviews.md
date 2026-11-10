@@ -89,6 +89,13 @@ Apply the findings of the review recorded in RFC_0002 that held up.
 The review recorded as {need}`REV_RFC_0002_1` covered this document.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0001_2
+:k: 2
+:date: 2026-11-09
+:digest: 6a2b1ed46c7eb6459bdfc0bcf066e4bc308393ac4a3cfdef45ad2d77d58a1f97
+:::
+
 ## As built
 
 ### Task 1 (2026-11-08)

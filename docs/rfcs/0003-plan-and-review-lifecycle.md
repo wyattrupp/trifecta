@@ -117,3 +117,10 @@ changes; bare init passes; and in {need}`RFC_0004`, requirements for the pin for
 release trust, credentials, safe writes by init, and a hook that fails closed. Not taken:
 rewriting a dated As built entry of {need}`PLAN_0001`, which is history.
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0003_2
+:k: 2
+:date: 2026-11-09
+:digest: ac84295b5321c2fd896c6022e74d8f6a642dd81835281e8d788bce2e75054d65
+:::

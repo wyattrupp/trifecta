@@ -18,7 +18,9 @@ class Finding:
     message: str
 
     def line(self) -> str:
-        return f"{self.req}\t{self.location}\t{self.message}"
+        """One finding, one line: a line break in a location or message reads as a space."""
+        location, message = (" ".join(s.splitlines()) for s in (self.location, self.message))
+        return f"{self.req}\t{location}\t{message}"
 
     @classmethod
     def parse(cls, line: str) -> "Finding":

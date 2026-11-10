@@ -28,7 +28,7 @@ a relied-on document is reviewed k=2 and stamped in the same task.
 :::{task} Renderer and guards
 :id: TASK_0006_01
 :builds: COMP_DIAGRAM_RENDERER, COMP_PROGRAM_GUARD, COMP_PAGE_GUARD
-:gate: The fixtures that add a `needflow` directive to an RFC and add `sphinx.ext.graphviz` to the configuration are rejected under REQ_DIAGRAMS_IN_PROCESS; the fixtures that add an `https` script through `html_js_files`, and raw HTML holding an image at `//`, a `preload` link, a style with `url()` and a `base` element, are rejected under REQ_PAGES_SELF_CONTAINED; the tests that render a two-node graph with no warning, and a graph whose labels hold quotes, backslashes, angle brackets and `URL=`, to an SVG the allowlist passes, pass on Linux and Windows.
+:gate: The fixtures that add a `needflow` directive to an RFC and add `sphinx.ext.graphviz` to the configuration are rejected under REQ_DIAGRAMS_IN_PROCESS; the fixtures that add an `https` script through `html_js_files`, and raw HTML holding an image at `//`, a `preload` link, a style with `url()`, a style with `@import`, a `meta` refresh, a `base` element, and an `<svg><style>`, an `<svg><script>` and an `<svg><style><img>` each loading from outside, are rejected under REQ_PAGES_SELF_CONTAINED; the tests that render a two-node graph with no warning, a graph whose labels hold quotes, backslashes, angle brackets and `URL=`, to an SVG the allowlist passes, and a graph whose need text holds Graphviz label escapes such as `\N` and `\G`, drawn as that text, pass on Linux and Windows.
 The renderer and the rules that keep it the only way to draw.
 
 - [ ] **1.1** Add `pygraphviz==2.0.4` to the lock with the hashes of its five wheels and no source archive, each compared with the hash PyPI lists; check PyPI for attestations of the five files; record in the As built entry what was compared, the bundled Graphviz version and the vendored libraries.
@@ -36,7 +36,8 @@ The renderer and the rules that keep it the only way to draw.
 - [ ] **1.3** Add `timeout-minutes` to this repository's workflow jobs and to the workflow init writes.
 - [ ] **1.4** Write the renderer as COMP_DIAGRAM_RENDERER states, and its tests.
 - [ ] **1.5** Write the program guard and the page guard as their components state.
-- [ ] **1.6** Add the fixtures, and set the three `spec` paths.
+- [ ] **1.6** Add the fixtures, `<svg><style>`, `<svg><script>` and `<svg><style><img>` among them, and set the three `spec` paths.
+- [ ] **1.7** Add a renderer test that Graphviz label escapes such as `\N` and `\G` in need text render as that text, not as the node's or the graph's name.
 :::
 
 :::{task} Meta-model directive
@@ -70,6 +71,13 @@ The last task, so it also closes the design.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0007_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0006_2
+:k: 2
+:date: 2026-11-09
+:digest: dc208ac06f617100aba0177a5cbd1c0cb3e5cdab4dad10f18861c04058f5013c
 :::
 
 ## As built

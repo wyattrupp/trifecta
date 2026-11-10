@@ -1,0 +1,7 @@
+# A code fence whose closer is followed by a no-break space, which CommonMark does not
+# read as a closer: the rest of the file is code to MyST, so the Review section is gone.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "\n## Review\n"
+  replace: "\n```\nx\n``` \n\n## Review\n"
