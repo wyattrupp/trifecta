@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ from . import PROJECT
 from .check_graph import check as check_graph, load_needs
 from .check_lifecycle import check as check_lifecycle
 from .ext import DOC_TYPES
+from .ext.ontology import DOC_LEVEL
 from .findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable
 from .gen_vale import generate
 from .proofs import check_proofs
@@ -139,6 +141,8 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 def package_url_problem(url: str) -> str | None:
     """Why ``url`` is not one of the package's own release wheels, or None."""
+    if re.search(r"\s", url):
+        return "the URL holds white space"
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https":
         return "the URL is not https"
@@ -158,16 +162,30 @@ def package_url_problem(url: str) -> str | None:
     return None
 
 
-def check_toolchain(root: Path) -> list[Finding]:
+#: A lock may include one other lock in the repository, as this one includes the package's.
+INCLUDE = re.compile(r"^-r (?P<path>[A-Za-z0-9_./-]+\.lock)$")
+
+
+def check_toolchain(root: Path, name: str = "requirements.lock",
+                    seen: frozenset[str] = frozenset()) -> list[Finding]:
     findings = []
-    lock = root / "requirements.lock"
+    lock = root / name
     for n, line in enumerate(lock.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        where = f"requirements.lock:{n}"
-        name = NAME.match(line)
-        if name and re.sub(r"[-_.]+", "-", name.group(0)).lower() == "trifecta":
+        where = f"{name}:{n}"
+        if include := INCLUDE.match(line):
+            target = (lock.parent / include.group("path")).resolve()
+            rel = target.relative_to(root).as_posix() if target.is_relative_to(root) else None
+            if rel is None or not target.is_file() or rel in seen | {name}:
+                findings.append(Finding("REQ_PINNED_TOOLCHAIN", where,
+                                        f"includes a lock that is not another file here: {line}"))
+            else:
+                findings += check_toolchain(root, rel, seen | {name})
+            continue
+        pin = NAME.match(line)
+        if pin and re.sub(r"[-_.]+", "-", pin.group(0)).lower() == "trifecta":
             m = PACKAGE_LINE.match(line)
             problem = (package_url_problem(m.group("url")) if m else
                        "not the form trifecta @ <release wheel URL> --hash=sha256:<hash>")
@@ -334,6 +352,24 @@ def check_portable(findings: list[Finding]) -> list[Finding]:
     ]
 
 
+def fixture_audit_on(root: Path) -> bool:
+    """Whether the corpus's configuration turned the fixture audit on, as the build
+    recorded it (COMP_SELF_TEST_SCOPE); off when the record is missing or unreadable."""
+    try:
+        record = json.loads((root / "docs" / "_build" / "html" / "trifecta.json")
+                            .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(record, dict) and record.get("fixture_audit") is True
+
+
+def audit_stage(root: Path, needs: dict[str, dict], proven: set[str]) -> list[Finding]:
+    """The fixture audit, where the corpus's configuration turns it on and nowhere else."""
+    if not fixture_audit_on(root):
+        return []
+    return audit_fixtures(needs, root / "tests" / "fixtures", proven)
+
+
 def audit_fixtures(needs: dict[str, dict], fixtures: Path, proven: set[str]) -> list[Finding]:
     expected = set()
     for path in sorted(fixtures.glob("*.yaml")):
@@ -374,11 +410,13 @@ def main(argv: list[str] | None = None) -> int:
         stage = stage_vale(root)
         findings += generate(needs, stage / "styles" / "TrifectaGenerated")
         findings = [_locate(f, needs) for f in findings]
-        build_lint_view(root)
-        findings += check_vale_version(vale)
-        findings += run_vale(root, vale, "normative.ini")
-        findings += run_vale(root, vale, "prose.ini")
-        findings += audit_fixtures(needs, root / "tests" / "fixtures", proven)
+        if any(n["type"] in DOC_LEVEL for n in needs.values()):
+            # A corpus with no typed document has nothing to lint (plan 0003 step 4.2).
+            build_lint_view(root)
+            findings += check_vale_version(vale)
+            findings += run_vale(root, vale, "normative.ini")
+            findings += run_vale(root, vale, "prose.ini")
+        findings += audit_stage(root, needs, proven)
     else:
         findings.append(Finding(
             "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",

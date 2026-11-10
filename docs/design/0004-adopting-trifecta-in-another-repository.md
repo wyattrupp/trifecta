@@ -55,6 +55,7 @@ the line cannot name another project's release.
 
 :::{component} Self-test switch
 :id: COMP_SELF_TEST_SCOPE
+:spec: src/trifecta/check.py#def fixture_audit_on
 :satisfies: REQ_SELF_TESTS_SCOPED
 :constrained_by: DEC_0013
 A configuration value, set only in this repository's `docs/conf.py` and in the minimal
@@ -145,6 +146,7 @@ test one system cannot run.
 
 :::{component} Init command
 :id: COMP_INIT_COMMAND
+:spec: src/trifecta/init.py#def init
 :satisfies: REQ_INIT_PASSES, REQ_INIT_SAFE, REQ_NO_SECRETS_IN_TREE
 :constrained_by: DEC_0013
 :consumes: IF_CLI

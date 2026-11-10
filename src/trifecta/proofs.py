@@ -8,6 +8,7 @@ the declarations counted without running, which the check lists on standard erro
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import keyword
 import os
@@ -460,9 +461,12 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
         command = child or [sys.executable, "-E", "-X", "utf8", "-c", BOOT, package_parent]
         # Output goes to a file, not a pipe, so a process a test leaves running cannot hold
         # the check open, and a test that prints much is not held in memory.
+        # The tests run without the shared cache, so a test that runs the stage itself
+        # checks the package it runs, not a copy's cached result.
+        env = {k: v for k, v in os.environ.items() if k != CACHE_ENV}
         with open(log, "wb") as out:
             subprocess.run([*command, str(channel), str(plan)], cwd=root, stdout=out,
-                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
         text = channel.read_text(encoding="utf-8", errors="replace") if channel.is_file() else ""
         with open(log, "rb") as out:
             out.seek(max(0, log.stat().st_size - 500))
@@ -470,9 +474,58 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
     return text.splitlines(), tail
 
 
+#: A directory the fixture runner shares between the repository copies it checks: a copy
+#: whose tests and package are byte for byte the control's reuses the control's results.
+CACHE_ENV = "TRIFECTA_PROOF_CACHE"
+
+
+#: What the key leaves out: what the check and setup write, git's own store, and the
+#: corpus under ``docs/``, which no test here reads; most fixtures change only the corpus,
+#: so their copies reuse the control's results. A test that read ``docs/`` would make a
+#: copy reuse a stale result; the check outside the fixture runner never uses the cache.
+_UNKEYED = {".git", "_build", "bin", "__pycache__"}
+
+
+def _content_key(root: Path) -> str:
+    """A digest of what the stage's result depends on: every file in the repository but
+    the corpus, every file in the package that runs the stage, the system and the
+    interpreter."""
+    h = hashlib.sha256(f"{os.name}\0{sys.version}\0{sys.executable}\0"
+                       f"{os.environ.get('RUNNER_OS', '')}".encode())
+    package = Path(__file__).resolve().parent
+    for label, base in (("repo", root), ("package", package)):
+        for path in sorted(p for p in base.rglob("*") if p.is_file()
+                           and not _UNKEYED & set(p.relative_to(base).parts)
+                           and not (label == "repo" and p.relative_to(base).parts[0] == "docs")):
+            h.update(f"\0{label}\0{path.relative_to(base).as_posix()}\0".encode())
+            h.update(hashlib.sha256(path.read_bytes()).digest())
+    return h.hexdigest()
+
+
 def check_proofs(root: Path, child: list[str] | None = None,
                  ) -> tuple[list[Finding], set[str], list[str]]:
     """Findings, the requirements proven, and the declarations counted without running."""
+    cache = os.environ.get(CACHE_ENV)
+    if cache and child is None:
+        entry = Path(cache) / f"{_content_key(root)}.json"
+        try:
+            data = json.loads(entry.read_text(encoding="utf-8"))
+            return ([Finding(*f) for f in data["findings"]], set(data["proven"]),
+                    data["unrun"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        result = _check_proofs(root, None)
+        tmp = entry.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"findings": [[f.req, f.location, f.message] for f in result[0]],
+                                   "proven": sorted(result[1]), "unrun": result[2]}),
+                       encoding="utf-8")
+        os.replace(tmp, entry)
+        return result
+    return _check_proofs(root, child)
+
+
+def _check_proofs(root: Path, child: list[str] | None,
+                  ) -> tuple[list[Finding], set[str], list[str]]:
     reading = read_tests(root)
     findings = list(reading.findings)
     if not reading.modules and not reading.methods:

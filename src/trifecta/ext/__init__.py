@@ -17,7 +17,9 @@ from pathlib import Path
 import jsonschema
 import yaml
 from docutils import nodes
+from docutils.statemachine import StringList
 from sphinx.application import Sphinx
+from sphinx.directives.other import TocTree
 from sphinx.util import logging
 
 from . import digest, plans
@@ -345,7 +347,46 @@ def on_doctree_read(app: Sphinx, doctree: nodes.document) -> None:
             )
 
 
+#: The build record the check reads the corpus's switches from, beside needs.json.
+SWITCHES = "trifecta.json"
+
+
+def on_build_finished(app: Sphinx, exception) -> None:
+    """Record the switches the check reads: only this repository turns on the fixture
+    audit (COMP_SELF_TEST_SCOPE)."""
+    if exception is None:
+        out = Path(app.outdir) / SWITCHES
+        out.write_text(json.dumps({"fixture_audit": app.config.trifecta_fixture_audit is True}),
+                       encoding="utf-8")
+
+
+class TypedIndex(TocTree):
+    """``{typed-index} <directory>``: a toctree of the documents a typed directory holds,
+    and nothing while it holds none, as a new corpus's directories do (plan 0003 step
+    4.2), where a glob toctree would warn."""
+
+    required_arguments = 1
+    optional_arguments = 0
+    has_content = False
+    option_spec = {"caption": TocTree.option_spec["caption"]}
+
+    def run(self):
+        directory = self.arguments[0].strip("/")
+        # Read again on every build, as a glob toctree is, so a new document is listed.
+        self.env.note_reread()
+        docs = sorted(d for d in self.env.found_docs if d.startswith(directory + "/"))
+        if not docs:
+            return []
+        self.arguments = []
+        self.content = StringList([f"/{d}" for d in docs])
+        self.options.setdefault("maxdepth", 1)
+        return super().run()
+
+
 def setup(app: Sphinx) -> dict:
+    app.add_directive("typed-index", TypedIndex)
+    app.add_config_value("trifecta_fixture_audit", False, "env", [bool])
+    app.connect("build-finished", on_build_finished)
     app.connect("source-read", on_source_read)
     app.connect("env-before-read-docs", on_env_before_read_docs)
     app.connect("doctree-read", on_doctree_read)

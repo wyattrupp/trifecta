@@ -14,6 +14,7 @@ COMMANDS = {
     "new": "new",
     "next": "next",
     "review": "review",
+    "init": "init",
 }
 
 USAGE = f"usage: trifecta {{{','.join(COMMANDS)}}} [args...]"

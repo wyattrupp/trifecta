@@ -19,6 +19,7 @@ import yaml
 
 from .check import repo_files
 from .findings import Finding, child_env
+from .proofs import CACHE_ENV
 from .toolchain import VALE_ENV, corpus_root, vale_path
 
 
@@ -75,19 +76,20 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             raise FixtureError(f"unknown mutation {m!r}")
 
 
-def run_check(copy: Path, vale: Path) -> tuple[int, list[Finding]]:
+def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding]]:
     # The copy's own package runs, so a fixture that changes the package's code or data
     # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
     proc = subprocess.run(
         [sys.executable, "-m", "trifecta", "check", "--base", "HEAD"],
         capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
-        env={**child_env(copy / "src"), VALE_ENV: str(vale)},
+        env={**child_env(copy / "src"), VALE_ENV: str(vale), CACHE_ENV: str(cache)},
     )
     findings = [Finding.parse(l) for l in proc.stdout.splitlines() if l.count("\t") >= 2]
     return proc.returncode, findings
 
 
-def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, bool, str]:
+def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
+                cache: Path) -> tuple[str, bool, str]:
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     copy = tmp / path.stem
     shutil.copytree(base, copy, symlinks=True)
@@ -95,7 +97,7 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, boo
         apply(copy, spec["mutations"])
     except FixtureError as exc:
         return path.stem, False, f"fixture error: {exc}"
-    code, findings = run_check(copy, vale)
+    code, findings = run_check(copy, vale, cache)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
     # point is that a mutation is read correctly, not only that its error is caught.
@@ -128,7 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, subprocess.CalledProcessError, FixtureError) as exc:
             print(f"FAIL  control: cannot copy the repository: {exc}")
             return 1
-        code, findings = run_check(base, vale)
+        # The control runs first, so every copy whose tests and package match it reuses
+        # its test results.
+        cache = tmp / "proof-cache"
+        cache.mkdir()
+        code, findings = run_check(base, vale, cache)
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")
             for f in findings:
@@ -136,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("ok    control: the unmutated corpus passes")
         with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
-            results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale), fixtures))
+            results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache), fixtures))
 
     failed = 0
     for name, ok, detail in results:
