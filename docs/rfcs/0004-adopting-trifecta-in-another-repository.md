@@ -57,16 +57,31 @@ check passes with no further step, and which holds none of this repository's doc
 
 :::{req} Init writes safely
 :id: REQ_INIT_SAFE
-The init command MUST refuse a target that exists, that is a symbolic link or other
-reparse point, or that resolves outside the repository, and MUST create each file
-exclusively. The CI workflow it writes MUST grant only read access to the repository,
-MUST NOT persist credentials in the checkout, and MUST pin every action by commit SHA.
+The init command MUST decide every refusal below before it writes any file, MUST refuse
+a target that exists, that is a symbolic link or other reparse point, or that resolves
+outside the repository, and MUST create each file exclusively. The one exception is
+`.claude/settings.json` (wyatt, 2026-11-10: "Merge the hook in"). When it exists, init
+MUST add the hook's registration to it unless a `hooks.PreToolUse` entry equal to init's
+in every field is already there, and MUST leave every other setting with the value it
+had. Init MUST refuse that file if it is a link or other reparse point, resolves outside
+the repository, is not strict JSON holding an object, repeats a key, sets
+`disableAllHooks` to any value other than `false`, holds a number that is not a finite
+double, holds a `hooks` that is not an object, a `hooks.PreToolUse` that is not an
+array, or an entry in it that is not an object or whose `hooks` is not an array, or
+holds an entry that runs init's command but differs from init's entry in any other
+field. On any failure init MUST leave
+that file as it was and remove every file it created. The registered command MUST be
+fixed text that names the hook script through `$CLAUDE_PROJECT_DIR`, never a path init
+reads from the file system, and MUST block with exit code 2 when the hook cannot start.
+The CI workflow init writes MUST grant only read access to the repository, MUST NOT
+persist credentials in the checkout, and MUST pin every action by commit SHA.
 :::
 
 :::{req} No credential enters the tree
 :id: REQ_NO_SECRETS_IN_TREE
-No credential MUST appear in the lock file, in a URL, in anything init writes, or in the
-template repository. If downloading the package ever needs a credential, it MUST live
+No credential MUST appear in the lock file, in a URL, in anything init writes other than
+settings it keeps unchanged from an existing `.claude/settings.json`, or in the template
+repository. If downloading the package ever needs a credential, it MUST live
 only in a CI secret and MUST reach only the step that installs the package, never a step
 that runs repository code.
 :::
@@ -167,4 +182,11 @@ single maintainer could satisfy; signed commits and tags.
 :k: 2
 :date: 2026-11-09
 :digest: a3456913c7cdcc11cb7e19d3a7b547ee077dbaea8c63c85973028bbb84b02ef5
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_4
+:k: 2
+:date: 2026-11-10
+:digest: 82f08145eb8d69c71b65c1331b0c998c28e4db26fe43839351ab81cb138d6b99
 :::
