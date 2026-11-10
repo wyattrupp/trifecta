@@ -1,0 +1,61 @@
+name: release-publish
+
+# Runs from main's copy of this file whenever release-build finishes, so a tag cannot bring
+# its own publishing steps. It publishes only a build of a version tag whose commit is on
+# main, after a maintainer approves the release environment, and it is the only job that
+# may write (REQ_RELEASE_TRUST).
+on:
+  workflow_run:
+    workflows: ["release-build"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.path == '.github/workflows/release-build.yml'
+    runs-on: ubuntu-24.04
+    # Waits for a maintainer's approval of the environment.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      actions: read
+    steps:
+      - name: The build is of a version tag that names a commit on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          case "$TAG" in v[0-9]*) ;; *) echo "not a version tag: $TAG"; exit 1 ;; esac
+          tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)
+          test "$tagged" = "$SHA"
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...main" --jq .status)
+          case "$status" in ahead|identical) ;; *) echo "$SHA is not on main"; exit 1 ;; esac
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/trifecta-*.whl
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        # The tag must still name the commit that was built; --verify-tag never creates one.
+        run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)" = "$SHA"
+          gh release create "$TAG" dist/trifecta-*.whl dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "$TAG" --notes "Verify the wheel with:
+          gh attestation verify trifecta-${TAG#v}-py3-none-any.whl --repo $GITHUB_REPOSITORY \\
+            --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-publish.yml \\
+            --deny-self-hosted-runners"
