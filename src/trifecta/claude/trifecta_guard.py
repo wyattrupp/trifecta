@@ -46,14 +46,24 @@ try:
         """Path segments as Windows compares them: no case, no trailing dots or spaces."""
         out = []
         for part in path.replace("\\", "/").split("/"):
-            part = part.rstrip(". ").casefold()
-            if part in ("", "."):
+            if part == "..":
+                if out and out[-1] != "..":
+                    out.pop()
+                else:
+                    out.append(part)
                 continue
-            if part == ".." and out and out[-1] != "..":
-                out.pop()
-            else:
+            # A stream name (``x:y``, ``x::$INDEX_ALLOCATION``) still names the file or
+            # directory before the colon; a drive letter is not a segment here.
+            if ":" in part and not re.fullmatch(r"[A-Za-z]:", part):
+                part = part.split(":")[0]
+            part = part.rstrip(". ").casefold()
+            if part not in ("", "."):
                 out.append(part)
         return out
+
+    def _names_guarded(segments):
+        """Whether ``docs`` then ``superpowers`` appear anywhere in a path's segments."""
+        return any(segments[i:i + 2] == GUARDED for i in range(len(segments)))
 
     def _plain(path):
         """A Windows path without the ``\\\\?\\`` prefix realpath can return, so it compares
@@ -64,17 +74,20 @@ try:
             return path[4:]
         return path
 
-    def _guarded(raw, project):
-        """Whether ``raw``, resolved against the project directory, is under docs/superpowers."""
+    def _guarded(raw, project, cwd):
+        """Whether ``raw``, resolved against the session's directory, is under the
+        project's docs/superpowers."""
         text = raw.replace("\\", "/")
-        if not (os.path.isabs(text) or re.match(r"^[A-Za-z]:/", text)):
-            text = os.path.join(project, text)
+        if not (os.path.isabs(text) or re.match(r"^[A-Za-z]:/", text) or text.startswith("//")):
+            text = os.path.join(cwd, text)
         real = _plain(os.path.realpath(text))
         base = _plain(os.path.realpath(project))
         try:
             rel = os.path.relpath(real, base)
-        except ValueError:  # another drive: outside the project
-            return False
+        except ValueError:
+            # Not relatable to the project, as a UNC or loopback share path is not: refuse
+            # when it names docs/superpowers anywhere, rather than guess it is elsewhere.
+            return _names_guarded(_segments(real))
         segments = _segments(rel)
         if segments[:1] == [".."]:
             return False
@@ -88,13 +101,14 @@ try:
         if not isinstance(tool, str) or not isinstance(given, dict):
             raise ValueError("the input names no tool and its input")
         project = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
-        if not isinstance(project, str):
+        cwd = data.get("cwd") or project  # where the session resolves a relative path
+        if not isinstance(project, str) or not isinstance(cwd, str):
             raise ValueError("no project directory")
         if tool in PATH_KEYS:
             path = given.get(PATH_KEYS[tool])
             if not isinstance(path, str):
                 raise ValueError(f"{tool} names no path")
-            return not _guarded(path, project)
+            return not _guarded(path, project, cwd)
         if tool == "Bash":
             command = given.get("command")
             if not isinstance(command, str):
@@ -102,7 +116,7 @@ try:
             if NAMED.search(command.replace("\\", "/").casefold()):
                 return False
             for token in re.split(r"[\s;&|<>()`'\"=]+", command):
-                if "superpowers" in token.casefold() and _guarded(token, project):
+                if "superpowers" in token.casefold() and _guarded(token, project, cwd):
                     return False
         return True
 

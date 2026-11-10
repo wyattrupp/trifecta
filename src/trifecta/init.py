@@ -320,7 +320,7 @@ NEW = ".trifecta-new"
 #: neither can start (REQ_INIT_SAFE, REQ_HOOK_FAILS_CLOSED).
 MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash"
 _RUN_HOOK = f'"$CLAUDE_PROJECT_DIR/{HOOK}"'
-COMMAND = f"python3 {_RUN_HOOK} || python {_RUN_HOOK} || exit 2"
+COMMAND = f"python3 -I {_RUN_HOOK} || python -I {_RUN_HOOK} || exit 2"
 ENTRY = {"matcher": MATCHER, "hooks": [{"type": "command", "command": COMMAND}]}
 
 
@@ -338,11 +338,11 @@ def appended(original: bytes) -> bytes | None:
     lines = body.splitlines()
     wanted = section().splitlines()
     starts = [i for i, line in enumerate(lines) if line == wanted[0]]
-    if any(lines[i:i + len(wanted)] == wanted for i in starts):
-        return None
-    if starts:
+    if any(lines[i:i + len(wanted)] != wanted for i in starts):
         raise Refused(f"{CLAUDE_MD} holds the heading {wanted[0]!r} without the rest of the "
                       "section; restore or remove it")
+    if starts:
+        return None
     if not original:
         return section().encode("utf-8")
     first = body.find("\n")
@@ -416,7 +416,10 @@ def merged(original: bytes) -> bytes | None:
     data.setdefault("hooks", hooks)
     hooks.setdefault("PreToolUse", entries)
     entries.append(ENTRY)
-    return (json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    try:
+        return (json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    except UnicodeEncodeError:
+        raise Refused(f"{where} holds a string that is not valid Unicode") from None
 
 
 @dataclass
@@ -444,6 +447,9 @@ def read_existing(root: Path, rel: str) -> tuple[bytes, os.stat_result] | None:
         raise Refused(f"{rel} is not a regular file")
     if not path.resolve().is_relative_to(root):
         raise Refused(f"{rel} resolves outside the repository")
+    readonly = getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0)
+    if readonly or not st.st_mode & stat.S_IWUSR:
+        raise Refused(f"{rel} is read-only; make it writable to let init change it")
     if _lstat(root / (rel + NEW)) is not None:
         raise Refused(f"{rel + NEW} is left from an earlier run; remove it")
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) \
@@ -463,7 +469,12 @@ after_move = None
 
 
 def _same(a: os.stat_result, b: os.stat_result) -> bool:
-    return (a.st_dev, a.st_ino, a.st_mtime_ns) == (b.st_dev, b.st_ino, b.st_mtime_ns)
+    """The same file, unchanged: identity, size and modification time, and on POSIX the
+    change time too, since ext4 hands a freed inode number straight to the next file and
+    utime cannot set a change time. Windows' st_ctime is the creation time, which file
+    tunnelling keeps across a delete and re-create, so it says nothing there."""
+    fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns") + (("st_ctime_ns",) if os.name == "posix" else ())
+    return all(getattr(a, f) == getattr(b, f) for f in fields)
 
 
 def _replace(run: "Run", rel: str, data: bytes, mode: int, expected: os.stat_result) -> os.stat_result:
@@ -471,10 +482,18 @@ def _replace(run: "Run", rel: str, data: bytes, mode: int, expected: os.stat_res
     given ``mode``, and move it over ``rel`` once ``rel`` is still the file ``expected``
     describes, reached through no link. Return the moved file's identity."""
     run.write(rel + NEW, data, mode=0o600)
+    ours = run.created_files[-1]
+
+    def still_ours() -> None:
+        check_parents(run.root, rel)
+        st = _lstat(run.root / (rel + NEW))
+        if st is None or _is_link(st) or (st.st_dev, st.st_ino) != ours[1:]:
+            raise Refused(f"{rel + NEW} is not the file this run wrote")
+    still_ours()
     os.chmod(run.root / (rel + NEW), stat.S_IMODE(mode))
     if before_move:
         before_move(rel)
-    check_parents(run.root, rel)
+    still_ours()
     now = _lstat(run.root / rel)
     if now is None or _is_link(now) or not _same(now, expected):
         raise Refused(f"{rel} changed after init read it")
@@ -497,19 +516,21 @@ def init(root: Path, owner: str | None, url: str | None, sha256: str | None
     for rel in targets:
         check_target(root, rel)
     changes: dict[str, Change] = {}
+    absent: set[str] = set()
     for rel, build in ((CLAUDE_MD, appended), (SETTINGS, merged)):
         existing = read_existing(root, rel)
         if existing is None:
             check_target(root, rel)
+            absent.add(rel)  # created exclusively, so one that appears meanwhile is refused
             continue
         original, st = existing
         new = build(original)
         if new is not None:
             changes[rel] = Change(rel, original, st, new)
     created = dict(targets)
-    if CLAUDE_MD not in changes and _lstat(root / CLAUDE_MD) is None:
+    if CLAUDE_MD in absent:
         created[CLAUDE_MD] = section().encode("utf-8")
-    settings_new = SETTINGS not in changes and _lstat(root / SETTINGS) is None
+    settings_new = SETTINGS in absent
     run = Run(root)
     try:
         for rel, data in created.items():

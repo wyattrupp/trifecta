@@ -87,6 +87,8 @@ class ClaudeMdAppend(unittest.TestCase):
         altered = SECTION.replace("A plan implements", "A plan implemented")
         for name, data, why in (
                 ("not UTF-8", b"\xff\xfe x", "not UTF-8"),
+                ("stray heading beside the section",
+                 SECTION.encode() + b"\n" + HEADING.encode() + b"\n", "without the rest"),
                 ("altered body", altered.encode(), "without the rest"),
                 ("missing body", (HEADING + "\n").encode(), "without the rest")):
             with self.subTest(name), Repo() as root:
@@ -106,6 +108,17 @@ class ClaudeMdAppend(unittest.TestCase):
             write(root / CLAUDE_MD, b"mine\n")
             write(root / (CLAUDE_MD + NEW), b"left")
             refused(self, root, "left from an earlier run")
+
+    @proves("REQ_INIT_SAFE")
+    def test_read_only_original_is_refused(self):
+        for rel in (CLAUDE_MD, SETTINGS):
+            with self.subTest(rel), Repo() as root:
+                write(root / rel, b"{}\n" if rel == SETTINGS else b"mine\n")
+                os.chmod(root / rel, stat.S_IREAD)
+                try:
+                    refused(self, root, "read-only")
+                finally:
+                    os.chmod(root / rel, stat.S_IREAD | stat.S_IWRITE)
 
     @proves("REQ_INIT_SAFE")
     @only_on("posix")
@@ -326,6 +339,7 @@ class SettingsMerge(unittest.TestCase):
             'disableAllHooks "true"': b'{"disableAllHooks": "true"}',
             "hooks not an object": b'{"hooks": []}',
             "PreToolUse not an array": b'{"hooks": {"PreToolUse": {}}}',
+            "lone surrogate": b'{"a": "\\ud800"}',
         }
         for field, value in (("async", True), ("timeout", 5)):
             entry = json.loads(json.dumps(ENTRY))
@@ -524,6 +538,30 @@ class Hook(unittest.TestCase):
                                                  "tool_input": {"command": command}}), 2)
             self.assertEqual(hook(root, write_call("docs/rfcs/x.md")), 0)
             self.assertEqual(hook(root, {"tool_name": "Bash", "tool_input": {"command": "ls docs"}}), 0)
+
+    @proves("REQ_HOOK_FAILS_CLOSED")
+    def test_stream_names_share_paths_and_the_sessions_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            root = base / "proj"
+            (root / "docs").mkdir(parents=True)
+            for path in ("docs/superpowers::$INDEX_ALLOCATION/x.md",
+                         "docs\\superpowers:$I30:$INDEX_ALLOCATION\\x.md",
+                         "docs/superpowers:stream"):
+                with self.subTest(path):
+                    self.assertEqual(hook(root, write_call(path)), 2)
+            relative = {**write_call("superpowers/x.md"), "cwd": str(root / "docs")}
+            self.assertEqual(hook(root, relative), 2)
+            (base / "docs" / "superpowers").mkdir(parents=True)
+            outside = str(base / "docs" / "superpowers" / "a.md")
+            self.assertEqual(hook(root, write_call(outside)), 0)
+
+    @proves("REQ_HOOK_FAILS_CLOSED")
+    @only_on("nt")
+    def test_refuses_a_share_path_it_cannot_relate_to_the_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share = "\\\\localhost\\c$\\work\\docs\\superpowers\\y.md"
+            self.assertEqual(hook(Path(tmp).resolve(), write_call(share)), 2)
 
     @proves("REQ_HOOK_FAILS_CLOSED")
     def test_resolves_a_link_into_docs_superpowers(self):

@@ -259,4 +259,12 @@ and the new file, created as `<name>.trifecta-new` with mode 0600 and then given
 original's mode bits, is moved over it only after the original's identity and
 modification time are checked again. Tests reach the moments between validation and the
 move through two more seams, `before_move` and `after_move`. The Windows CI job turns 8.3
-names on for `C:`, where the tests' temporary directories are.
+names on for `C:`, where the tests' temporary directories are. Both interpreters run the
+hook with `-I`, so nothing beside the script or in the environment changes what it
+imports. The hook resolves a relative path against the session's `cwd`, reads a segment
+up to any `:` so an NTFS stream name still names its directory, and refuses a path it
+cannot relate to the project, such as a share path, when it names `docs/superpowers`
+anywhere. Beside identity and modification time, init compares size and, on POSIX, the
+change time, since ext4 gives a freed inode number to the next file and `utime` cannot
+set a change time; it checks the new file is still the one it wrote before setting its
+mode and before the move, and it refuses a read-only original.
