@@ -98,11 +98,11 @@ The files init adds for Claude Code.
 :gate: The test for REQ_RELEASE_TRUST passes; the release carries its wheel, SHA-256 and attestation; a repository created from the template passes its CI with the released wheel.
 Each step outside this repository waits for wyatt's yes.
 
-- [x] **6.1** Create a `release` environment with wyatt as required reviewer that deploys only from main, and add the release workflows: on a version tag, build with hashed build dependencies and SHA-pinned actions and read access only; then, from a workflow that always runs from main's copy because the tag's own copy of the build workflow runs on a tag, fail unless the tag still names the built commit and that commit is reachable from main, relying on the tag ruleset, which lets only an admin create, move or delete a tag, to keep the tag where it was checked, then wait for the environment's approval and publish the wheel, its SHA-256 and a provenance attestation of the build from the only job that may write.
+- [x] **6.1** Create a `release` environment with wyatt as required reviewer that deploys only from main, and add the release workflows: on a version tag, build with hashed build dependencies and SHA-pinned actions and read access only, apart from attesting the wheel's build provenance (wyatt, 2026-11-10: "Attest in the build job"); then, from a workflow that always runs from main's copy because the tag's own copy of the build workflow runs on a tag, fail unless the tag still names the built commit and that commit is reachable from main, relying on the tag ruleset, which lets only an admin create, move or delete a tag, to keep the tag where it was checked, then wait for the environment's approval, verify the wheel's attestation against the tag and its commit, and publish the wheel and its SHA-256 from the only job that may write.
 - [ ] **6.2** Confirm that creating a release through the API cannot make a tag the ruleset refuses, then tag the first release on main.
 - [ ] **6.3** Create the template repository from `trifecta init` output pinned to that release, and mark it a template.
 - [ ] **6.4** Create a repository from the template and confirm its CI passes.
-- [ ] **6.5** Add the test that names REQ_RELEASE_TRUST: the build has read access only and installs only the hashed build backend; publishing runs from main, guards that the tag names a commit on main before anyone is asked to approve, waits for the `release` environment, and publishes the wheel, its SHA-256 and a provenance attestation of the build; every action is pinned by commit SHA.
+- [ ] **6.5** Add the test that names REQ_RELEASE_TRUST: the build has read access only, apart from attesting its wheel's provenance, and installs only the hashed build backend; publishing runs from main, guards that the tag names a commit on main before anyone is asked to approve, waits for the `release` environment, verifies the wheel's attestation and publishes the wheel and its SHA-256; every action is pinned by commit SHA.
 :::
 
 :::{task} Adoption guide
@@ -172,6 +172,13 @@ The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :k: 2
 :date: 2026-11-10
 :digest: a622afea5bba8bdda86420eee7ede5a4da21d8df6197ed1c995f8b4cf722a589
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0003_9
+:k: 2
+:date: 2026-11-10
+:digest: 2052b4e5cad35b41c9c2d9065402186a8e5b494aced84cf1d7ca2770a793efd1
 :::
 
 ## As built
