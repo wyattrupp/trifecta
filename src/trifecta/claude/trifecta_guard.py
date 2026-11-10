@@ -78,6 +78,8 @@ try:
         """Whether ``raw``, resolved against the session's directory, is under the
         project's docs/superpowers."""
         text = raw.replace("\\", "/")
+        if text == "~" or text.startswith("~/"):
+            text = os.path.expanduser(text)  # as the file tools read a leading ~
         if not (os.path.isabs(text) or re.match(r"^[A-Za-z]:/", text) or text.startswith("//")):
             text = os.path.join(cwd, text)
         real = _plain(os.path.realpath(text))

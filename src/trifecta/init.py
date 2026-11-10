@@ -255,7 +255,8 @@ class Run:
     created_files: list[tuple[str, int, int]] = field(default_factory=list)
     created_dirs: list[str] = field(default_factory=list)
 
-    def write(self, rel: str, data: bytes, mode: int = 0o644) -> None:
+    def write(self, rel: str, data: bytes, mode: int = 0o644,
+              final_mode: int | None = None) -> None:
         for directory in _parents(rel):
             check_parents(self.root, f"{directory}/x")
             path = self.root / directory
@@ -281,6 +282,8 @@ class Run:
                     or not (self.root / rel).resolve().is_relative_to(self.root):
                 raise Refused(f"{rel} is not the file just created in the repository")
             out.write(data)
+            if final_mode is not None and hasattr(os, "fchmod"):
+                os.fchmod(out.fileno(), final_mode)  # through the handle: no link to follow
         if after_create:
             after_create(rel)
 
@@ -447,9 +450,6 @@ def read_existing(root: Path, rel: str) -> tuple[bytes, os.stat_result] | None:
         raise Refused(f"{rel} is not a regular file")
     if not path.resolve().is_relative_to(root):
         raise Refused(f"{rel} resolves outside the repository")
-    readonly = getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0)
-    if readonly or not st.st_mode & stat.S_IWUSR:
-        raise Refused(f"{rel} is read-only; make it writable to let init change it")
     if _lstat(root / (rel + NEW)) is not None:
         raise Refused(f"{rel + NEW} is left from an earlier run; remove it")
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) \
@@ -481,7 +481,7 @@ def _replace(run: "Run", rel: str, data: bytes, mode: int, expected: os.stat_res
     """Write ``data`` to ``rel`` + .trifecta-new, created exclusively with mode 0600 and then
     given ``mode``, and move it over ``rel`` once ``rel`` is still the file ``expected``
     describes, reached through no link. Return the moved file's identity."""
-    run.write(rel + NEW, data, mode=0o600)
+    run.write(rel + NEW, data, mode=0o600, final_mode=stat.S_IMODE(mode))
     ours = run.created_files[-1]
 
     def still_ours() -> None:
@@ -489,8 +489,9 @@ def _replace(run: "Run", rel: str, data: bytes, mode: int, expected: os.stat_res
         st = _lstat(run.root / (rel + NEW))
         if st is None or _is_link(st) or (st.st_dev, st.st_ino) != ours[1:]:
             raise Refused(f"{rel + NEW} is not the file this run wrote")
-    still_ours()
-    os.chmod(run.root / (rel + NEW), stat.S_IMODE(mode))
+    if not hasattr(os, "fchmod"):  # Windows: chmod only sets the read-only bit
+        still_ours()
+        os.chmod(run.root / (rel + NEW), stat.S_IMODE(mode))
     if before_move:
         before_move(rel)
     still_ours()
@@ -526,6 +527,9 @@ def init(root: Path, owner: str | None, url: str | None, sha256: str | None
         original, st = existing
         new = build(original)
         if new is not None:
+            readonly = getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0)
+            if readonly or not st.st_mode & stat.S_IWUSR:
+                raise Refused(f"{rel} is read-only; make it writable to let init change it")
             changes[rel] = Change(rel, original, st, new)
     created = dict(targets)
     if CLAUDE_MD in absent:

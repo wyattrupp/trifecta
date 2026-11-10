@@ -110,6 +110,17 @@ class ClaudeMdAppend(unittest.TestCase):
             refused(self, root, "left from an earlier run")
 
     @proves("REQ_INIT_SAFE")
+    def test_read_only_file_init_leaves_alone_is_not_refused(self):
+        with Repo() as root:
+            write(root / CLAUDE_MD, SECTION.encode())
+            os.chmod(root / CLAUDE_MD, stat.S_IREAD)
+            try:
+                written, changed = run_init(root)
+                self.assertNotIn(CLAUDE_MD, written + changed)
+            finally:
+                os.chmod(root / CLAUDE_MD, stat.S_IREAD | stat.S_IWRITE)
+
+    @proves("REQ_INIT_SAFE")
     def test_read_only_original_is_refused(self):
         for rel in (CLAUDE_MD, SETTINGS):
             with self.subTest(rel), Repo() as root:
@@ -228,23 +239,22 @@ class ModeBits(unittest.TestCase):
     @proves("REQ_INIT_SAFE")
     @only_on("posix")
     def test_changed_files_keep_their_mode_and_new_files_start_0600(self):
-        modes = {}
-        real_chmod = os.chmod
+        modes = []
+        real_fchmod = os.fchmod
 
-        def watch(path, mode, *a, **k):
-            if str(path).endswith(NEW):
-                modes[Path(path).name] = stat.S_IMODE(os.lstat(path).st_mode)
-            return real_chmod(path, mode, *a, **k)
+        def watch(fd, mode):
+            modes.append(stat.S_IMODE(os.fstat(fd).st_mode))
+            return real_fchmod(fd, mode)
         with Repo() as root:
             write(root / CLAUDE_MD, b"mine\n")
             write(root / SETTINGS, b"{}\n")
             os.chmod(root / CLAUDE_MD, 0o640)
             os.chmod(root / SETTINGS, 0o604)
-            with mock.patch("os.chmod", watch):
+            with mock.patch("os.fchmod", watch):
                 run_init(root)
             self.assertEqual(stat.S_IMODE((root / CLAUDE_MD).stat().st_mode), 0o640)
             self.assertEqual(stat.S_IMODE((root / SETTINGS).stat().st_mode), 0o604)
-        self.assertEqual(modes, {CLAUDE_MD + NEW: 0o600, "settings.json" + NEW: 0o600})
+        self.assertEqual(modes, [0o600, 0o600], "each new file starts at 0600")
 
     @proves("REQ_INIT_SAFE")
     @only_on("posix")
@@ -550,6 +560,8 @@ class Hook(unittest.TestCase):
                          "docs/superpowers:stream"):
                 with self.subTest(path):
                     self.assertEqual(hook(root, write_call(path)), 2)
+            home = {"HOME": str(base), "USERPROFILE": str(base)}
+            self.assertEqual(hook(root, write_call("~/proj/docs/superpowers/x.md"), env=home), 2)
             relative = {**write_call("superpowers/x.md"), "cwd": str(root / "docs")}
             self.assertEqual(hook(root, relative), 2)
             (base / "docs" / "superpowers").mkdir(parents=True)
