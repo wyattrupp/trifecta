@@ -111,8 +111,8 @@ Each step outside this repository waits for wyatt's yes.
 :gate: The test for REQ_ADOPTION_GUIDE passes.
 The last task, so it also closes the design.
 
-- [ ] **7.1** Rewrite README.md to lead with "Run this in your repo": from the template, or with `trifecta init` in an existing repository; the lock line and verifying the release attestation; `make check` and CI; planning with Claude Code. Then developing trifecta itself.
-- [ ] **7.2** Add the test that runs the guide's commands in an empty directory against the wheel built from the workspace; it names `posix`, as step 3.1 provides, since the guide's `make` commands do not run in the Windows job.
+- [x] **7.1** Rewrite README.md to lead with "Run this in your repo": from the template, or with `trifecta init` in an existing repository; the lock line and verifying the release attestation; `make check` and CI; planning with Claude Code. Then developing trifecta itself.
+- [x] **7.2** Add the test that runs the guide's commands in an empty directory against the wheel built from the workspace; it names `posix`, as step 3.1 provides, since the guide's `make` commands do not run in the Windows job.
 - [ ] **7.3** Mark DES_0004 implemented, check that every requirement of RFC_0004 has its test, review this plan's As built k=2, and set this plan's status to done.
 :::
 
@@ -301,3 +301,18 @@ refused any push whose base was not in the clone, as a repository's first push n
 Init 0.1.2 checks a first commit without a base, the template was regenerated from it,
 and both its CI and that of `wyattrupp/trifecta-template-check`, made from it, passed;
 the second was left for wyatt to delete, since `gh` here lacks the `delete_repo` scope.
+
+### Task 7 (2026-11-10)
+
+The guide installs the latest release into a virtual environment outside the repository:
+it downloads the wheel, verifies its attestation against the release workflow at its tag,
+installs the hashed lock the wheel carries and then the wheel, and runs `trifecta init`
+and `make check`, whose `vale` step fetches Vale. The test runs that block from the
+README, found by the comment before it, in an empty repository after `git init`, with the
+wheel built from the workspace in place of the download and the attestation check, and
+with this repository's Vale copied in; the lock's dependencies come from the package
+index. It names `posix`; a second test, on every system, holds that the README opens with
+the guide and that the block verifies, inits and checks. COMP_RELEASE, COMP_TEMPLATE_REPO
+and COMP_ADOPTION_GUIDE got their `spec` paths here, the template's being the code that
+writes its content. Every requirement of RFC_0004 is named by a test: REQ_ONE_PACKAGE and
+REQ_PROVEN_BY_TEST by fixtures too.
