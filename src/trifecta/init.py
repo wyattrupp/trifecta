@@ -35,8 +35,8 @@ TYPED_DIRS = ("rfcs", "decisions", "design", "plans")
 #: The files that steer the check and the session, each owned in CODEOWNERS.
 STEERING = ("/CLAUDE.md", "/.claude/", "/.github/", "/docs/conf.py", "/Makefile",
             "/requirements.lock")
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
-OWNER = re.compile(r"^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:/[A-Za-z0-9._-]+)?$")
+SHA256 = re.compile(r"[0-9a-f]{64}")
+OWNER = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:/[A-Za-z0-9._-]+)?")
 
 
 class Refused(Exception):
@@ -176,7 +176,7 @@ def package_line(url: str | None, sha256: str | None) -> str:
         raise Refused("--wheel-url and --wheel-sha256 go together")
     if problem := package_url_problem(url):
         raise Refused(f"--wheel-url: {problem}")
-    if not SHA256.match(sha256):
+    if not SHA256.fullmatch(sha256):
         raise Refused("--wheel-sha256 is not 64 lowercase hexadecimal digits")
     return f"trifecta @ {url} --hash=sha256:{sha256}"
 
@@ -192,7 +192,7 @@ def codeowner(root: Path, given: str | None) -> str:
             raise Refused("no GitHub origin remote to take the CODEOWNERS owner from; "
                           "pass --codeowner @name")
         given = f"@{m.group(1)}"
-    if not OWNER.match(given):
+    if not OWNER.fullmatch(given):
         raise Refused(f"--codeowner {given!r} is not @user or @org/team")
     return given
 
@@ -265,9 +265,18 @@ class Run:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) \
             | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(self.root / rel, flags, 0o644)
-        st = os.fstat(fd)
-        self.created_files.append((rel, st.st_dev, st.st_ino))
         with os.fdopen(fd, "wb") as out:
+            st = os.fstat(out.fileno())
+            self.created_files.append((rel, st.st_dev, st.st_ino))
+            # Windows has no O_NOFOLLOW, and a parent can change between the last check and
+            # the open: write nothing unless the file opened is the one at the path, in the
+            # repository, and not a link.
+            check_parents(self.root, rel)
+            at_path = _lstat(self.root / rel)
+            if at_path is None or _is_link(at_path) \
+                    or (at_path.st_dev, at_path.st_ino) != (st.st_dev, st.st_ino) \
+                    or not (self.root / rel).resolve().is_relative_to(self.root):
+                raise Refused(f"{rel} is not the file just created in the repository")
             out.write(data)
         if after_create:
             after_create(rel)

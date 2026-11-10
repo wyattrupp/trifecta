@@ -372,11 +372,13 @@ class TypedIndex(TocTree):
 
     def run(self):
         directory = self.arguments[0].strip("/")
+        # Read again on every build, as a glob toctree is, so a new document is listed.
+        self.env.note_reread()
         docs = sorted(d for d in self.env.found_docs if d.startswith(directory + "/"))
         if not docs:
             return []
         self.arguments = []
-        self.content = StringList(docs)
+        self.content = StringList([f"/{d}" for d in docs])
         self.options.setdefault("maxdepth", 1)
         return super().run()
 

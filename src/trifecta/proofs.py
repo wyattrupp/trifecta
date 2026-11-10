@@ -461,9 +461,12 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
         command = child or [sys.executable, "-E", "-X", "utf8", "-c", BOOT, package_parent]
         # Output goes to a file, not a pipe, so a process a test leaves running cannot hold
         # the check open, and a test that prints much is not held in memory.
+        # The tests run without the shared cache, so a test that runs the stage itself
+        # checks the package it runs, not a copy's cached result.
+        env = {k: v for k, v in os.environ.items() if k != CACHE_ENV}
         with open(log, "wb") as out:
             subprocess.run([*command, str(channel), str(plan)], cwd=root, stdout=out,
-                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
         text = channel.read_text(encoding="utf-8", errors="replace") if channel.is_file() else ""
         with open(log, "rb") as out:
             out.seek(max(0, log.stat().st_size - 500))
@@ -476,17 +479,25 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
 CACHE_ENV = "TRIFECTA_PROOF_CACHE"
 
 
+#: What the key leaves out: what the check and setup write, git's own store, and the
+#: corpus under ``docs/``, which no test here reads; most fixtures change only the corpus,
+#: so their copies reuse the control's results. A test that read ``docs/`` would make a
+#: copy reuse a stale result; the check outside the fixture runner never uses the cache.
+_UNKEYED = {".git", "_build", "bin", "__pycache__"}
+
+
 def _content_key(root: Path) -> str:
-    """A digest of everything the stage's result depends on: the files under ``tests/``
-    and ``src/``, the system and the interpreter."""
-    h = hashlib.sha256(f"{os.name}\0{sys.version}\0{os.environ.get('RUNNER_OS', '')}".encode())
-    for top in ("tests", "src"):
-        base = root / top
-        if not base.is_dir():
-            continue
+    """A digest of what the stage's result depends on: every file in the repository but
+    the corpus, every file in the package that runs the stage, the system and the
+    interpreter."""
+    h = hashlib.sha256(f"{os.name}\0{sys.version}\0{sys.executable}\0"
+                       f"{os.environ.get('RUNNER_OS', '')}".encode())
+    package = Path(__file__).resolve().parent
+    for label, base in (("repo", root), ("package", package)):
         for path in sorted(p for p in base.rglob("*") if p.is_file()
-                           and "__pycache__" not in p.parts):
-            h.update(b"\0" + path.relative_to(root).as_posix().encode() + b"\0")
+                           and not _UNKEYED & set(p.relative_to(base).parts)
+                           and not (label == "repo" and p.relative_to(base).parts[0] == "docs")):
+            h.update(f"\0{label}\0{path.relative_to(base).as_posix()}\0".encode())
             h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 

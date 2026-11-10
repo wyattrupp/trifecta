@@ -18,6 +18,7 @@ from . import PROJECT
 from .check_graph import check as check_graph, load_needs
 from .check_lifecycle import check as check_lifecycle
 from .ext import DOC_TYPES
+from .ext.ontology import DOC_LEVEL
 from .findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable
 from .gen_vale import generate
 from .proofs import check_proofs
@@ -140,6 +141,8 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 def package_url_problem(url: str) -> str | None:
     """Why ``url`` is not one of the package's own release wheels, or None."""
+    if re.search(r"\s", url):
+        return "the URL holds white space"
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https":
         return "the URL is not https"
@@ -181,8 +184,8 @@ def check_toolchain(root: Path, name: str = "requirements.lock",
             else:
                 findings += check_toolchain(root, rel, seen | {name})
             continue
-        name = NAME.match(line)
-        if name and re.sub(r"[-_.]+", "-", name.group(0)).lower() == "trifecta":
+        pin = NAME.match(line)
+        if pin and re.sub(r"[-_.]+", "-", pin.group(0)).lower() == "trifecta":
             m = PACKAGE_LINE.match(line)
             problem = (package_url_problem(m.group("url")) if m else
                        "not the form trifecta @ <release wheel URL> --hash=sha256:<hash>")
@@ -349,10 +352,6 @@ def check_portable(findings: list[Finding]) -> list[Finding]:
     ]
 
 
-#: The document-level need types: a corpus with none of them has no typed document.
-DOC_LEVEL = ("rfc", "decision", "design", "plan")
-
-
 def fixture_audit_on(root: Path) -> bool:
     """Whether the corpus's configuration turned the fixture audit on, as the build
     recorded it (COMP_SELF_TEST_SCOPE); off when the record is missing or unreadable."""
@@ -362,6 +361,13 @@ def fixture_audit_on(root: Path) -> bool:
     except (OSError, ValueError):
         return False
     return isinstance(record, dict) and record.get("fixture_audit") is True
+
+
+def audit_stage(root: Path, needs: dict[str, dict], proven: set[str]) -> list[Finding]:
+    """The fixture audit, where the corpus's configuration turns it on and nowhere else."""
+    if not fixture_audit_on(root):
+        return []
+    return audit_fixtures(needs, root / "tests" / "fixtures", proven)
 
 
 def audit_fixtures(needs: dict[str, dict], fixtures: Path, proven: set[str]) -> list[Finding]:
@@ -410,8 +416,7 @@ def main(argv: list[str] | None = None) -> int:
             findings += check_vale_version(vale)
             findings += run_vale(root, vale, "normative.ini")
             findings += run_vale(root, vale, "prose.ini")
-        if fixture_audit_on(root):
-            findings += audit_fixtures(needs, root / "tests" / "fixtures", proven)
+        findings += audit_stage(root, needs, proven)
     else:
         findings.append(Finding(
             "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",

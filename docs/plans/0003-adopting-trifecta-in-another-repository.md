@@ -237,7 +237,8 @@ tracked, and a `.gitkeep` in each typed directory. Sphinx gives the empty-glob w
 type, so no setting can quiet it; the index lists each typed directory with the
 extension's `typed-index` directive, which lists nothing while the directory is empty.
 Tests swap or fail a create through two seams in `trifecta.init`, `before_create` and
-`after_create`. The fixture runner shares a cache of test results keyed by the content of
-`tests/` and `src/`, so a copy whose tests and package match the control's does not run
-them again. An existing `.gitignore`, Makefile or workflow is refused like any other
-target.
+`after_create`. The fixture runner shares a cache of test results keyed by every file but
+the corpus under `docs/`, which no test reads, and by the running package, so a copy that
+changes only the corpus does not run the tests again; the check outside the fixture
+runner never uses it. An existing `.gitignore`, Makefile or workflow is refused like any
+other target.

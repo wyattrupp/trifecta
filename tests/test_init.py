@@ -91,6 +91,27 @@ class InitPasses(unittest.TestCase):
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 
 
+class AuditScoped(unittest.TestCase):
+    @proves("REQ_SELF_TESTS_SCOPED")
+    def test_unproven_requirement_is_reported_only_where_the_audit_is_on(self):
+        from trifecta.check import audit_stage
+        needs = {
+            "REQ_X": {"id": "REQ_X", "type": "req", "satisfies_back": ["COMP_X"]},
+            "COMP_X": {"id": "COMP_X", "type": "component", "doc_status": "implemented"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            html = root / "docs" / "_build" / "html"
+            html.mkdir(parents=True)
+            self.assertEqual(audit_stage(root, needs, set()), [], "no record: the audit is off")
+            for on in (False, True):
+                (html / "trifecta.json").write_text(f'{{"fixture_audit": {str(on).lower()}}}',
+                                                    encoding="utf-8")
+                found = audit_stage(root, needs, set())
+                self.assertEqual(bool(found), on, found)
+            self.assertEqual(audit_stage(root, needs, {"REQ_X"}), [])
+
+
 class InitSafe(unittest.TestCase):
     def refused(self, root: Path) -> str:
         before = snapshot(root)
