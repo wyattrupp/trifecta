@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "mode": "adopted",
+  "commands": {
+    "check": "python tools/check.py"
+  }
+}
