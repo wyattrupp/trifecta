@@ -1,7 +1,7 @@
 """The child that runs the proof modules (COMP_TEST_PROOFS) and reports on its own channel.
 
-Started by ``trifecta.proofs`` as ``python -E -X utf8``, with the channel's path, the
-modules to run and the tests to leave out. It writes one JSON record per line: its
+Started by ``trifecta.proofs`` as ``python -E -X utf8``, with the channel's path and a
+plan file naming the modules to run and the tests to leave out. It writes one JSON record per line: its
 ``os.name`` before any import and after the run, every import error, every collected
 test, every result, every class or module set-up and tear-down that did not succeed, and
 an end record once it has reported all of them.
@@ -28,7 +28,7 @@ class Channel:
         self.out = open(path, "w", encoding="utf-8", newline="\n")
 
     def write(self, kind: str, **fields) -> None:
-        self.out.write(json.dumps({"kind": kind, **fields}, ensure_ascii=False) + "\n")
+        self.out.write(json.dumps({"kind": kind, **fields}) + "\n")
         self.out.flush()
 
 
@@ -135,7 +135,10 @@ def _flatten(suite) -> list:
 
 
 def main(argv: list[str]) -> int:
-    channel_path, modules, leave_out = argv[0], json.loads(argv[1]), set(json.loads(argv[2]))
+    channel_path = argv[0]
+    with open(argv[1], encoding="utf-8") as f:
+        plan = json.load(f)
+    modules, leave_out = plan["modules"], set(plan["leave_out"])
     channel = Channel(channel_path)
     channel.write("os", when="before", os_name=os.name)
     returned: dict[int, str | None] = {}
@@ -153,10 +156,12 @@ def main(argv: list[str]) -> int:
         for test in _flatten(loaded):
             if hasattr(test, "_testMethodName") and not isinstance(test, unittest.loader._FailedTest):
                 defined_module, defined_cls = _defined_in(test)
-                key = f"{defined_module}:{defined_cls}.{test._testMethodName}"
-                if key in leave_out:
-                    continue
                 module_name, cls, method = _where(test)
+                # By the function that defines the method, and by the class that collects it,
+                # since a wrapper that hides its function hides where it was defined.
+                if {f"{defined_module}:{defined_cls}.{method}",
+                        f"{module_name}:{cls}.{method}"} & leave_out:
+                    continue
                 channel.write("collected", module=module_name, cls=cls, name=method,
                               defined_module=defined_module, defined_cls=defined_cls)
             tests.append(test)

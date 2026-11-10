@@ -211,7 +211,7 @@ parent first on its path, so a fixture copy's child runs the copy's package. The
 writes JSON lines to a file in a temporary directory, and imports each proof module
 itself, so any exception on import, `SystemExit` included, is a record. A declaration
 whose test is also reported for its shape, such as a class defined twice, still counts
-when its result is plain success, since the check already fails. The thirty fixtures
+when its result is plain success, since the check already fails. The thirty-four fixtures
 create a test file each; the five child cases and the `RUNNER_OS` cases are tests in
 `tests/test_proofs.py` against a stub child. The tests under `tests/` run in every
 fixture copy, so `tests/test_package.py` builds a wheel in each. Task 2's components had

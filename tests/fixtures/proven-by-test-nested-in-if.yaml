@@ -1,0 +1,7 @@
+# A declared test under an if in its class body, which fails.
+expect: REQ_PROVEN_BY_TEST
+only: true
+mutations:
+- file: tests/test_fx.py
+  create: "import unittest\n\nfrom trifecta.testing import proves, only_on\n\n\nclass T(unittest.TestCase):\n    if True:\n        @proves(\"REQ_ONE_PACKAGE\")\n        def test_a(self):\n            self.fail(\"\
+    no\")\n"

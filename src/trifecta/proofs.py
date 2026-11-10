@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -28,8 +29,10 @@ RUNNER_OS = {"Linux": "posix", "Windows": "nt"}
 ASYNC_BASE = "IsolatedAsyncioTestCase"
 
 #: Starts the child: the running package first on the path, then the corpus root.
-BOOT = ("import sys; sys.path[:0] = [sys.argv[1], '']; "
-        "from trifecta.proof_child import main; sys.exit(main(sys.argv[2:]))")
+BOOT = ("import sys; sys.path.insert(0, sys.argv[1]); "
+        "from trifecta.proof_child import main; "
+        "sys.path.remove(sys.argv[1]); sys.path.insert(0, ''); "
+        "sys.exit(main(sys.argv[2:]))")
 
 
 @dataclass
@@ -104,6 +107,28 @@ def _bound_names(node: ast.AST) -> list[tuple[str, int]]:
     return out
 
 
+def _flat(body: list[ast.stmt]):
+    """The statements of one scope, through if, try, with, for, while and match blocks,
+    but not into a function or class body."""
+    for node in body:
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for name in ("body", "orelse", "finalbody"):
+            inner = getattr(node, name, None)
+            if isinstance(inner, list) and inner and isinstance(inner[0], ast.stmt):
+                yield from _flat(inner)
+        for handler in getattr(node, "handlers", []):
+            yield from _flat(handler.body)
+        for case in getattr(node, "cases", []):
+            yield from _flat(case.body)
+
+
+def _compound(node: ast.stmt) -> bool:
+    return isinstance(node, (ast.If, ast.Try, ast.TryStar, ast.With, ast.AsyncWith, ast.For,
+                             ast.AsyncFor, ast.While, ast.Match))
+
+
 class _Reader:
     """Reads one file's declarations and system values."""
 
@@ -114,6 +139,8 @@ class _Reader:
         self.classes: list[str] = []
         self.bound: set[str] = set()
         self.marked = False
+        #: The decorator nodes a class or method read; any other the check reads is misplaced.
+        self.consumed: set[int] = set()
 
     def report(self, line: int, message: str) -> None:
         self.findings.append(Finding(REQ, f"{self.rel}:{line}", message))
@@ -163,7 +190,19 @@ class _Reader:
                 names = [node.id]
             elif isinstance(node, ast.arg):
                 names = [node.arg]
+            elif isinstance(node, (ast.MatchAs, ast.MatchStar)):
+                names = [node.name] if node.name else []
+            elif isinstance(node, ast.MatchMapping):
+                names = [node.rest] if node.rest else []
+            elif isinstance(node, ast.ExceptHandler):
+                names = [node.name] if node.name else []
+            elif isinstance(node, (ast.Global, ast.Nonlocal)):
+                names = list(node.names)
             else:
+                continue
+            if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
+                self.report(node.lineno, "a star import can bind proves or only_on again; "
+                            "import names one by one")
                 continue
             for name in names:
                 if name in self.bound:
@@ -187,7 +226,9 @@ class _Reader:
     def _scope(self, body: list[ast.stmt], owner: ast.ClassDef | None, qual: str) -> None:
         """Read the classes and methods of one scope: the module or a class body."""
         defined: dict[str, int] = {}
-        for node in body:
+        for node in _flat(body):
+            if _compound(node):
+                continue
             if isinstance(node, ast.ClassDef):
                 name = f"{qual}{node.name}"
                 if name in defined:
@@ -197,13 +238,13 @@ class _Reader:
                 for dec in node.decorator_list:
                     if (kind := self._decorator_kind(dec)) is not None:
                         self.marked = True
+                        self.consumed.add(id(dec))
                         self.report(dec.lineno, "a system value on a class; put it on each "
                                     "method" if kind == "only_on" else
                                     "a declaration on a class; put it on each method")
                 self._scope(node.body, node, f"{name}.")
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if owner is None:
-                    self._misplaced(node)
                     continue
                 if node.name in defined:
                     self.report(node.lineno, f"{qual}{node.name} is defined more than once")
@@ -214,15 +255,6 @@ class _Reader:
                     if name in defined or (owner is None and f"{qual}{name}" in defined):
                         self.report(line, f"{qual}{name} is bound again after its definition")
 
-    def _misplaced(self, func: ast.AST) -> None:
-        for sub in ast.walk(func):
-            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                for dec in sub.decorator_list:
-                    if self._decorator_kind(dec) is not None:
-                        self.marked = True
-                        self.report(dec.lineno, "a declaration or system value sits only on a "
-                                    "method defined in a class body")
-
     def _method(self, func: ast.FunctionDef | ast.AsyncFunctionDef, cls: ast.ClassDef,
                 qual: str) -> None:
         requirements: list[str] = []
@@ -232,6 +264,7 @@ class _Reader:
             if kind is None:
                 continue
             self.marked = True
+            self.consumed.add(id(dec))
             args = self._args(dec, kind)
             if args is None:
                 continue
@@ -246,14 +279,6 @@ class _Reader:
                                 "or 'nt'")
         if len(systems) > 1:
             self.report(func.lineno, f"{qual}.{func.name} has more than one system value")
-        for inner in ast.walk(func):
-            if inner is not func and isinstance(
-                    inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                for dec in inner.decorator_list:
-                    if self._decorator_kind(dec) is not None:
-                        self.marked = True
-                        self.report(dec.lineno, "a declaration or system value sits only on "
-                                    "a method defined in a class body")
         if not requirements and not systems:
             return
         if isinstance(func, ast.AsyncFunctionDef) and not self._async_capable(cls):
@@ -284,6 +309,10 @@ class _Reader:
                 continue
             for dec in node.decorator_list:
                 if self._decorator_kind(dec) is not None:
+                    if id(dec) not in self.consumed:
+                        self.marked = True
+                        self.report(dec.lineno, "a declaration or system value sits only on a "
+                                    "method defined in a class body")
                     continue
                 func = dec.func if isinstance(dec, ast.Call) else dec
                 tail = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
@@ -305,7 +334,9 @@ def read_tests(root: Path) -> Reading:
         rel = path.relative_to(root).as_posix()
         data = path.read_bytes()
         try:
-            tree = ast.parse(data.decode("utf-8"), filename=rel)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                tree = ast.parse(data, filename=rel)
         except (SyntaxError, ValueError, UnicodeDecodeError) as exc:
             if b"proves" in data or b"only_on" in data or b"trifecta.testing" in data:
                 reading.findings.append(Finding(REQ, rel, f"cannot be read as Python source: {exc}"))
@@ -371,16 +402,22 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
               child: list[str] | None = None) -> tuple[list[str], str]:
     """Run the proof modules; return the channel's lines and the child's own output."""
     package_parent = str(Path(__file__).resolve().parent.parent)
-    with tempfile.TemporaryDirectory() as tmp:
-        channel = Path(tmp) / "records.jsonl"
+    # A test may leave a process running that still holds a file here on Windows.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        channel, plan, log = (Path(tmp) / n for n in ("records.jsonl", "plan.json", "output.log"))
+        plan.write_text(json.dumps({"modules": modules, "leave_out": leave_out}),
+                        encoding="utf-8")
         command = child or [sys.executable, "-E", "-X", "utf8", "-c", BOOT, package_parent]
-        proc = subprocess.run(
-            [*command, str(channel), json.dumps(modules), json.dumps(leave_out)],
-            cwd=root, capture_output=True, encoding="utf-8", errors="replace",
-            stdin=subprocess.DEVNULL,
-        )
+        # Output goes to a file, not a pipe, so a process a test leaves running cannot hold
+        # the check open, and a test that prints much is not held in memory.
+        with open(log, "wb") as out:
+            subprocess.run([*command, str(channel), str(plan)], cwd=root, stdout=out,
+                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         text = channel.read_text(encoding="utf-8", errors="replace") if channel.is_file() else ""
-    return text.splitlines(), (proc.stdout + proc.stderr)[-500:]
+        with open(log, "rb") as out:
+            out.seek(max(0, log.stat().st_size - 500))
+            tail = out.read().decode("utf-8", errors="replace")
+    return text.splitlines(), tail
 
 
 def check_proofs(root: Path, child: list[str] | None = None,
@@ -437,8 +474,9 @@ def _judge(reading: Reading, records: list[dict], os_name: str, output: str,
                                 f"result: {' '.join(output.split())[-300:]}"))
     for r in records:
         if r["kind"] == "module_error":
-            findings.append(Finding(REQ, "tests/", f"{r['module']} raised on import: "
-                                    f"{r['detail']}"))
+            what = ("the run stopped" if r["module"] == "(run)"
+                    else f"{r['module']} raised on import")
+            findings.append(Finding(REQ, "tests/", f"{what}: {r['detail']}"))
     collected = {(r["module"], r["cls"], r["name"]) for r in records if r["kind"] == "collected"}
     results: dict[tuple[str, str, str], list[dict]] = {}
     for r in records:

@@ -87,6 +87,19 @@ class OneSystemTests(unittest.TestCase):
                 self.assertNotIn("REQ_X", proven)
 
     @proves("REQ_PROVEN_BY_TEST")
+    def test_class_under_if_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = corpus(tmp, PASSING + textwrap.dedent("""
+            if True:
+                class W(unittest.TestCase):
+                    def test_w(self):
+                        pass
+            """))
+            findings, proven, _ = check_proofs(root)
+        self.assertEqual(findings, [])
+        self.assertIn("REQ_X", proven)
+
+    @proves("REQ_PROVEN_BY_TEST")
     def test_runner_os_that_does_not_match_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.dict(os.environ, {"RUNNER_OS": RUNNER[OTHER]}):
