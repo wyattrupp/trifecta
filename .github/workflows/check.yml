@@ -63,7 +63,7 @@ jobs:
         with:
           python-version: "3.12"
       # The hook's tests resolve 8.3 short names, which Windows makes only where they are on.
-      - run: fsutil.exe 8dot3name set C: 0
+      - run: "fsutil.exe 8dot3name set C: 0"
       - run: PYTHONPATH=src python -m trifecta setup
       - name: Check (with MADR immutability against the base)
         env:
