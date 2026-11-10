@@ -13,7 +13,7 @@ The extension, schemas, plan rules, tools and Vale styles move into one package 
 `trifecta` command that reads the corpus from the working directory. In this repository
 the package is installed from source with its hashed build backend, and runs the fixture
 audit and the self-tests; anywhere else it is installed from a release wheel pinned by
-URL and hash and runs only the corpus checks and the adopter's own tests. `trifecta init`
+URL and hash and runs only the corpus checks and the adopter's proof modules. `trifecta init`
 writes an adopting repository's corpus skeleton, build files, hashed lock, hardened CI
 workflow, and the files that make a Claude Code session plan through the corpus. A
 template repository holds exactly what init writes. The README leads with the steps to
@@ -56,17 +56,89 @@ the line cannot name another project's release.
 :id: COMP_SELF_TEST_SCOPE
 :satisfies: REQ_SELF_TESTS_SCOPED
 :constrained_by: DEC_0013
-A configuration value, set only in this repository's `docs/conf.py`, under which the
-check runs the fixture audit.
+A configuration value, set only in this repository's `docs/conf.py` and in the minimal
+corpora this repository's own tests build as their inputs, under which the check runs the
+fixture audit.
 :::
 
 :::{component} Test proofs
 :id: COMP_TEST_PROOFS
 :satisfies: REQ_PROVEN_BY_TEST
 :constrained_by: DEC_0015
-`unittest` modules under `tests/` that declare the requirements they prove. The check runs
-them, reports a declared test that fails or is skipped, and counts a passing declaration
-as a proof in the fixture audit.
+`unittest` modules under `tests/` whose tests declare the requirements they prove. A
+declaration is a decorator call `@proves("REQ_…", …)` and a system value a decorator call
+`@only_on("posix")` or `@only_on("nt")`, each naming the bare name bound by `from
+trifecta.testing import proves, only_on` without `as`, with string literals as its only
+arguments; both return the method unchanged. Any other decorator call that ends in
+`proves` or `only_on` or refers to `trifecta.testing`, and any other binding of those two
+names in a module that imports them, is reported under REQ_PROVEN_BY_TEST.
+
+The check reads every declaration and system value from every `.py` file under `tests/`
+as a literal in the source, without importing it. A proof module is a file that holds a
+declaration or a system value, and every class statement in it is a class the check
+reads. The check itself decides which proof modules run: those whose file name matches
+`test*.py` by case-sensitive comparison and whose path is a valid dotted module name. A
+declaration or system value in any other file is read, never imported, and reported as
+having no result, unless its test names a system the check is not running on. Each
+declaration and each system value sits on one method definition in a class body and is
+bound to it by the module, named from the file's path relative to the repository root,
+the class's qualified name and the method name.
+
+A declaration or system value on anything else, or that cannot be read as a literal, a
+directory from `tests/` down to a proof module that is not a package, a class name that
+more than one class statement or binding in a module resolves to, a method name that more
+than one definition or declaration in a class resolves to or that is rebound later in its
+class, a method with more than one system value, a system value on a class, a declared or
+system-valued method collected under a class other than the one whose body defines it,
+and a declared or system-valued method defined with `async def` in a class whose bases in
+the source do not name `IsolatedAsyncioTestCase`, or whose own body holds `yield`, are
+reported under REQ_PROVEN_BY_TEST. A system value other than exactly `posix` or `nt`, the
+strings of `os.name`, including another case, a list or an empty string, is reported.
+With no proof module, including with no `tests/`, the check runs no test and makes none
+of the checks below.
+
+When a proof module exists, the check reads `os.name` once, before it starts the tests,
+and that value alone decides which tests run and which declarations count without
+running; where `RUNNER_OS` is `Linux` or `Windows`, a value other than `posix` or `nt`
+respectively is reported under REQ_PROVEN_BY_TEST. It imports no test module itself: it
+runs the proof modules it chose in a child process started as `sys.executable -E -X
+utf8`, so no `PYTHON` variable such as `PYTHONOPTIMIZE` applies and the child runs in
+UTF-8 mode, and passes the child that list by module name and the exact tests to leave
+out, which the child removes from the suite before the run, so they are not collected.
+The child loads tests from those modules and no other, so an import that only one system
+has belongs inside the test. Any exception raised while it imports a proof module becomes
+a result for that module, which is reported whatever system its tests name. The child
+reports its `os.name` before it imports any test module and again after the run, and its
+results, on a channel the tests do not write to, written and read as UTF-8. A child
+`os.name` that differs from the check's at either point, a malformed or unrecognised
+record, a result for a class the check did not read, and a child that ends without a
+result for every test it collected, whatever its exit status, are reported under
+REQ_PROVEN_BY_TEST. A result of a class or module set-up or tear-down belongs to the
+class or module it names. A result for an undeclared method with no system value, and one
+of a set-up or tear-down whose class or module holds no declared or system-valued test,
+is otherwise not judged.
+
+Except as the next paragraph states, the check counts a declaration as a proof in the
+fixture audit only when the results for its method, matched by the test's class module
+and qualified name and its `_testMethodName`, not by its `id()`, are exactly one, and
+that one is plain success. A subtest is not a result of its own: a failing, erroring or
+skipped subtest is a failure, error or skip of its test. For a test that is declared or
+has a system value, except one that names a system the check is not running on, a
+failure, an error, a skip, an expected failure, an unexpected success, a skip or error in
+a class or module set-up or tear-down, more than one result, a method call, as the test
+case makes it and after an `IsolatedAsyncioTestCase` awaits it, that returns anything but
+`None`, and no result at all, including for a declaration or system value on a method the
+child does not collect as a test, are each reported under REQ_PROVEN_BY_TEST; the child
+reports what each such call returned. These rules hold in an adopting repository too,
+where only the fixture audit is off.
+
+Where a test names a system and the check is not running on it, the audit counts that
+test's declaration as a proof without running it, and lists it as counted but not run, on
+standard error, in output that is not a finding and does not change the exit status,
+because CI's job for the named system (DEC_0025) runs it and the main ruleset requires
+both jobs to pass (DES_0006). That holds while the workflow and the ruleset stay as they
+are (see Risks), and it is how DEC_0015's proof, a test that runs and passes, holds for a
+test one system cannot run.
 :::
 
 :::{component} Init command
@@ -175,6 +247,17 @@ a change. The only safeguard is the maintainer's review before merging: with one
 maintainer, GitHub cannot require an approval the author cannot give, so the ruleset
 requires none. A second maintainer brings required review and code owners back.
 
+Each of these leaves the declarations of tests for a system counted with nothing running
+them: a pull request that drops or retargets a CI job, skips one with a condition, lets a
+job or step fail without failing the job, or removes the check step or puts it behind a
+condition; a job in another workflow that shares a required job's name; and a ruleset
+that stops requiring a job. GitHub treats a skipped required job as passing. Required
+checks are not strict (DES_0003), so a job may have passed against an older base, and the
+push check on main reports what that missed. In an adopting repository, a test that
+applies only to a system its CI has no job for is never run, and nothing reports it. A
+Python whose `os.name` is `posix` on Windows, such as Cygwin's or MSYS2's, runs the
+`posix` tests there; CI's Windows job uses one whose `os.name` is `nt`.
+
 The template repository is not protected, and nothing compares it with init's output for
 the release it pins. The settings exported to `.github/settings/` are a snapshot, and the
 live settings can drift from it. A test's declaration of the requirements it proves is
@@ -234,4 +317,19 @@ The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :k: 2
 :date: 2026-11-10
 :digest: ad1d8bf752102b859920f029bbb5b92a3e430b0368bbc4064f551e0ec24918c6
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_7
+:k: 2
+:date: 2026-11-10
+:digest: a0f6c31c98c90ff54ab9a74fbdac5a42907df0111d3a1935bef626e62a804bc6
+Stopped after fourteen rounds with findings still open on COMP_TEST_PROOFS, left for task
+3 of PLAN_0003 to settle when it builds the component: a child that exits during import
+before reporting its `os.name`; whether the `async` and `yield` rule follows inherited
+bases and nested functions; matching an inherited test to the function that defines it; a
+test for an import failure in a module whose tests name the other system; reading `.py`
+names case-sensitively; and importing only one of the two decorators.
+COMP_SELF_TEST_SCOPE reads the minimal corpora this repository's own tests build as part
+of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 :::
