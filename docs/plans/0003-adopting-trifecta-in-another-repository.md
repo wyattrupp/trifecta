@@ -99,10 +99,10 @@ The files init adds for Claude Code.
 Each step outside this repository waits for wyatt's yes.
 
 - [x] **6.1** Create a `release` environment with wyatt as required reviewer that deploys only from main, and add the release workflows: on a version tag, build with hashed build dependencies and SHA-pinned actions and read access only, apart from attesting the wheel's build provenance (wyatt, 2026-11-10: "Attest in the build job"); then, from a workflow that always runs from main's copy because the tag's own copy of the build workflow runs on a tag, fail unless the tag still names the built commit and that commit is reachable from main, relying on the tag ruleset, which lets only an admin create, move or delete a tag, to keep the tag where it was checked, then wait for the environment's approval, verify the wheel's attestation against the tag and its commit, and publish the wheel and its SHA-256 from the only job that may write.
-- [ ] **6.2** Confirm that creating a release through the API cannot make a tag the ruleset refuses, then tag the first release on main.
-- [ ] **6.3** Create the template repository from `trifecta init` output pinned to that release, and mark it a template.
-- [ ] **6.4** Create a repository from the template and confirm its CI passes.
-- [ ] **6.5** Add the test that names REQ_RELEASE_TRUST: the build has read access only, apart from attesting its wheel's provenance, and installs only the hashed build backend; publishing runs from main, guards that the tag names a commit on main before anyone is asked to approve, waits for the `release` environment, verifies the wheel's attestation and publishes the wheel and its SHA-256; every action is pinned by commit SHA.
+- [x] **6.2** Confirm that creating a release through the API cannot make a tag the ruleset refuses, then tag the first release on main.
+- [x] **6.3** Create the template repository from `trifecta init` output pinned to that release, and mark it a template.
+- [x] **6.4** Create a repository from the template and confirm its CI passes.
+- [x] **6.5** Add the test that names REQ_RELEASE_TRUST: the build has read access only, apart from attesting its wheel's provenance, and installs only the hashed build backend; publishing runs from main, guards that the tag names a commit on main before anyone is asked to approve, waits for the `release` environment, verifies the wheel's attestation and publishes the wheel and its SHA-256; every action is pinned by commit SHA.
 :::
 
 :::{task} Adoption guide
@@ -282,3 +282,22 @@ anywhere. Beside identity and modification time, init compares size and, on POSI
 change time, since ext4 gives a freed inode number to the next file and `utime` cannot
 set a change time; it checks the new file is still the one it wrote before setting its
 mode and before the move, and it refuses a read-only original.
+
+### Task 6 (2026-11-10)
+
+The release is two workflows, `release-build` and `release-publish`, since a tag runs its
+own copy of a tag-triggered workflow. The first tag, v0.1.0, built, but GitHub refused
+the provenance the publish job signed for the tag's build ("unsupported build type"), so
+nothing was published and the tag was deleted; the build job now attests its own wheel
+(wyatt, 2026-11-10: "Attest in the build job"), and the publish job verifies that
+attestation against the tag and its commit. The `release` environment requires wyatt,
+deploys only from main and allows no admin bypass, and releases are immutable; both are
+exported to `.github/settings/`. The tag ruleset lets only the admin role create, move or
+delete a tag, so the workflow's token cannot make one through the release API, and `gh
+release create --verify-tag` never tries. v0.1.1 was published and its wheel verified
+with the command its notes give. The template repository, `wyattrupp/trifecta-template`,
+first held init's output pinned to v0.1.1, and its first push failed: init's workflow
+refused any push whose base was not in the clone, as a repository's first push never is.
+Init 0.1.2 checks a first commit without a base, the template was regenerated from it,
+and both its CI and that of `wyattrupp/trifecta-template-check`, made from it, passed;
+the second was left for wyatt to delete, since `gh` here lacks the `delete_repo` scope.
