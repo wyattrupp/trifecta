@@ -78,20 +78,31 @@ Writes `docs/` with a configuration that loads the package, an index, the typed
 directories, a Makefile, the hardened CI workflow, the hashed lock, the `.gitattributes`
 that DES_0006 holds the repository to, a CODEOWNERS entry for the files that steer the
 check and the session, and the planning files. Before it writes any file it checks every
-target with `lstat`, and reads, parses and validates an existing `.claude/settings.json`,
-so every refusal comes before the first write. It creates each file exclusively and
-lists what it wrote. The settings file is the one target it changes, and its merge is
-the last write; on any failure it removes every file it created in the run, so the
-registration never points at a script that was not written. When the
-registration is already there it writes nothing to the file and does not list it;
-otherwise it lists it as changed. It reads the file as UTF-8 through a handle that does
-not follow links, merges the hook's registration in as REQ_INIT_SAFE states, and writes
-the result to a new file under the fixed name `.claude/settings.json.trifecta-new`,
-created exclusively with mode 0600 and then given the original's mode bits; a file left
-at that name by an earlier run is refused and named. Just before the move it checks with
-`lstat` that `.claude/` is still not a link or other reparse point, and that the
-original's identity and modification time are unchanged; then it moves the new file over
-the original. On any failure it removes the new file and leaves the original as it was.
+target with `lstat`, and reads and validates an existing `CLAUDE.md` and
+`.claude/settings.json`, so every refusal comes before the first write. It creates each
+file exclusively and lists what it wrote. Those two are the targets it changes: it
+appends its section to `CLAUDE.md`, then merges the hook's registration into the
+settings file as the last write, so the registration never points at a script that was
+not written. A file that already holds init's part is not written or listed; one that
+is changed is listed as changed.
+
+Each change reads the file through a handle that does not follow links, builds the new
+content, and writes it to a new file under a fixed name, the original's name followed by
+`.trifecta-new`, created exclusively with mode 0600 and then given the original's mode
+bits; a file left at that name by an earlier run is refused and named. Just before the
+move it checks with `lstat` that every directory between the repository root and the file
+is still not a link or other reparse point, and that the original's identity and
+modification time are unchanged; then it moves the new file over the original. The append
+keeps every byte already in `CLAUDE.md`, adds the file's line break if its last line has
+none, then a blank line and the section, all with the file's own line break: CRLF when
+its first line break is CRLF, LF otherwise; an empty file gets the section alone, in LF.
+The merge reads the settings file as UTF-8 and merges as REQ_INIT_SAFE states.
+
+On any failure init removes every new file and every file it created in the run, and if
+`CLAUDE.md` was already moved, writes its original bytes and mode bits back the same
+way, checking the identity and modification time of the file init moved there, so each
+original is left as it was. If that restore is refused or fails, init reports that
+`CLAUDE.md` holds the section and exits non-zero.
 :::
 
 :::{component} Planning default
@@ -100,8 +111,8 @@ the original. On any failure it removes the new file and leaves the original as 
 :constrained_by: DEC_0014
 :consumes: IF_CLI
 The CLAUDE.md section, the project skill, the PreToolUse hook script and its registration
-in `.claude/settings.json`, written by init or, for an existing settings file, merged
-into it. The hook covers the file-writing tools
+in `.claude/settings.json`, written by init, or appended to an existing CLAUDE.md and
+merged into an existing settings file. The hook covers the file-writing tools
 and Bash, and refuses a write under `docs/superpowers/` with a message that names
 `trifecta new`.
 :::
@@ -169,12 +180,15 @@ the release it pins. The settings exported to `.github/settings/` are a snapshot
 live settings can drift from it. A test's declaration of the requirements it proves is
 taken as given. `trifecta check` runs the checked repository's own `docs/conf.py` and the
 Vale in its `bin/`. The session instructions init writes are guidance to the model, not a
-boundary. A CODEOWNERS entry gates nothing unless the ruleset requires code-owner review.
+boundary. Instructions already in `CLAUDE.md`, in files it imports, or in local, nested
+or user memory files can contradict the appended section; init does not read them, and
+only the hook enforces. A CODEOWNERS entry gates nothing unless the ruleset requires
+code-owner review.
 The hook can be switched off where init cannot see it: `.claude/settings.local.json`,
 user settings and managed settings can each disable hooks, so the hook stops a mistake
-only in a session that runs it. On Windows the merged settings file takes its access
-rules from `.claude/`, not from the original, so a file locked down more tightly than its
-directory loses that. An `env` in the settings file that sets `PATH` or
+only in a session that runs it. On Windows a changed `CLAUDE.md` or settings file takes
+its access rules from its directory, not from the original, so a file locked down more
+tightly than its directory loses that. An `env` in the settings file that sets `PATH` or
 `CLAUDE_PROJECT_DIR` may send the registered command to another interpreter or script;
 init does not look for one.
 
@@ -213,4 +227,11 @@ The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :k: 2
 :date: 2026-11-10
 :digest: e3a02b82028be8c615e7ac2b493a37a0704ec94bf4334d05edf8f8dc9b873878
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_6
+:k: 2
+:date: 2026-11-10
+:digest: ad1d8bf752102b859920f029bbb5b92a3e430b0368bbc4064f551e0ec24918c6
 :::
