@@ -109,13 +109,14 @@ def fenced(lines: list[str]) -> list[bool]:
     for line in lines:
         m = FENCE_RE.match(line)
         if closer is None:
-            if m:
+            # CommonMark: a backtick fence's info string holds no backtick, or it is no fence.
+            if m and not (m.group("fence")[0] == "`" and "`" in line[m.end():]):
                 closer = m.group("fence")
             mask.append(closer is not None)
         else:
             mask.append(True)
             if m and m.group("fence")[0] == closer[0] and len(m.group("fence")) >= len(closer) \
-                    and not line.strip()[len(m.group("fence")):].strip():
+                    and not line.strip(" \t")[len(m.group("fence")):].strip(" \t"):
                 closer = None
     return mask
 

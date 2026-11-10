@@ -1,0 +1,7 @@
+# A lone CR inside the reviewed text. Sphinx reads it as a line break, so the digest does
+# too, and the added line changes the reviewed content.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "\n## Motivation\n"
+  replace: "\n\r## Motivation\n"

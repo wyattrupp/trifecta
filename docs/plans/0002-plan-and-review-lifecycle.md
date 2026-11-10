@@ -120,3 +120,17 @@ code that does not block. Found while running the fixtures: the runner copied th
 repository by walking it, so a worktree that only `.git/info/exclude` ignores reached the
 copy; it now copies the files git lists, as the check reads them. `reviewed-missing`
 removes both of the design doc's review records.
+
+The code review of the task, k=2 and then twice more on its fixes, found that reading
+Markdown with patterns let a pull request hide a heading or a block from the digest while
+the build still rendered it: a lone CR, a backtick in a fence's info string, a blockquoted
+or list-indented directive, a heading in an HTML comment, a no-break space after a fence
+closer, and a `status:` line inside another frontmatter value. The digest now reads
+headings, fences, directives and HTML blocks with MyST's own parser, set up with the
+extensions `docs/conf.py` takes from `ext/digest.py`, on the file with its frontmatter
+blanked as the build reads it; it leaves out only the line YAML reads as the `status` key;
+it fails closed when it finds no Review section; and a review record is a closed top-level
+directive whose body holds options and plain paragraphs with no raw HTML. DES_0003's
+component and interface say so. Its last edits follow the fixes the two reviewers stated
+and were checked by a probe that runs each exploit, with no further pass. Each exploit has
+a fixture.

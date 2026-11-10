@@ -1,0 +1,7 @@
+# A requirement inside a blockquote in a done plan's As built section: MyST reads the
+# directive there, so the check does too.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/plans/0005-running-on-windows.md
+  find: "\n### Task 4 (2026-11-09)\n"
+  replace: "\n> :::{req} Hidden\n> :id: REQ_HIDDEN_QUOTED\n> Nothing MUST hold.\n> :::\n\n### Task 4 (2026-11-09)\n"

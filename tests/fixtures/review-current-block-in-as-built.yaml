@@ -1,0 +1,6 @@
+# A requirement in a done plan's As built section, which is outside the digest.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/plans/0005-running-on-windows.md
+  find: "\n### Task 4 (2026-11-09)\n"
+  replace: "\n:::{req} Hidden\n:id: REQ_HIDDEN_IN_AS_BUILT\nNothing MUST hold.\n:::\n\n### Task 4 (2026-11-09)\n"

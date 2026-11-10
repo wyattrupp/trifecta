@@ -47,7 +47,14 @@ Components here have no `spec` until they are built; the plan that builds them a
 :provides: IF_REVIEW_DIGEST
 Computes a document's reviewed content and its SHA-256 from the raw file, reports an
 accepted, approved, implemented, active or done document none of whose reviews carries
-that digest, and reports anything but a review record in a Review section.
+that digest, or whose Review section it cannot find, and reports anything but a review
+record in a Review section. It reads headings, code fences, directives and HTML blocks
+with MyST's parser, set up with the build's extensions, so the sections and blocks it finds
+are the ones Sphinx renders. A review record is a closed, top-level `review` directive
+whose body holds its options and plain paragraphs; only a `digest` among its options
+counts, and anything else in the section, a second Review section included, is reported.
+A plan's As built section opens no fence, directive or HTML block at any depth, since it is
+outside the digest and a block there could define a need.
 :::
 
 :::{component} Review command
@@ -104,13 +111,14 @@ component or interface of an implemented design doc with no `spec`.
 :spec: ext/digest.py#def reviewed_content
 :constrained_by: DEC_0011
 The digest is computed from the raw file, which MUST be read as UTF-8 with a leading byte
-order mark dropped and each CRLF read as LF. The `status:` line inside the first `---`
-frontmatter block, every `:spec:` line that is an option line of a `component` or
+order mark dropped, and each CRLF and each lone CR read as LF. The line YAML reads as the
+frontmatter's one `status` key, when the key and its value fill that line alone, every `:spec:` line that is an option line of a `component` or
 `interface` directive, in the run of option lines right after its opener, and the Review
-section, from its H2 line up to the next H2 outside a code fence or the end of the file,
-MUST be removed; no other `:spec:` line is removed. For a plan, the As built section MUST
+section, from its H2 line up to the next H2 or the end of the file, MUST be removed, where
+H2 headings, code fences and directives are those MyST's parser finds with the build's
+extensions in the file with its frontmatter block blanked, as the build reads it; no other `:spec:` line is removed. For a plan, the As built section MUST
 be removed the same way and the mark of every step line read as open. Each remaining line
-MUST be stripped of trailing whitespace and the lines MUST be joined with a single
+MUST be stripped of trailing spaces and tabs and the lines MUST be joined with a single
 newline; trailing empty lines MUST then be removed, so the text has no final newline. The
 digest MUST be the lowercase hex SHA-256 of that text encoded as UTF-8.
 :::
@@ -145,4 +153,11 @@ The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :k: 2
 :date: 2026-11-09
 :digest: 7aacfd80b169d170004caabf723a2deb83527ccf0dfe90d7165c476bb9904b03
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0003_3
+:k: 2
+:date: 2026-11-09
+:digest: 70afc386c1bd43e43c630f55483b0638a5162484649023c26765dc7b5aca4732
 :::

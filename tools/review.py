@@ -55,9 +55,9 @@ def stamp(path: Path, given: str, lenses: str, k: int, today: str) -> str:
     if given != current:
         raise Refused(f"{path} changed since the review started: its digest is now "
                       f"{current}, not {given}; review the current text")
-    if k < 1 or not lenses.strip() or "\n" in lenses:
+    if k < 1 or len(lenses.strip().splitlines()) != 1:
         raise Refused("--k is a positive number and --lenses one line of text")
-    lines = text.replace("\r\n", "\n").split("\n")
+    lines = reviewed.split_lines(text)
     section = reviewed.review_section(lines)
     if section is None:
         raise Refused(f"{path} has no Review section")

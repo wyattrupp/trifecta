@@ -1,0 +1,7 @@
+# A requirement nested inside a review record: the record's body is outside the digest,
+# so a block opened there is reported.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: ":id: REV_RFC_0003_1\n:k: 2\n:date: 2026-11-08\n"
+  replace: ":id: REV_RFC_0003_1\n:k: 2\n:date: 2026-11-08\n\n::::{req} Hidden\n:id: REQ_HIDDEN_IN_REVIEW\nNothing MUST hold.\n::::\n\n"

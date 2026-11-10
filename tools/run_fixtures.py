@@ -125,7 +125,11 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
-        base = make_base(tmp)
+        try:
+            base = make_base(tmp)
+        except (OSError, subprocess.CalledProcessError, FixtureError) as exc:
+            print(f"FAIL  control: cannot copy the repository: {exc}")
+            return 1
         code, findings = run_check(base, vale)
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")

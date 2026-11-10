@@ -18,7 +18,7 @@ project = "trifecta"
 extensions = ["myst_parser", "sphinx_needs", "trifecta"]
 exclude_patterns = ["_build"]
 nitpicky = True
-myst_enable_extensions = ["colon_fence"]
+myst_enable_extensions = list(digest.MYST_EXTENSIONS)
 
 needs_build_json = True
 needs_id_required = True
