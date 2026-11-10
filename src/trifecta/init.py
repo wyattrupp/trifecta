@@ -72,7 +72,7 @@ PY ?= python3
 .PHONY: setup vale check clean
 
 setup:
-\t$(PY) -m pip install --require-hashes -r requirements.lock
+\t$(PY) -m pip install --require-hashes --only-binary :all: -r requirements.lock
 \t$(PY) -m trifecta setup --vale-only
 
 vale:

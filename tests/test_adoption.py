@@ -50,9 +50,16 @@ class AdoptionGuide(unittest.TestCase):
         headings = re.findall(r"^## (.+)$", text, re.M)
         self.assertEqual(headings[0], "Run this in your repo")
         steps = commands(guide())
-        self.assertTrue(any(c.startswith("gh attestation verify") for c in steps))
-        self.assertTrue(any(c.startswith("trifecta init") for c in steps))
-        self.assertEqual(steps[-1], "make check")
+        # One subshell that stops at the first failure, so a wheel that does not verify
+        # is never installed.
+        self.assertEqual((steps[0], steps[1], steps[-1]), ("(", "set -euo pipefail", ")"))
+        verify = next(i for i, c in enumerate(steps) if c.startswith("gh attestation verify"))
+        self.assertIn("--source-digest", steps[verify])
+        install = next(i for i, c in enumerate(steps) if "pip install --no-deps" in c)
+        self.assertLess(verify, install)
+        self.assertIn("--only-binary :all:", next(c for c in steps if "--require-hashes" in c))
+        self.assertTrue(any(c.startswith("trifecta init --codeowner @<you>") for c in steps))
+        self.assertEqual(steps[-2], "make check")
 
     @proves("REQ_ADOPTION_GUIDE")
     @only_on("posix")
@@ -77,9 +84,13 @@ class AdoptionGuide(unittest.TestCase):
             vale = vale_path(ROOT)
             for path in [vale, *vale.parent.glob(".vale-stamp-*")]:
                 shutil.copy2(path, repo / "bin" / path.name)
-            script = "\n".join([f'version="{version}"', *steps])
+            # init refuses the placeholder a reader replaces with their own name.
+            steps = [c.replace("@<you>", "@someone") for c in steps]
+            script = "\n".join([steps[0], steps[1], f'version="{version}"', *steps[2:]])
             env = {k: v for k, v in os.environ.items()
                    if not k.startswith(("PYTHON", "VIRTUAL_ENV", "TRIFECTA_"))}
+            # The test's own pip cache, so copies that run it again do not download again.
+            env["PIP_CACHE_DIR"] = os.environ.get("PIP_CACHE_DIR") or str(Path.home() / ".cache" / "pip")
             env["HOME"] = str(home)
             done = subprocess.run(["bash", "-e", "-c", script], cwd=repo, env=env,
                                   capture_output=True, encoding="utf-8", errors="replace")

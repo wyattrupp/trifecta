@@ -15,56 +15,90 @@ attestation. A repository that adopts it pins that wheel by URL and hash in its
 trifecta @ https://github.com/wyattrupp/trifecta/releases/download/v<version>/trifecta-<version>-py3-none-any.whl --hash=sha256:<sha256>
 ```
 
+You need Python 3.12 or later with `venv`, GitHub's `gh` signed in, `git`, `make`,
+`unzip` and `sha256sum` (on macOS, `brew install coreutils`). Each block below runs in a
+subshell that stops at the first failure, so a release that does not verify installs
+nothing; paste it whole.
+
 ### From the template
 
 Create a repository from
 [wyattrupp/trifecta-template](https://github.com/wyattrupp/trifecta-template), which holds
-the output of `trifecta init` pinned to the latest release, then set it up:
+the output of `trifecta init` pinned to a release, verify the release it pins, then set
+it up:
 
 ```sh
 gh repo create <your-repo> --template wyattrupp/trifecta-template --private --clone
 cd <your-repo>
-python3 -m venv "$HOME/.venvs/trifecta"
-. "$HOME/.venvs/trifecta/bin/activate"
+(
+set -euo pipefail
+# The wheel the lock pins, checked against the lock's hash and the release's attestation.
+line=$(head -n 1 requirements.lock)
+url=${line#trifecta @ }; url=${url%% *}
+sha=${line##*sha256:}
+tag=$(basename "$(dirname "$url")")
+wheel=$(basename "$url")
+gh release download "$tag" --repo wyattrupp/trifecta --pattern "$wheel"
+echo "$sha  $wheel" | sha256sum -c -
+gh attestation verify "$wheel" --repo wyattrupp/trifecta \
+  --cert-identity "https://github.com/wyattrupp/trifecta/.github/workflows/release-build.yml@refs/tags/$tag" \
+  --source-ref "refs/tags/$tag" \
+  --source-digest "$(gh api "repos/wyattrupp/trifecta/commits/refs/tags/$tag" --jq .sha)" \
+  --deny-self-hosted-runners
+rm "$wheel"
+# A virtual environment for this repository, outside it.
+python3 -m venv "$HOME/.venvs/$(basename "$PWD")"
+. "$HOME/.venvs/$(basename "$PWD")/bin/activate"
 make setup
 make check
+)
 ```
 
-Replace `@wyattrupp` in `.github/CODEOWNERS` with yourself.
+Then put yourself in `.github/CODEOWNERS` in place of `@wyattrupp`.
 
 ### In an existing repository
 
-Run these at the repository's root, after `git init` if it is new. Init refuses to
-replace a file that is already there, other than a `CLAUDE.md`, to which it appends its
-section, and a `.claude/settings.json`, into which it merges its hook; move any other
-clashing file (a `Makefile`, a `.gitignore`, a workflow named `check.yml`) aside first.
+Run this at the repository's root, after `git init` if it is new. Init refuses to replace
+a file that is already there, other than a `CLAUDE.md`, to which it appends its section,
+and a `.claude/settings.json`, into which it merges its hook: move any other clashing file
+(a `Makefile`, a `.gitignore`, a workflow named `check.yml`) aside first. Every Markdown
+file under `docs/` is checked as a typed document, so move other documentation out of
+`docs/` too. Replace `@<you>` with your GitHub name or team; init refuses the placeholder.
 
 <!-- adoption-steps: tests/test_adoption.py runs this block in an empty repository -->
 ```sh
+(
+set -euo pipefail
 # The latest release's wheel, and its provenance: built by the release workflow at its tag.
 version=$(gh release view --repo wyattrupp/trifecta --json tagName --jq .tagName | cut -c2-)
 wheel="trifecta-$version-py3-none-any.whl"
 gh release download "v$version" --repo wyattrupp/trifecta --pattern "$wheel"
 gh attestation verify "$wheel" --repo wyattrupp/trifecta \
   --cert-identity "https://github.com/wyattrupp/trifecta/.github/workflows/release-build.yml@refs/tags/v$version" \
-  --source-ref "refs/tags/v$version" --deny-self-hosted-runners
-# A virtual environment outside the repository: the wheel's own hashed dependencies, then the wheel.
-python3 -m venv "$HOME/.venvs/trifecta"
-. "$HOME/.venvs/trifecta/bin/activate"
-unzip -p "$wheel" trifecta/requirements.lock > "$HOME/.venvs/trifecta/requirements.lock"
-python -m pip install --require-hashes -r "$HOME/.venvs/trifecta/requirements.lock"
+  --source-ref "refs/tags/v$version" \
+  --source-digest "$(gh api "repos/wyattrupp/trifecta/commits/refs/tags/v$version" --jq .sha)" \
+  --deny-self-hosted-runners
+# A virtual environment for this repository, outside it: the wheel's hashed dependencies,
+# as built wheels only, then the wheel.
+venv="$HOME/.venvs/$(basename "$PWD")"
+python3 -m venv "$venv"
+. "$venv/bin/activate"
+unzip -p "$wheel" trifecta/requirements.lock > "$venv/requirements.lock"
+python -m pip install --require-hashes --only-binary :all: -r "$venv/requirements.lock"
 python -m pip install --no-deps "./$wheel"
 # The corpus, the lock pinned to this wheel, CI, CODEOWNERS and the planning files.
-trifecta init --codeowner @your-github-name \
+trifecta init --codeowner @<you> \
   --wheel-url "https://github.com/wyattrupp/trifecta/releases/download/v$version/$wheel" \
   --wheel-sha256 "$(sha256sum "$wheel" | cut -d' ' -f1)"
 rm "$wheel"
 make check
+)
 ```
 
-Replace `@your-github-name` with yourself, then commit what init wrote. Without a
-GitHub `origin` remote and a release install, init needs `--codeowner` and the two
-`--wheel-` options, as above; it lists every file it wrote or changed.
+Init lists every file it wrote or changed; commit them. Without a GitHub `origin` remote
+and a release install, init needs `--codeowner` and the two `--wheel-` options, as above.
+In a new shell, activate the repository's environment again with
+`. "$HOME/.venvs/$(basename "$PWD")/bin/activate"`.
 
 ### Check and CI
 
@@ -76,10 +110,13 @@ make check BASE=main   # also hold history to a git ref: accepted decisions do n
 `make setup` installs the lock and Vale on a fresh clone. The workflow init writes,
 `.github/workflows/check.yml`, runs the same check on every pull request and on every
 push to main, with read access only, no stored credentials, and actions pinned by SHA.
-`CODEOWNERS` names who reviews changes to the files that steer the check and the session.
+`CODEOWNERS` names who reviews changes to the files that steer the check and the session;
+a branch ruleset that requires code-owner review makes that binding.
 
-To move to a new release, replace the lock's `trifecta @` line with the new release's URL
-and its SHA-256, after verifying its attestation as above.
+To move to a new release, verify its wheel as above, then rebuild the whole lock: the
+`trifecta @` line with the new release's URL and SHA-256, followed by the new wheel's own
+`trifecta/requirements.lock` (`unzip -p <wheel> trifecta/requirements.lock`), since a
+release can add or change dependencies.
 
 ### Planning with Claude Code
 

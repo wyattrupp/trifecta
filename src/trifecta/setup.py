@@ -190,8 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     root = corpus_root()
     try:
         if not args.vale_only:
+            # Built wheels only: a source build would fetch its backend without a hash.
             subprocess.run([sys.executable, "-m", "pip", "install", "--require-hashes",
-                            "-r", str(root / "requirements.lock")], check=True)
+                            "--only-binary", ":all:", "-r", str(root / "requirements.lock")],
+                           check=True)
             if _is_this_project(root):  # its lock includes the package's runtime lock
                 # This repository installs its own package from source, after the build
                 # backend the lock pins (plan 0003 step 2.2).
