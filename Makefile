@@ -9,15 +9,15 @@ setup:
 	PYTHONPATH=src $(PY) -m trifecta setup
 
 vale:
-	trifecta setup --vale-only
+	$(PY) -m trifecta setup --vale-only
 
 ## check: run the pipeline. Set BASE=<git ref> to also check MADR immutability.
 check: vale
-	trifecta check $(if $(BASE),--base $(BASE))
+	$(PY) -m trifecta check $(if $(BASE),--base $(BASE))
 
 ## fixtures: prove the corpus passes and every negative fixture fails as expected.
 fixtures: vale
-	trifecta fixtures
+	$(PY) -m trifecta fixtures
 
 clean:
 	rm -rf docs/_build

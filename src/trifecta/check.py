@@ -276,6 +276,22 @@ def stage_vale(root: Path) -> Path:
     return stage
 
 
+def check_vale_version(vale: Path) -> list[Finding]:
+    """The Vale the check runs is the version the package's table pins."""
+    values, _ = _vale_table((PACKAGE_DIR / "setup.py").read_text(encoding="utf-8"))
+    version = values.get("VALE_VERSION")
+    try:
+        out = subprocess.run([str(vale), "--version"], capture_output=True, encoding="utf-8",
+                             errors="replace").stdout
+    except OSError as exc:
+        return [Finding("REQ_PLATFORM_TOOLCHAIN", "bin/", f"cannot run {vale.name}: {exc}")]
+    if not (isinstance(version, str)
+            and re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", out)):
+        return [Finding("REQ_PLATFORM_TOOLCHAIN", "bin/",
+                        f"{vale.name} reports {out.strip()[:60]!r}, not the pinned {version}")]
+    return []
+
+
 def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
     html = root / "docs" / "_build" / "lint"
     where = _package_location(PACKAGE_DIR / "vale" / config, root)
@@ -355,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         findings += generate(needs, stage / "styles" / "TrifectaGenerated")
         findings = [_locate(f, needs) for f in findings]
         build_lint_view(root)
+        findings += check_vale_version(vale)
         findings += run_vale(root, vale, "normative.ini")
         findings += run_vale(root, vale, "prose.ini")
         findings += audit_fixtures(needs, root / "tests" / "fixtures")

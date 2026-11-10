@@ -19,6 +19,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -172,7 +173,14 @@ def install_vale(root: Path) -> Path:
 
 def _is_this_project(root: Path) -> bool:
     """Whether ``root`` is this package's own source tree."""
-    return (root / "pyproject.toml").is_file() and (root / "src" / "trifecta" / "__init__.py").is_file()
+    pyproject = root / "pyproject.toml"
+    if not (pyproject.is_file() and (root / "src" / "trifecta" / "__init__.py").is_file()):
+        return False
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return False
+    return project.get("name") == "trifecta"
 
 
 def main(argv: list[str] | None = None) -> int:

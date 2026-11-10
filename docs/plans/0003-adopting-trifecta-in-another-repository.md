@@ -195,7 +195,10 @@ it checks. The check copies the package's Vale configurations and styles into
 files, and it reads the Vale table from the package that runs it. The fixture runner runs
 each repository copy's own package, so a fixture that changes the package's code is
 checked by that code, and passes the Vale path in `TRIFECTA_VALE`, since `--root` and
-`--vale` went: every command reads the corpus from the working directory, and `next` and
+`--vale` went; the check reports a Vale whose version is not the one the table pins,
+whichever runs. Setup installs the package editable only when `pyproject.toml` names it
+`trifecta`. Every command reads the corpus from the working directory: `next` and
 `review` refuse a path outside it. The wheel test is `tests/test_package.py`, run with
 `python -m unittest discover -s tests` until task 3 runs tests in the check. Prose in
-done plans, design docs and MADRs still names the old `tools/` and `ext/` paths, as history.
+done plans, design docs and MADRs still names the old `tools/` and `ext/` paths, as
+history.

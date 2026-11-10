@@ -8,11 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 def child_env(package_parent: Path | None = None) -> dict[str, str]:
-    """The environment for a Python program the check starts: UTF-8 output, and the
-    package that is running, or the one under ``package_parent``, first on the path."""
-    parent = package_parent or Path(__file__).resolve().parent.parent
-    path = os.pathsep.join(p for p in (str(parent), os.environ.get("PYTHONPATH")) if p)
-    return {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONPATH": path}
+    """The environment for a Python program the check starts: UTF-8 output, and, when
+    ``package_parent`` is given, the package under it first on the path."""
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    if package_parent is not None:
+        env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (str(package_parent), os.environ.get("PYTHONPATH")) if p)
+    return env
 
 
 #: The environment every Python program the check starts runs with.
