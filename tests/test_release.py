@@ -120,6 +120,25 @@ class ReleasePublish(unittest.TestCase):
         self.assertLess(attest, publish)
 
 
+class Settings(unittest.TestCase):
+    """The exported settings the workflows rely on (.github/settings/)."""
+
+    @proves("REQ_RELEASE_TRUST")
+    def test_release_environment_needs_a_reviewer_and_deploys_only_from_main(self):
+        import json
+        settings = WORKFLOWS.parent / "settings"
+        env = json.loads((settings / "environments.json").read_text(encoding="utf-8"))["release"]
+        self.assertIs(env["can_admins_bypass"], False)
+        self.assertEqual(env["deployment_branch_policies"], [{"name": "main", "type": "branch"}])
+        self.assertEqual(env["deployment_branch_policy"],
+                         {"custom_branch_policies": True, "protected_branches": False})
+        reviewers = [r for r in env["protection_rules"] if r["type"] == "required_reviewers"]
+        self.assertEqual(len(reviewers), 1)
+        self.assertTrue(reviewers[0]["reviewers"])
+        security = json.loads((settings / "security.json").read_text(encoding="utf-8"))
+        self.assertIs(security["immutable_releases"]["enabled"], True)
+
+
 class Pins(unittest.TestCase):
     @proves("REQ_RELEASE_TRUST")
     def test_every_action_is_pinned_by_commit_sha(self):

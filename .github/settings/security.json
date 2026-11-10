@@ -8,6 +8,10 @@
   "fork_pr_contributor_approval": {
     "approval_policy": "all_external_contributors"
   },
+  "immutable_releases": {
+    "enabled": true,
+    "enforced_by_owner": false
+  },
   "private_vulnerability_reporting": {
     "enabled": true
   },
