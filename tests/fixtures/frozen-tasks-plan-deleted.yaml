@@ -1,0 +1,5 @@
+# A plan holding tasks resolved at the base is deleted.
+expect: REQ_FROZEN_TASKS
+mutations:
+- file: docs/plans/0005-running-on-windows.md
+  delete: true

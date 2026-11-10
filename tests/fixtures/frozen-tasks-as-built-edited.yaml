@@ -1,0 +1,16 @@
+# The As built entry of a task resolved at the base is rewritten.
+expect: REQ_FROZEN_TASKS
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: '### Task 3 (2026-11-08)
+
+
+    As designed.
+
+    '
+  replace: '### Task 3 (2026-11-08)
+
+
+    As designed, mostly.
+
+    '

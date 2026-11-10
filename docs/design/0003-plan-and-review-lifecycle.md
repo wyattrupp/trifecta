@@ -69,6 +69,7 @@ when the file's digest no longer matches or the path is not a typed document.
 
 :::{component} Lifecycle extension
 :id: COMP_TASK_FREEZE
+:spec: tools/check_lifecycle.py#def check_tasks
 :satisfies: REQ_FROZEN_TASKS, REQ_STATUS_FORWARD
 :constrained_by: DEC_0012
 :consumes: IF_PLAN_SHAPE

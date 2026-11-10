@@ -18,6 +18,7 @@ including why a step was dropped, is convention; the check holds only its presen
 
 from __future__ import annotations
 
+import collections.abc
 import re
 from dataclasses import dataclass, field
 
@@ -205,7 +206,22 @@ def frontmatter(lines: list[str]) -> dict:
 
 
 class NoTimestampLoader(yaml.SafeLoader):
-    """Frontmatter dates stay strings, so a schema sees what the author wrote."""
+    """Frontmatter dates stay strings, so a schema sees what the author wrote. A key given
+    twice is an error, since readers that took the first and the last would disagree on
+    what the document says, its status above all."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, collections.abc.Hashable):
+                raise yaml.constructor.ConstructorError(
+                    None, None, "found unhashable key", key_node.start_mark)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(
+                    None, None, f"frontmatter key {key!r} is given twice", key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
 
 
 NoTimestampLoader.yaml_implicit_resolvers = {
