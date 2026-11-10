@@ -102,8 +102,9 @@ that runs repository code.
 A release wheel MUST be built by the release workflow from a version tag on the main
 branch, with its build dependencies pinned and hashed and its actions pinned by commit
 SHA, and published only after a maintainer approves the release environment. Only the
-publishing job MAY write to the repository, and the release MUST carry a build provenance
-attestation.
+publishing job MAY write to the repository, apart from the build job's provenance
+attestation of the wheel it built (wyatt, 2026-11-10: "Attest in the build job"), and the
+release MUST carry that build provenance attestation.
 :::
 
 :::{req} Toolchain self-tests stay here

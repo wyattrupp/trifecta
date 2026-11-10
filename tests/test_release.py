@@ -35,14 +35,22 @@ def index(steps: list[dict], text: str) -> int:
 
 class ReleaseBuild(unittest.TestCase):
     @proves("REQ_RELEASE_TRUST")
-    def test_a_version_tag_builds_with_read_access_only(self):
+    def test_a_version_tag_builds_with_read_access_and_only_attests(self):
         data = load(BUILD)
         self.assertEqual(data["name"], "release-build", "release-publish waits on this name")
         self.assertEqual(data["on"], {"push": {"tags": ["v*"]}})
         self.assertEqual(data["permissions"], {})
         self.assertEqual(list(data["jobs"]), ["build"])
         job = data["jobs"]["build"]
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        # Read only, apart from the wheel's provenance (wyatt, 2026-11-10: "Attest in the
+        # build job").
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write",
+                                              "attestations": "write"})
+        steps = job["steps"]
+        attest = index(steps, "actions/attest-build-provenance@")
+        self.assertEqual(steps[attest]["with"], {"subject-path": "dist/trifecta-*.whl"})
+        self.assertLess(index(steps, "pip wheel"), attest)
+        self.assertLess(attest, index(steps, "actions/upload-artifact@"))
         self.assertNotIn("environment", job)
         checkout = job["steps"][index(job["steps"], "actions/checkout@")]
         self.assertIs(checkout["with"]["persist-credentials"], False)
@@ -92,32 +100,32 @@ class ReleasePublish(unittest.TestCase):
         job = data["jobs"]["publish"]
         self.assertNotIn("if", job, "publish runs only when the guard passed")
         self.assertEqual(job["environment"], "release")
-        self.assertEqual(job["permissions"], {"contents": "write", "id-token": "write",
-                                              "attestations": "write", "actions": "read"})
+        self.assertEqual(job["permissions"], {"contents": "write", "attestations": "read",
+                                              "actions": "read"})
 
     @proves("REQ_RELEASE_TRUST")
-    def test_publishes_the_wheel_its_sha256_and_an_attestation_to_the_existing_tag(self):
+    def test_publishes_a_wheel_whose_attestation_names_the_tags_build(self):
         steps = load(PUBLISH)["jobs"]["publish"]["steps"]
         download = steps[index(steps, "actions/download-artifact@")]
+        self.assertEqual(download["with"]["name"], "dist")
         self.assertEqual(download["with"]["run-id"], "${{ github.event.workflow_run.id }}")
         self.assertEqual(download["with"]["github-token"], "${{ github.token }}")
-        provenance = steps[index(steps, "provenance.json")]["run"]
-        for part in (r'ref: "refs/tags/\($tag)"', "gitCommit: $sha", r"actions/runs/\($run)"):
-            self.assertIn(part, provenance)
-        attest = index(steps, "actions/attest@")
-        self.assertEqual(steps[attest]["with"]["subject-path"], "dist/trifecta-*.whl")
-        self.assertEqual(steps[attest]["with"]["predicate-type"], "https://slsa.dev/provenance/v1")
-        self.assertEqual(steps[attest]["with"]["predicate-path"], "${{ runner.temp }}/provenance.json")
-        self.assertEqual(download["with"]["name"], "dist")
+        verify = index(steps, "for wheel in dist/trifecta-*.whl")
+        check = steps[verify]["run"]
+        for part in ('--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml"',
+                     '--source-ref "refs/tags/$TAG"', '--source-digest "$SHA"',
+                     "--deny-self-hosted-runners"):
+            self.assertIn(part, check)
         publish = index(steps, "gh release create")
         command = steps[publish]["run"]
         for part in ("dist/trifecta-*.whl", "dist/SHA256SUMS", "--verify-tag",
-                     '--jq .sha)" = "$SHA"', "--notes-file", "--signer-workflow",
-                     "--source-ref refs/heads/main", "--predicate-type https://slsa.dev/provenance/v1",
+                     '--jq .sha)" = "$SHA"', "--notes-file",
+                     "--signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-build.yml",
+                     "--source-ref refs/tags/$TAG", "--source-digest $SHA",
                      "--deny-self-hosted-runners"):
             self.assertIn(part, command)
-        self.assertLess(index(steps, "provenance.json"), attest)
-        self.assertLess(attest, publish)
+        self.assertLess(index(steps, "actions/download-artifact@"), verify)
+        self.assertLess(verify, publish)
 
 
 class Settings(unittest.TestCase):

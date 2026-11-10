@@ -210,12 +210,14 @@ contributors, private vulnerability reporting, and Dependabot alerts.
 :satisfies: REQ_RELEASE_TRUST
 :constrained_by: DEC_0013
 Two workflows. `release-build` builds the wheel and its SHA-256 on a version tag, with
-the hashed build backend and read access only; it runs the tag's own copy of itself, so
-nothing it does is trusted to publish. `release-publish` runs from main's copy whenever a
-build finishes: a guard job checks the tag still names the built commit and that commit
-is on main, relying on the tag ruleset to keep the tag where it was checked, and then, after a maintainer approves the
-release environment, the only job that may write attests the build's provenance, naming
-the tag, its commit and the build run, and attaches the wheel and its SHA-256 to the
+the hashed build backend, and attests the wheel's build provenance with GitHub's own
+provenance, which names the tag, its commit and the workflow; besides that attestation it
+has read access only. It runs the tag's own copy of itself, so nothing it does is trusted
+to publish. `release-publish` runs from main's copy whenever a build finishes: a guard
+job checks the tag still names the built commit and that commit is on main, relying on
+the tag ruleset to keep the tag where it was checked, and then, after a maintainer
+approves the release environment, the only job that may write verifies the wheel's
+attestation against that tag and commit and attaches the wheel and its SHA-256 to the
 release.
 :::
 

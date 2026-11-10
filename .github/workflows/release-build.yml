@@ -1,9 +1,10 @@
 name: release-build
 
-# A version tag builds the wheel and its SHA-256 with read access only. The tag's own copy
-# of this file runs, so nothing here is trusted to publish: release-publish, which always
-# runs from main, checks the tag names a commit on main before it publishes
-# (REQ_RELEASE_TRUST).
+# A version tag builds the wheel and its SHA-256, and attests the wheel's build provenance;
+# besides that attestation it has read access only (wyatt, 2026-11-10: "Attest in the build
+# job"). The tag's own copy of this file runs, so nothing here is trusted to publish:
+# release-publish, which always runs from main, checks the tag names a commit on main and
+# verifies this attestation before it publishes (REQ_RELEASE_TRUST).
 on:
   push:
     tags: ["v*"]
@@ -18,6 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -40,6 +43,10 @@ jobs:
       - name: SHA-256
         working-directory: dist
         run: sha256sum trifecta-*.whl > SHA256SUMS
+      # GitHub's own provenance: the tag, its commit and this workflow, signed for this job.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/trifecta-*.whl
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
