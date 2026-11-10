@@ -8,6 +8,7 @@ the declarations counted without running, which the check lists on standard erro
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import keyword
 import os
@@ -470,9 +471,50 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
     return text.splitlines(), tail
 
 
+#: A directory the fixture runner shares between the repository copies it checks: a copy
+#: whose tests and package are byte for byte the control's reuses the control's results.
+CACHE_ENV = "TRIFECTA_PROOF_CACHE"
+
+
+def _content_key(root: Path) -> str:
+    """A digest of everything the stage's result depends on: the files under ``tests/``
+    and ``src/``, the system and the interpreter."""
+    h = hashlib.sha256(f"{os.name}\0{sys.version}\0{os.environ.get('RUNNER_OS', '')}".encode())
+    for top in ("tests", "src"):
+        base = root / top
+        if not base.is_dir():
+            continue
+        for path in sorted(p for p in base.rglob("*") if p.is_file()
+                           and "__pycache__" not in p.parts):
+            h.update(b"\0" + path.relative_to(root).as_posix().encode() + b"\0")
+            h.update(hashlib.sha256(path.read_bytes()).digest())
+    return h.hexdigest()
+
+
 def check_proofs(root: Path, child: list[str] | None = None,
                  ) -> tuple[list[Finding], set[str], list[str]]:
     """Findings, the requirements proven, and the declarations counted without running."""
+    cache = os.environ.get(CACHE_ENV)
+    if cache and child is None:
+        entry = Path(cache) / f"{_content_key(root)}.json"
+        try:
+            data = json.loads(entry.read_text(encoding="utf-8"))
+            return ([Finding(*f) for f in data["findings"]], set(data["proven"]),
+                    data["unrun"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        result = _check_proofs(root, None)
+        tmp = entry.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"findings": [[f.req, f.location, f.message] for f in result[0]],
+                                   "proven": sorted(result[1]), "unrun": result[2]}),
+                       encoding="utf-8")
+        os.replace(tmp, entry)
+        return result
+    return _check_proofs(root, child)
+
+
+def _check_proofs(root: Path, child: list[str] | None,
+                  ) -> tuple[list[Finding], set[str], list[str]]:
     reading = read_tests(root)
     findings = list(reading.findings)
     if not reading.modules and not reading.methods:

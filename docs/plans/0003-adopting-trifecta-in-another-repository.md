@@ -72,11 +72,11 @@ Let tests prove what fixtures cannot, before the tasks that need them.
 :gate: The tests for REQ_INIT_PASSES, REQ_INIT_SAFE other than the CLAUDE.md append and the settings merge, REQ_NO_SECRETS_IN_TREE and REQ_SELF_TESTS_SCOPED pass.
 Write the adopting repository's starting point.
 
-- [ ] **4.1** Add the configuration value that turns on the fixture audit, set only in this repository's `docs/conf.py` and in the minimal corpora step 3.3's tests build.
-- [ ] **4.2** Let a corpus with no typed document pass: the lint stage reports missing pages only when typed documents exist.
-- [ ] **4.3** Write `trifecta init`: the configuration that loads the package, the index, the typed directories, the Makefile, the hashed lock with the package's URL line, the `.gitattributes`, the CI workflow with read-only permissions, no persisted credentials and SHA-pinned actions, and a CODEOWNERS entry for `CLAUDE.md`, `.claude/`, `.github/`, `docs/conf.py`, the Makefile and the lock.
-- [ ] **4.4** Check every target, and every directory between the repository root and it, with `lstat`, before writing any; refuse a target that exists, other than the `CLAUDE.md` step 5.1 appends to and the `.claude/settings.json` step 5.4 merges into, either of which is refused when it is not a regular file, a file left at `CLAUDE.md.trifecta-new` or `.claude/settings.json.trifecta-new`, a target or such a directory that is a link, a junction or other reparse point, and a target that resolves outside the repository; check each directory between the root and a target again just before creating each directory and each file, create each file exclusively, remove every file the run created when any later step fails, checking its parents and its identity again just before each removal, and list what was written.
-- [ ] **4.5** Add the tests, each run in an empty directory after `git init`: bare init passes the check; init plus a draft of each type passes; an existing file, a link, a dangling link, a linked parent directory, a junctioned one, in a test that names `nt` as step 3.1 provides, a parent swapped for a link, or for a junction in a test that names `nt`, between the check and the create, and a path outside the repository are each refused; a parent swapped for a link after its file is created, then a failure, leaves the link's target untouched; a refused run writes nothing; a run whose create of one target fails after others were written removes every file it created; a second init is refused and leaves every file byte-identical; the CI workflow init writes grants only read access, sets `persist-credentials: false` and pins every action by commit SHA; nothing init writes, apart from bytes it keeps from an existing CLAUDE.md or settings file, matches a token pattern; an adopting repository with an unproven requirement passes, since the audit is off.
+- [x] **4.1** Add the configuration value that turns on the fixture audit, set only in this repository's `docs/conf.py` and in the minimal corpora step 3.3's tests build.
+- [x] **4.2** Let a corpus with no typed document pass: the lint stage reports missing pages only when typed documents exist.
+- [x] **4.3** Write `trifecta init`: the configuration that loads the package, the index, the typed directories, the Makefile, the hashed lock with the package's URL line, the `.gitattributes`, the CI workflow with read-only permissions, no persisted credentials and SHA-pinned actions, and a CODEOWNERS entry for `CLAUDE.md`, `.claude/`, `.github/`, `docs/conf.py`, the Makefile and the lock.
+- [x] **4.4** Check every target, and every directory between the repository root and it, with `lstat`, before writing any; refuse a target that exists, other than the `CLAUDE.md` step 5.1 appends to and the `.claude/settings.json` step 5.4 merges into, either of which is refused when it is not a regular file, a file left at `CLAUDE.md.trifecta-new` or `.claude/settings.json.trifecta-new`, a target or such a directory that is a link, a junction or other reparse point, and a target that resolves outside the repository; check each directory between the root and a target again just before creating each directory and each file, create each file exclusively, remove every file the run created when any later step fails, checking its parents and its identity again just before each removal, and list what was written.
+- [x] **4.5** Add the tests, each run in an empty directory after `git init`: bare init passes the check; init plus a draft of each type passes; an existing file, a link, a dangling link, a linked parent directory, a junctioned one, in a test that names `nt` as step 3.1 provides, a parent swapped for a link, or for a junction in a test that names `nt`, between the check and the create, and a path outside the repository are each refused; a parent swapped for a link after its file is created, then a failure, leaves the link's target untouched; a refused run writes nothing; a run whose create of one target fails after others were written removes every file it created; a second init is refused and leaves every file byte-identical; the CI workflow init writes grants only read access, sets `persist-credentials: false` and pins every action by commit SHA; nothing init writes, apart from bytes it keeps from an existing CLAUDE.md or settings file, matches a token pattern; an adopting repository with an unproven requirement passes, since the audit is off.
 :::
 
 :::{task} Planning default
@@ -220,3 +220,24 @@ child's output goes to a file, so a process a test leaves running cannot hold th
 open; no timeout bounds the child itself, since its length is wyatt's ruling and has not
 been asked. REQ_FIXTURE_PER_INVARIANT now names a proving test beside a negative fixture,
 as step 3.2 asked.
+
+### Task 4 (2026-11-10)
+
+The switch is the configuration value `trifecta_fixture_audit`, which the extension
+records in `docs/_build/html/trifecta.json` for the check to read; it is off when the
+record is missing. The tests step 3.3 added drive the test stage directly and build no
+configuration, so no corpus but this repository's sets it. The runtime pins moved into
+the package as `src/trifecta/requirements.lock`, which this repository's lock includes
+and init copies under the package's line. Init takes that line from the release the
+package was installed from, as pip records it, or from `--wheel-url` and
+`--wheel-sha256`, and the CODEOWNERS owner from the `origin` remote or `--codeowner`;
+without either it refuses before writing. It also writes a `.gitignore` for `bin/` and
+`docs/_build/`, since the check counts an untracked, unignored Vale under `bin/` as
+tracked, and a `.gitkeep` in each typed directory. Sphinx gives the empty-glob warning no
+type, so no setting can quiet it; the index lists each typed directory with the
+extension's `typed-index` directive, which lists nothing while the directory is empty.
+Tests swap or fail a create through two seams in `trifecta.init`, `before_create` and
+`after_create`. The fixture runner shares a cache of test results keyed by the content of
+`tests/` and `src/`, so a copy whose tests and package match the control's does not run
+them again. An existing `.gitignore`, Makefile or workflow is refused like any other
+target.

@@ -1,6 +1,6 @@
 # A dependency loosened to a version range.
 expect: REQ_PINNED_TOOLCHAIN
 mutations:
-- file: requirements.lock
+- file: src/trifecta/requirements.lock
   find: 'sphinx-needs==9.2.0 '
   replace: 'sphinx-needs>=9.2 '
