@@ -90,6 +90,7 @@ class ReleasePublish(unittest.TestCase):
         self.assertEqual(data["permissions"], {})
         self.assertEqual(list(data["jobs"]), ["guard", "publish"])
         job = data["jobs"]["publish"]
+        self.assertNotIn("if", job, "publish runs only when the guard passed")
         self.assertEqual(job["environment"], "release")
         self.assertEqual(job["permissions"], {"contents": "write", "id-token": "write",
                                               "attestations": "write", "actions": "read"})
@@ -106,10 +107,14 @@ class ReleasePublish(unittest.TestCase):
         attest = index(steps, "actions/attest@")
         self.assertEqual(steps[attest]["with"]["subject-path"], "dist/trifecta-*.whl")
         self.assertEqual(steps[attest]["with"]["predicate-type"], "https://slsa.dev/provenance/v1")
+        self.assertEqual(steps[attest]["with"]["predicate-path"], "${{ runner.temp }}/provenance.json")
+        self.assertEqual(download["with"]["name"], "dist")
         publish = index(steps, "gh release create")
         command = steps[publish]["run"]
         for part in ("dist/trifecta-*.whl", "dist/SHA256SUMS", "--verify-tag",
-                     '--jq .sha)" = "$SHA"', "--signer-workflow", "--notes-file"):
+                     '--jq .sha)" = "$SHA"', "--notes-file", "--signer-workflow",
+                     "--source-ref refs/heads/main", "--predicate-type https://slsa.dev/provenance/v1",
+                     "--deny-self-hosted-runners"):
             self.assertIn(part, command)
         self.assertLess(index(steps, "provenance.json"), attest)
         self.assertLess(attest, publish)

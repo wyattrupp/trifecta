@@ -94,7 +94,7 @@ jobs:
             echo "Built from \`$TAG\` (commit \`$SHA\`). Verify the wheel's provenance:"
             echo
             echo '```sh'
-            echo "gh attestation verify $wheel --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-publish.yml --predicate-type https://slsa.dev/provenance/v1 --deny-self-hosted-runners"
+            echo "gh attestation verify $wheel --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-publish.yml --source-ref refs/heads/main --predicate-type https://slsa.dev/provenance/v1 --deny-self-hosted-runners"
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$TAG" dist/trifecta-*.whl dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" \
