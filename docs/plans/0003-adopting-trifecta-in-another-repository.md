@@ -215,4 +215,8 @@ when its result is plain success, since the check already fails. The thirty-four
 create a test file each; the five child cases and the `RUNNER_OS` cases are tests in
 `tests/test_proofs.py` against a stub child. The tests under `tests/` run in every
 fixture copy, so `tests/test_package.py` builds a wheel in each. Task 2's components had
-no `spec` paths; COMP_PACKAGE and IF_CLI got them here, with COMP_TEST_PROOFS's.
+no `spec` paths; COMP_PACKAGE and IF_CLI got them here, with COMP_TEST_PROOFS's. The
+child's output goes to a file, so a process a test leaves running cannot hold the check
+open; no timeout bounds the child itself, since its length is wyatt's ruling and has not
+been asked. REQ_FIXTURE_PER_INVARIANT now names a proving test beside a negative fixture,
+as step 3.2 asked.

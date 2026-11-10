@@ -94,10 +94,28 @@ def _own_yield(func: ast.AST) -> bool:
     return False
 
 
+_OWN_SCOPE = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.Lambda)
+
+
+def _scope_walk(node: ast.AST):
+    """Every node under ``node`` in its own scope: not into a comprehension or lambda,
+    except for the walrus targets there, which bind in the enclosing scope."""
+    stack = ([n for n in ast.walk(node) if isinstance(n, ast.NamedExpr)]
+             if isinstance(node, _OWN_SCOPE) else [node])
+    while stack:
+        current = stack.pop()
+        yield current
+        for child in ast.iter_child_nodes(current):
+            if isinstance(child, _OWN_SCOPE):
+                stack.extend(n for n in ast.walk(child) if isinstance(n, ast.NamedExpr))
+            else:
+                stack.append(child)
+
+
 def _bound_names(node: ast.AST) -> list[tuple[str, int]]:
     """Every name a statement binds in its own scope, with its line."""
     out = []
-    for sub in ast.walk(node):
+    for sub in _scope_walk(node):
         if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.Del)):
             out.append((sub.id, sub.lineno))
         elif isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -138,7 +156,7 @@ def _header_names(node: ast.stmt) -> list[tuple[str, int]]:
         parts = [node.subject, *(c.pattern for c in node.cases), *(c.guard for c in node.cases if c.guard)]
     out = []
     for part in parts:
-        for sub in ast.walk(part):
+        for sub in _scope_walk(part):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
                 out.append((sub.id, sub.lineno))
             elif isinstance(sub, (ast.MatchAs, ast.MatchStar)) and sub.name:

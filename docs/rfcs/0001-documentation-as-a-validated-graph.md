@@ -259,3 +259,10 @@ The new text of REQ_FIXTURE_PER_INVARIANT, in the review recorded as {need}`REV_
 :date: 2026-11-09
 :digest: 28080b0ffc763891dcfa0453c75220a9a086ba9fd5863b2d9e44068bfeab6caf
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0001_4
+:k: 2
+:date: 2026-11-10
+:digest: e6de982f35f1117ca93bb9d36328c03b6b44f019b1b4c50551d136032b96fc6c
+:::
