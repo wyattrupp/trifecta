@@ -55,8 +55,32 @@ def check_plans(needs: dict[str, dict]) -> list[Finding]:
     return findings
 
 
+def check_build_state(needs: dict[str, dict]) -> list[Finding]:
+    """REQ_APPROVED_IS_PLANNED and REQ_IMPLEMENTED_HAS_SPEC (COMP_BUILD_STATE)."""
+    findings = []
+    planned = {d for plan in needs.values()
+               if plan["type"] == "plan" and plan.get("status") in LIVE_PLANS
+               for d in plan.get("implements") or []}
+    for design in sorted(needs.values(), key=lambda n: n["id"]):
+        if design["type"] == "design" and design.get("status") == "approved" \
+                and design["id"] not in planned:
+            findings.append(Finding(
+                "REQ_APPROVED_IS_PLANNED", _where(design),
+                f"{design['id']} is approved, and no draft, active or done plan implements it",
+            ))
+    for element in sorted(needs.values(), key=lambda n: n["id"]):
+        if element["type"] in ("component", "interface") \
+                and element.get("doc_status") == "implemented" \
+                and not (element.get("spec") or "").strip():
+            findings.append(Finding(
+                "REQ_IMPLEMENTED_HAS_SPEC", _where(element),
+                f"{element['id']} belongs to an implemented design doc and names no `spec`",
+            ))
+    return findings
+
+
 def check(needs: dict[str, dict], root: Path) -> list[Finding]:
-    findings = check_plans(needs)
+    findings = check_plans(needs) + check_build_state(needs)
     for need in needs.values():
         # REQ_CHOICE_CONSIDERED
         if need["type"] == "decision":

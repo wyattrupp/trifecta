@@ -1,0 +1,6 @@
+# The only plan implementing an approved design doc is abandoned.
+expect: REQ_APPROVED_IS_PLANNED
+mutations:
+- file: docs/plans/0006-diagrams-of-the-corpus.md
+  find: "status: active\n"
+  replace: "status: abandoned\n"

@@ -1,0 +1,11 @@
+# A requirement indented under a list item in a done plan's As built section.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/plans/0005-running-on-windows.md
+  find: '
+
+    ### Task 4 (2026-11-09)
+
+    '
+  replace: "\n- a note\n\n  :::{req} Hidden\n  :id: REQ_HIDDEN_LISTED\n  Nothing MUST hold.\n  :::\n\n\
+    ### Task 4 (2026-11-09)\n"
