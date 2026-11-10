@@ -47,10 +47,12 @@ def _defined_in(test) -> tuple[str, str]:
 
 def _detail(err) -> str:
     if isinstance(err, str):
-        return err[:300]
-    if err is None:
-        return ""
-    return "".join(traceback.format_exception_only(err[0], err[1])).strip()[:300]
+        text = err
+    elif err is None:
+        text = ""
+    else:
+        text = "".join(traceback.format_exception_only(err[0], err[1])).strip()
+    return text[:300].encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 class Recorder(unittest.TestResult):

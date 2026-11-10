@@ -28,7 +28,8 @@ SYSTEMS = ("posix", "nt")
 RUNNER_OS = {"Linux": "posix", "Windows": "nt"}
 ASYNC_BASE = "IsolatedAsyncioTestCase"
 
-#: Starts the child: the running package first on the path, then the corpus root.
+#: Starts the child: imports it from the running package, then puts the corpus root first
+#: on the path and the package's directory off it.
 BOOT = ("import sys; sys.path.insert(0, sys.argv[1]); "
         "from trifecta.proof_child import main; "
         "sys.path.remove(sys.argv[1]); sys.path.insert(0, ''); "
@@ -122,6 +123,32 @@ def _flat(body: list[ast.stmt]):
             yield from _flat(handler.body)
         for case in getattr(node, "cases", []):
             yield from _flat(case.body)
+
+
+def _header_names(node: ast.stmt) -> list[tuple[str, int]]:
+    """Names a compound statement binds in its own header, not in its body."""
+    parts: list[ast.AST] = []
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        parts = [node.target, node.iter]
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        parts = [i for item in node.items for i in (item.context_expr, item.optional_vars) if i]
+    elif isinstance(node, (ast.If, ast.While)):
+        parts = [node.test]
+    elif isinstance(node, ast.Match):
+        parts = [node.subject, *(c.pattern for c in node.cases), *(c.guard for c in node.cases if c.guard)]
+    out = []
+    for part in parts:
+        for sub in ast.walk(part):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                out.append((sub.id, sub.lineno))
+            elif isinstance(sub, (ast.MatchAs, ast.MatchStar)) and sub.name:
+                out.append((sub.name, sub.lineno))
+            elif isinstance(sub, ast.MatchMapping) and sub.rest:
+                out.append((sub.rest, sub.lineno))
+    for handler in getattr(node, "handlers", []):
+        if handler.name:
+            out.append((handler.name, handler.lineno))
+    return out
 
 
 def _compound(node: ast.stmt) -> bool:
@@ -228,6 +255,9 @@ class _Reader:
         defined: dict[str, int] = {}
         for node in _flat(body):
             if _compound(node):
+                for name, line in _header_names(node):
+                    if name in defined or f"{qual}{name}" in defined:
+                        self.report(line, f"{qual}{name} is bound again after its definition")
                 continue
             if isinstance(node, ast.ClassDef):
                 name = f"{qual}{node.name}"
@@ -292,7 +322,7 @@ class _Reader:
                                    runs=self.module is not None))
 
     def _async_capable(self, cls: ast.ClassDef, seen: frozenset = frozenset()) -> bool:
-        local = {n.name: n for n in self.tree.body if isinstance(n, ast.ClassDef)}
+        local = {n.name: n for n in _flat(self.tree.body) if isinstance(n, ast.ClassDef)}
         for base in cls.bases:
             name = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", None)
             if name == ASYNC_BASE:
@@ -344,9 +374,9 @@ def read_tests(root: Path) -> Reading:
         module = _module_name(rel)
         reader = _Reader(rel, tree, module)
         reader.read()
-        reading.findings += reader.findings
         if not reader.marked:
-            continue
+            continue  # not a proof module: its classes are not read
+        reading.findings += reader.findings
         for directory in path.parent.relative_to(root).parents[::-1][1:] + (path.parent.relative_to(root),):
             if not (root / directory / "__init__.py").is_file():
                 reading.findings.append(Finding(
@@ -394,7 +424,9 @@ def _parse(lines: list[str]) -> tuple[list[dict], list[str]]:
         if kind in ("result", "fixture") and record["outcome"] not in OUTCOMES:
             problems.append(f"record {n} has an unknown outcome {record['outcome']!r}")
             continue
-        records.append(record)
+        # A lone surrogate, as a POSIX file name in a message can carry, is written escaped.
+        records.append({k: v.encode("utf-8", "backslashreplace").decode("utf-8")
+                        if isinstance(v, str) else v for k, v in record.items()})
     return records, problems
 
 

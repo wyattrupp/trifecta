@@ -191,11 +191,12 @@ Every Python dependency MUST be pinned to an exact version, and the Vale binary 
 pinned by version and checksum.
 :::
 
-:::{req} Every invariant has a negative fixture
+:::{req} Every invariant has a negative fixture or a proving test
 :id: REQ_FIXTURE_PER_INVARIANT
 Every requirement satisfied by a component of an implemented design doc MUST be the
-expected finding of at least one negative fixture, or be named by a test whose declaration
-counts as its proof under REQ_PROVEN_BY_TEST, and the unmutated corpus MUST pass.
+expected finding of at least one negative fixture, or be declared by a test under `tests/`
+whose declaration counts as a proof by the rules REQ_PROVEN_BY_TEST sets, whatever RFC
+holds the requirement, and the unmutated corpus MUST pass.
 :::
 
 ## Questions
