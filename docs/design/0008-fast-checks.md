@@ -1,0 +1,248 @@
+---
+status: approved
+authors: [claude]
+---
+# Fast checks
+
+:::{design}
+:::
+
+## Overview
+
+Two pillars. Profiling: the check times each of its stages and the fixture runner times
+each copy, control and fixture, and both write the times as JSON under
+`docs/_build/profile/`, which CI uploads and summarizes. Manifests: a recorder inside each
+test module's child and inside the Sphinx build notes every input the run reads, failing
+closed on anything it cannot follow, and a result store keeps the run's results under
+that manifest; a later run whose inputs all match takes the stored results in place of
+running. Every other stage runs every time, and so does the judging of test results. In
+CI, setup's downloads are cached by hash, push runs on main run the fixtures from an empty
+store and publish the store they wrote, and pull requests fetch that store from main's run.
+
+## Requirements
+
+:::{needtable}
+:filter: type == 'req' and len(satisfies_back) > 0
+:columns: id, title, satisfies_back as "Satisfied by"
+:style: table
+:::
+
+## Constraints
+
+:::{needtable}
+:filter: type == 'decision' and len(constrained_by_back) > 0
+:columns: id, title, status
+:style: table
+:::
+
+## Components
+
+:::{component} Profiler
+:id: COMP_PROFILER
+:satisfies: REQ_PROFILED
+:constrained_by: DEC_0029
+:provides: IF_PROFILE
+A timer around each stage of `check.main`, in the order the stages run, using
+`time.perf_counter`, and around the fixture runner's base copy, its control, and each
+fixture's copy, mutation and check. The check writes `docs/_build/profile/check.json`, or
+the path `--profile` names; the fixture runner reads each copy's own `check.json` after
+its check and writes `docs/_build/profile/fixtures.json`, or the path its `--profile`
+names, with the base copy, the control, every fixture with its stages, and the run's
+total. Each record of a reusable stage says whether it was reused and, when not, the kind
+of the first input that differed, as a path or a variable name, never a variable's
+value, or why the run could not be stored. Nothing is written to standard output, and a
+profile that cannot be written is a line on standard error, not a finding and not a
+change to the exit status. `docs/_build/profile/` is kept out of the clean before the
+Sphinx build. `trifecta profile PATH` prints the stages, or the fixtures, by time as a
+Markdown table, which CI appends to the job summary. No budget is compared, since none
+exists (wyatt, 2026-11-10: "No number yet"); where one is set it is printed beside the
+time it bounds and changes no exit status (wyatt, 2026-11-10: "Report only").
+:::
+
+:::{component} Recorder
+:id: COMP_RECORDER
+:satisfies: REQ_REUSE_SOUND
+:constrained_by: DEC_0028
+:provides: IF_MANIFEST
+A module, `trifecta.record`, started by the boot line of the process it records, before
+any module of the run is imported, and installed once per process. It fails closed: any
+audit event not on its list of handled or known-harmless events marks the manifest
+unstorable, and so does a change of working directory.
+
+Reads: an `open` for reading, and the source of a `shutil.copyfile` or the Windows
+`_winapi.CopyFile2` event, is a file input. Probes: it wraps `os.stat`, `os.lstat`,
+`os.access`, `os.readlink`, and `os.path.exists`, `isfile`, `isdir` and `islink`, which
+on Windows are C functions that call no wrapped `os.stat`, and records every probed path
+with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
+record each entry with its kind. Imports: the import system's own lookups are recorded as
+the presence or absence of the names it looked for, not as whole listings. Every recorded process, the
+Sphinx build's included, runs with `-B` and with `-X pycache_prefix` set to an empty
+directory the run creates, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
+of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
+mappings that record each key asked for, and every key and value when iterated or copied,
+and still set the process environment as before; the recorder's own
+variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
+directory the run or one of its children created is not an input; the run's own control
+files, such as the test child's channel and plan, are not either.
+
+Children: a Python child the run starts with `sys.executable` records itself. The
+recorder gives each child a fresh directory, named in `TRIFECTA_RECORD`, since on Windows
+a virtual environment's `python.exe` is a launcher whose process ID is not the child's;
+a `.pth` file that setup installs in a virtual environment starts the recorder when the
+variable is set and imports nothing when it is not, and holds under `-E`, `-I` and `-s`,
+since `site` still runs. Outside a virtual environment, where `sys.prefix` is
+`sys.base_prefix`, setup installs no `.pth` file and says so on standard error, and a
+Python child there leaves no manifest. A child started with `-S`, a child that leaves no manifest in its
+directory, a `socket.connect`, and any `os.system`, exec, spawn, fork or `startfile`, or a
+`subprocess.Popen` of any other program, mark the manifest unstorable. Paths inside the
+repository are recorded relative to its root, and paths and values holding the root's
+absolute path have it replaced by a placeholder, so a fixture copy at another path
+matches. Files under the interpreter's prefixes are left to the environment key; any
+other file read outside the repository is hashed in `outside`.
+
+Native code: a module of the lock built from C or Rust, such as `jsonschema_rs`,
+`minijinja`, `rpds`, PyYAML's `_yaml`, `markupsafe` and `charset_normalizer`, can open a
+file without any audited call. A test on Linux runs each recorded stage under
+`strace -f -e trace=%file,%network`, and reports every path inside the repository the
+system calls opened, probed or listed that the manifest does not hold, and any
+connection.
+:::
+
+:::{component} Result store
+:id: COMP_RESULT_STORE
+:satisfies: REQ_REUSE_SOUND, REQ_REUSE_SCOPED
+:constrained_by: DEC_0028, DEC_0030
+A directory of entries, `docs/_build/cache/` by default, kept out of the clean before the
+Sphinx build, or the directory `TRIFECTA_STORE` names, which replaces
+`TRIFECTA_PROOF_CACHE`. An entry is filed under its identity: the stage; for a test
+module, its name and the tests left out of it; the environment key, made of `os.name`,
+`sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hash of the
+recorder's `.pth` file, and the name, version and `RECORD` hash of every installed
+distribution; and a hash of every file of the package that runs the stage, which an
+editable install's `RECORD` does not cover. Under one identity the store keeps the
+manifests stored with their results, newest first, and a lookup takes the first whose
+every file hash, probe, listing and environment value matches the current tree and
+environment; when the store is written for publishing, entries whose identity no longer
+matches the running package are dropped. A miss and an unstorable manifest run the
+stage; `--fresh` runs every stage and reuses nothing, and stores what it ran. Entries
+are JSON, written to a temporary file and moved into place, so copies running at once
+never read half an entry, and are checked against their schema when read, since a
+fetched store is data from another run. The store holds results, never verdicts: what a
+stored result means is decided by the running package every time. `TRIFECTA_STORE` is
+removed from the environment of every test child, so a test that runs the check itself
+runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
+:::
+
+:::{component} Proof reuse
+:id: COMP_PROOF_REUSE
+:satisfies: REQ_REUSE_SCOPED
+:constrained_by: DEC_0030
+The test stage runs each proof module it chose in a child of its own, under the recorder,
+and stores the module's records and its manifest; reading the
+declarations, matching results to them and judging them run every time, on the stored
+records or the fresh ones alike, against every module's name. A module is looked up by
+its own identity, so a fixture that adds a test module runs that module, and reuses every
+other whose manifest holds neither the new file nor a lookup the new name answers.
+`_content_key` and its claim that no test reads `docs/` go. {need}`DES_0004`'s
+COMP_TEST_PROOFS, which states one child for every module, is amended to one child per
+module, with its rules on the child's `os.name` and its end record holding per child.
+:::
+
+:::{component} Build reuse
+:id: COMP_BUILD_REUSE
+:satisfies: REQ_REUSE_SCOPED
+:constrained_by: DEC_0030
+The Sphinx stage runs `python -m trifecta.record sphinx` with the same arguments, which
+starts the recorder and then Sphinx in the same process, after the clean of `docs/_build`,
+so nothing under the build directory is an input. It stores the build's standard error
+and exit status, with the root replaced by a placeholder, and the output directory
+`docs/_build/html` as one archive, without `.doctrees`. A match restores the directory,
+refusing any member that is absolute, holds `..` or is a link, and puts the root back
+into the stored error stream before `from_sphinx` reads it, so the findings and their
+locations are those a fresh build gives. A fixture that changes no file the build read,
+such as one that edits the root `requirements.lock` or a test, restores the control's
+build; a change to any file of the package, its setup script and lock included, changes
+the identity and builds again.
+:::
+
+:::{component} CI cache
+:id: COMP_CI_CACHE
+:constrained_by: DEC_0031
+In both jobs of the check workflow: setup runs in a virtual environment, so the recorder's
+`.pth` file has somewhere to go. `actions/cache/restore` and `actions/cache/save`, pinned
+by SHA, keep pip's downloaded archives and setup's Vale archive under a key holding
+`runner.os` and the hash of both locks and the setup script; `bin/` is never cached, and
+setup checks the Vale archive's SHA-256 before every extraction. The check step runs with
+`--fresh`, in the Makefile and the Windows job alike. In push runs on main, the fixture
+step starts from an empty store named in `TRIFECTA_STORE`, so every result in it was run
+by that commit, and uploads the store it wrote as an artifact named for `runner.os`. In pull request runs, a step finds the latest successful run of
+`.github/workflows/check.yml` whose event is `push` and whose branch is main in this
+repository and downloads that run's store artifact by its run ID, which needs
+`actions: read`, and the fixture step runs with `TRIFECTA_STORE` set to it; nothing a pull
+request run writes is ever read by another run. A last step that always runs uploads
+`docs/_build/profile/` and appends `trifecta profile` tables to the job summary.
+:::
+
+## Interfaces
+
+:::{interface} Profile
+:id: IF_PROFILE
+:constrained_by: DEC_0029
+A JSON object with `version: 1`, `command` (`check` or `fixtures`), `total` in seconds,
+and `stages`, an array in run order of objects with `name`, `seconds`, and for a reusable
+stage `reused` and `why`; for the fixture runner also `base`, `control` and `fixtures`,
+each fixture with `name`, `seconds`, `copy_seconds`, `ok` and its check's `stages`. Times
+are wall-clock seconds rounded to milliseconds. `why` MUST NOT hold the value of an
+environment variable. The profile MUST NOT be read by any rule: it is a report.
+:::
+
+:::{interface} Manifest
+:id: IF_MANIFEST
+:constrained_by: DEC_0028
+A JSON object with `version: 1`, `storable` and, when false, `why`; `files`, mapping each
+path read to its SHA-256; `probes`, mapping each path probed to its kind, `file`,
+`directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
+entries, each with its kind; `lookups`, the import system's names found or not found;
+`environment`, mapping each variable read to its value or null; and `outside`, mapping
+each file read outside the repository and the interpreter's prefixes to its SHA-256.
+Paths inside the repository are relative to its root with forward slashes, as
+REQ_PORTABLE_FINDINGS writes locations.
+:::
+
+## Risks
+
+The recorder sees what Python does through the audited calls and the wrapped functions,
+and fails closed on the events it does not know. A read by native code that opens a file
+itself is missed in a run on Windows or macOS; the `strace` test catches it on Linux,
+where a dependency that starts doing so fails the test, and a dependency added to the lock
+is covered by the same test. A test whose result depends on the clock or on chance can be
+reused with a result a fresh run would not give; the check already treats one passing run
+as a proof, so reuse adds no new assumption, only a longer life for the same one.
+
+The store in `docs/_build/cache/` is trusted: anyone who can write it can make a local
+check pass, as anyone who can edit the package can. In CI, pull requests read only the
+store a push run on main wrote from an empty start, by merged code, fetched by run ID rather
+than by a cache key a pull request could also write; a result that run stored wrongly,
+through a gap in the recorder, can hide a fixture failure in pull requests until an input
+it recorded changes, and the top-level check, which runs fresh, does not guard the
+fixture runner's own verdicts. Only the push-on-main job of the check workflow publishes
+a store; no release workflow reads one. Adding `actions: read` to the check workflow lets
+its jobs read the repository's workflow runs and artifacts, which are public here anyway.
+
+A test that starts git, Vale or any program other than the interpreter is never stored,
+so it runs every time; the profile shows its cost. The wrapped `os.environ` records every
+variable on iteration, so a module that copies the environment is reused only where the
+whole environment is the same, which in CI is within a run and not across runs. In an
+adopting repository, setup installs the `.pth` file in its virtual environment, and the
+check uses `docs/_build/cache/` and a child per test module, but its CI workflow, which
+init writes, gets no store or download cache until a later change offers one.
+
+## Review
+
+:::{review} Correctness; security
+:id: REV_DES_0008_1
+:k: 2
+:date: 2026-11-10
+:digest: 71ca9dff4ba9be98ffca9d08d9b74a0ba97103bd02bab781619e5e8f54565546
+The review recorded as {need}`REV_RFC_0008_1` covered this document.
+:::
