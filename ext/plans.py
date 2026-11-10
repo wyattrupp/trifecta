@@ -12,8 +12,9 @@ A task is a ``:::{task}`` need under ``## Tasks`` with ``:id: TASK_<plan>_<NN>``
     - [-] **2.3** dropped
 
 A task is resolved when it has steps and none is open. ``## As built`` holds one
-``### Task N (YYYY-MM-DD)`` entry per resolved task, in task order. What an entry says,
-including why a step was dropped, is convention; the check holds only its presence.
+``### Task N (YYYY-MM-DD)`` entry per resolved task, in task order, and the entry of a task
+with a dropped step cites that step by its number ``N.k`` (REQ_DROP_REASONS). The rest of
+what an entry says is the author's.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ STEP_RE = re.compile(r"^- \[(?P<state>[ x-])\] \*\*(?P<n>[1-9]\d*)\.(?P<k>[1-9]\
 #: The text tools/new.py writes where an author has to write something.
 PLACEHOLDER = "TODO."
 #: Anything that looks like a checkbox, so a malformed step is reported, not ignored.
-STEP_LIKE_RE = re.compile(r"^\s*[-*+] \[[^\]]?\](?!\()")
+STEP_LIKE_RE = re.compile(r"^\s*[-*+]\s+\[[^\]]{0,3}\](?!\()")
 AS_BUILT_RE = re.compile(r"^### Task (?P<n>\d+) \((?P<date>\d{4}-\d{2}-\d{2})\)[ \t]*$")
 H2_RE = re.compile(r"^ {0,3}##(?:[ \t]+(?P<title>.*?))?(?:[ \t]+#+)?[ \t]*$")
 H3_RE = re.compile(r"^ {0,3}###(?:[ \t]|$)")
@@ -96,6 +97,7 @@ class Plan:
     as_built: list[tuple[int, int]]  # (task number, line) per well-formed entry
     as_built_bad: list[int]  # lines of other H3 headings under As built
     stray_steps: list[int] = field(default_factory=list)  # checkboxes outside any task
+    entry_text: dict[int, str] = field(default_factory=dict)  # task number -> its entry
 
     def steps(self) -> list[tuple[Task, Step]]:
         return [(t, s) for t in self.tasks for s in t.steps]
@@ -182,7 +184,18 @@ def parse(lines: list[str]) -> Plan:
                 as_built.append((int(e.group("n")), j))
             else:
                 bad.append(j)
-    return Plan(tasks, sections, as_built, bad, stray)
+    # Each entry runs from its heading to the next H3 or the end of the section. Its text
+    # for citing is what a reader reads: code, HTML comments and link targets are left out.
+    texts: dict[int, str] = {}
+    if "As built" in sections:
+        heads = sorted(as_built, key=lambda e: e[1])
+        bounds = sorted([line for _, line in heads] + bad) + [sections["As built"][1]]
+        for n, line in heads:
+            stop = next(b for b in bounds if b > line)
+            prose = "\n".join(lines[j] for j in range(line + 1, stop) if not code[j])
+            prose = re.sub(r"\]\([^)]*\)", "]", re.sub(r"<!--.*?-->", "", prose, flags=re.S))
+            texts[n] = texts.get(n, "") + "\n" + prose
+    return Plan(tasks, sections, as_built, bad, stray, texts)
 
 
 def frontmatter_end(lines: list[str]) -> int | None:
@@ -311,4 +324,20 @@ def problems(plan: Plan, plan_number: str, status: str | None) -> list[tuple[str
             if not task.resolved:
                 add("REQ_AS_BUILT", f"a done plan has every task resolved; "
                                     f"{task.id or task.title} is not", task.line)
+
+    # REQ_DROP_REASONS: the entry of a resolved task cites each dropped step as N.k, whole.
+    for task in plan.tasks:
+        if not task.resolved or task.number is None:
+            continue
+        entry = plan.entry_text.get(task.number, "")
+        for step in task.steps:
+            if step.state == DROPPED and not cited(entry, step.n, step.k):
+                add("REQ_DROP_REASONS", f"step {step.n}.{step.k} is dropped; the task's As "
+                                        f"built entry cites it by its number", step.line)
     return out
+
+
+def cited(text: str, n: int, k: int) -> bool:
+    """Whether ``n.k`` occurs as a whole number pair: not preceded by a digit or by a digit
+    and a dot, not followed by a digit or by a dot and a digit (COMP_DROP_REASONS)."""
+    return re.search(rf"(?<!\d)(?<!\d\.){n}\.{k}(?!\d)(?!\.\d)", text) is not None

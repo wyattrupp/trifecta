@@ -1,0 +1,9 @@
+# A step of a resolved task marked dropped, with an As built entry that does not cite it.
+expect: REQ_DROP_REASONS
+only: true
+# Marking a step of a resolved task changes the task and its plan's reviewed content.
+allow: [REQ_FROZEN_TASKS, REQ_REVIEW_CURRENT]
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: "- [x] **3.1** Write"
+  replace: "- [-] **3.1** Write"

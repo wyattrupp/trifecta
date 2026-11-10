@@ -1,0 +1,13 @@
+# A line that starts like the status key, inside another frontmatter value, changes:
+# only the line YAML reads as the status key leaves the digest.
+expect: REQ_REVIEW_CURRENT
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: 'authors: [claude]
+
+    '
+  replace: 'authors: ["claude
+
+    status: x"]
+
+    '

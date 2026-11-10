@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Plan and review lifecycle
@@ -9,7 +9,7 @@ authors: [claude]
 
 ## Overview
 
-Four additions hold plans, reviews and statuses to their past. A digest module reduces a
+These additions hold plans, reviews and statuses to their past. A digest module reduces a
 raw document to its reviewed content and hashes it; the document extension compares that
 hash with the `digest` of the document's reviews and keeps the Review section to review
 records, and a command stamps a review with the digest the reviewer was given. The
@@ -18,8 +18,6 @@ task resolved at that ref and every document's status with the current tree. The
 rules check that each dropped step is cited in its task's As built entry. The graph
 checker requires a live plan for each approved design and a `spec` on each element of an
 implemented one.
-
-Components here have no `spec` until they are built; the plan that builds them adds it.
 
 ## Requirements
 
@@ -87,6 +85,7 @@ other status, is reported as backward.
 
 :::{component} Drop-reason rule
 :id: COMP_DROP_REASONS
+:spec: ext/plans.py#def cited
 :satisfies: REQ_DROP_REASONS
 :constrained_by: DEC_0009
 :consumes: IF_PLAN_SHAPE
@@ -98,6 +97,7 @@ period that ends a sentence after it still counts.
 
 :::{component} Build-state rules
 :id: COMP_BUILD_STATE
+:spec: tools/check_graph.py#def check_build_state
 :satisfies: REQ_APPROVED_IS_PLANNED, REQ_IMPLEMENTED_HAS_SPEC
 :constrained_by: DEC_0008
 :consumes: IF_NEEDS_JSON
@@ -130,15 +130,16 @@ A normalisation bug would make every review stale at once; the fixtures cover an
 changes the digest, and the corpus itself, with ticked steps and `spec` paths added after
 review, covers the edits that do not. Adding the digest makes every review stale until it
 is stamped, so the plan reviews the corpus again in the same task. CI freezes history only
-when it can resolve a base, so a push whose base cannot be resolved fails, and the base
-branch needs protection against force pushes.
+when it can resolve a base, so a push whose base cannot be resolved fails, and the main
+ruleset refuses force pushes.
 
 Whoever stamps a review records it, so the digest proves which text a record names, not
 that the text was read ({need}`DEC_0011`). `spec` lines are outside the digest, so a
 changed `spec` path is not reviewed again. A move into rejected, withdrawn, obsolete or
 abandoned is not held by the forward rule, though a move out of one is, and it drops a
-design's requirements from the fixture audit. Required checks are not strict, so a pull request is checked against
-the base it was last run on, and the push check on main reports what that missed.
+design's requirements from the fixture audit. Required checks are not strict, a setting that awaits wyatt's
+ruling, so a pull request is checked against the base it was last run on, and the push
+check on main reports what that missed.
 
 ## Review
 
@@ -161,4 +162,12 @@ The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :k: 2
 :date: 2026-11-09
 :digest: 70afc386c1bd43e43c630f55483b0638a5162484649023c26765dc7b5aca4732
+:::
+
+:::{review} Fidelity to evidence; documentation standard
+:id: REV_DES_0003_4
+:k: 2
+:date: 2026-11-09
+:digest: 5099ac9b4050f81146f9d72f62402f317fa5f7c051b7bf6ba178c84e0d35dae6
+The overview and risks after the design was built, with {need}`REV_PLAN_0002_3`.
 :::

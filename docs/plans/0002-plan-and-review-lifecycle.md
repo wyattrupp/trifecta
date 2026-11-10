@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 authors: [claude]
 created: 2026-11-08
 ---
@@ -58,11 +58,11 @@ Extend the lifecycle checker that freezes MADRs.
 :gate: The fixtures for a dropped step cited nowhere, cited only inside a longer number, an approved design with no live plan, and an implemented design element with no spec, are rejected.
 The last task of the plan, so it also closes the design.
 
-- [ ] **3.1** Report a dropped step of a resolved task whose `N.k` does not occur, as a whole number pair, in its task's As built entry.
-- [ ] **3.2** Report an approved design doc that no draft, active or done plan implements, and an element of an implemented design doc with no `spec`.
-- [ ] **3.3** Add the four fixtures, and set the two components' `spec` paths.
-- [ ] **3.4** Update the docstring of `ext/plans.py`, which calls drop reasons a convention.
-- [ ] **3.5** Mark DES_0003 implemented, check that every requirement of RFC_0003 has its fixture, review this plan's As built k=2, and set this plan's status to done.
+- [x] **3.1** Report a dropped step of a resolved task whose `N.k` does not occur, as a whole number pair, in its task's As built entry.
+- [x] **3.2** Report an approved design doc that no draft, active or done plan implements, and an element of an implemented design doc with no `spec`.
+- [x] **3.3** Add the four fixtures, and set the two components' `spec` paths.
+- [x] **3.4** Update the docstring of `ext/plans.py`, which calls drop reasons a convention.
+- [x] **3.5** Mark DES_0003 implemented, check that every requirement of RFC_0003 has its fixture, review this plan's As built k=2, and set this plan's status to done.
 :::
 
 ## Review
@@ -79,6 +79,15 @@ The review recorded as {need}`REV_RFC_0003_1` covered this document.
 :k: 2
 :date: 2026-11-09
 :digest: e5c17a61d8fbc043fa5a3ae7a184342535e55a8da8d989edb99a102a922a7b3b
+:::
+
+:::{review} Fidelity to evidence; documentation standard
+:id: REV_PLAN_0002_3
+:k: 2
+:date: 2026-11-09
+:digest: e5c17a61d8fbc043fa5a3ae7a184342535e55a8da8d989edb99a102a922a7b3b
+The As built entries of tasks 1 to 3, read against the code, the fixtures and the
+merged pull requests; what held up is in the Task 3 entry.
 :::
 
 ## As built
@@ -152,3 +161,28 @@ allows REQ_FROZEN_TASKS, since its renumbered step is in a resolved task. Not ta
 the code review: a second `## As built` or a second task with a resolved task's ID, since
 REQ_SECTION_SKELETON and REQ_TASK_ORDER fail the build on each; the pull request's own
 checker running in CI, which awaits a ruling.
+
+### Task 3 (2026-11-09)
+
+The plan parser keeps each As built entry's text, from its heading to the next H3 or the
+end of the section, without its code, HTML comments or link targets, and `cited` reads
+`N.k` as a whole pair: `13.1`, `1.20` and `1.2.3` do not cite `1.2`, and a sentence's
+closing period does not stop a citation. A line that looks like a step, with more than one
+space after its bullet or more than one character in its box, is reported as a malformed
+step. The build-state rules run in the graph checker over `needs.json`, and a `spec` of
+spaces alone names nothing. The fixture audit confirms that every requirement of RFC_0003
+has its fixture now that DES_0003 is implemented. Step 3.4 also named the README, which
+never called drop reasons a convention, so only the docstring of `ext/plans.py` says
+otherwise now. The review of this As built is recorded as REV_PLAN_0002_3.
+
+The entries for tasks 1 and 2 were frozen when they merged, so their corrections are here.
+Task 1 cites {need}`DEC_0011` for reviewer identity: that MADR makes approval of the pull
+request the proof of review, and k is the reviewer's statement, which the check does not
+test. Its claim that each exploit has a fixture held for all but two, a list-indented
+directive and a status-looking line inside another frontmatter value; both now have one.
+Task 2's fixture for that line indents it, so the checker before task 2 would have caught
+it too; the new digest fixture puts it at the start of a line. A failed test of whether a
+base directory exists reads as absent, after the base itself resolves; only a failed
+listing is reported. Not taken from this task's code review, for a ruling: a design doc
+set straight to implemented needs no live plan, a `spec` may name a whole file, and a
+citation shows a reason is given, not what it says.
