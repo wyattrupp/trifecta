@@ -69,6 +69,8 @@ def render(kind: str, number: str, slug: str, author: str, today: str,
     }[kind]
     links, body = [], {s: TODO for s in spec["sections"]}
     body.update({s: "\n".join(view) for s, view in spec.get("views", {}).items()})
+    if "Review" in body:
+        body["Review"] = ""  # a Review section holds only review records (REQ_REVIEW_CURRENT)
 
     if kind == "decision":
         a, b = f"OPT_{number}_A", f"OPT_{number}_B"
@@ -89,7 +91,7 @@ def render(kind: str, number: str, slug: str, author: str, today: str,
             plans.step_line(1, 1, TODO),
             ":::",
         ])
-        body["Review"] = body["As built"] = ""
+        body["As built"] = ""
 
     out = ["---", *(f"{k}: {v}" for k, v in front), "---", f"# {title}", "",
            f":::{{{spec['directive']}}}", *links, ":::"]

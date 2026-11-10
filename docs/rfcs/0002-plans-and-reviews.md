@@ -55,7 +55,7 @@ What decides that a task is done: the fixtures, commands or checks that pass.
 
 :::{term} Review
 :id: TERM_REVIEW
-A dated record in a document's Review section of a review with k distinct-lens passes.
+A dated record, in a document's Review section, of a review of k distinct-lens passes.
 :::
 
 ## Requirements
@@ -67,8 +67,9 @@ A plan MUST implement exactly one design doc.
 
 :::{req} Tasks run in build order
 :id: REQ_TASK_ORDER
-A task ID MUST be `TASK_<plan number>_<NN>`, and task numbers MUST run from 01 in
-document order without gaps.
+A task ID MUST be `TASK_<plan number>_<NN>`, where NN is the task number in two or more
+digits, padded to two and no further: 01 to 99, then 100. Task numbers MUST run from 01
+in document order without gaps.
 :::
 
 :::{req} Tasks have a fixed shape
@@ -79,7 +80,7 @@ and MUST contain at least one step; every checkbox in a plan MUST be a step of a
 A step MUST be written `- [ ] **N.k** text` while open, `- [x] **N.k** text` when done
 and `- [-] **N.k** text` when dropped, where N is the task's number and k runs from 1
 without gaps. In an active or done plan, a gate or step MUST NOT be the skeleton
-placeholder.
+placeholder, the exact text `TODO.`.
 :::
 
 :::{req} Execution is linear
@@ -93,7 +94,8 @@ abandoned plan is exempt.
 :id: REQ_AS_BUILT
 The As built section of a draft, active or done plan MUST hold exactly one
 `### Task N (YYYY-MM-DD)` entry for each resolved task, in task order, and a done plan
-MUST have every task resolved. An abandoned plan is exempt.
+MUST have every task resolved. A task is resolved when it has steps and none is open. An
+abandoned plan is exempt.
 :::
 
 :::{req} A planned design is built in full
@@ -124,8 +126,8 @@ each record at least one review, and every review MUST state its k and its date.
 
 ## Out of scope
 
-Freezing resolved tasks, binding a review to the text it read, and the reasons for
-dropped steps, which {need}`RFC_0003` takes up; the rest of an As built entry's wording.
+The rest of an As built entry's wording. Freezing resolved tasks, binding a review to the
+text it read, and citing dropped steps are not out of scope: {need}`RFC_0003` covers them.
 
 ## Review
 
@@ -151,4 +153,11 @@ freezing resolved tasks against a base ref, and review staleness.
 :k: 2
 :date: 2026-11-08
 The new Out of scope, in the review recorded as {need}`REV_RFC_0003_1`.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0002_3
+:k: 2
+:date: 2026-11-09
+:digest: c2262fcf03c7548f4964f0ebbcc06d4c8f015ad40a4d4b02a3c2804b8fffd995
 :::

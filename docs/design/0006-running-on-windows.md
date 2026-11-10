@@ -10,7 +10,7 @@ authors: [claude]
 ## Overview
 
 A Python setup script installs the hashed Python dependencies and fetches Vale for the
-platform it runs on, from one table of Vale release files and hashes. A `.gitattributes`
+platform it runs on, from one table of Vale release files, sizes and hashes. A `.gitattributes`
 checks text out with LF, and the check holds it to one content. One helper maps every
 location the check reports to a repository-relative path with forward slashes, a last
 stage reports any location it could not map, and every program's output is read as
@@ -44,7 +44,7 @@ Plan 0005 built every component here and set its `spec`.
 :satisfies: REQ_PLATFORM_TOOLCHAIN
 :constrained_by: DEC_0023
 `tools/setup.py`, holding the table of Vale's version and, per platform key, the release
-file name and its SHA-256. It runs the hashed `pip install` from the lock, then maps
+file name, its size and its SHA-256. It runs the hashed `pip install` from the lock, then maps
 `platform.system()` and `platform.machine()` through an explicit table (`x86_64` and
 `AMD64` to x86-64, `aarch64` and `arm64` to ARM) and refuses anything unmapped. It
 refuses a `bin` that is a link or reparse point or resolves outside the repository,
@@ -103,8 +103,13 @@ while either is red. A Vale release that drops a
 platform leaves its row unable to download, which setup reports by name. The table's
 hashes are taken from the release they pin: each is recomputed from an independent
 download and compared with Vale's checksum file when the table is written, which catches
-a corrupted download but not a release compromised before it was pinned. A macOS-only
-fault would go unseen, since no job runs there.
+a corrupted download but not a release compromised before it was pinned. The table lives
+in `tools/setup.py`, which a pull request can edit, and the check holds it to its form,
+not to Vale's published checksums, so the maintainer's review of the pull request is the
+safeguard, and no ruleset requires an approval. The stamp records the version and the
+archive's hash, not the hash of the extracted executable, so an executable placed in
+`bin/` by hand runs unverified; CI starts from a fresh checkout. A macOS-only fault would
+go unseen, since no job runs there.
 
 ## Review
 
@@ -121,4 +126,11 @@ The review recorded as {need}`REV_RFC_0006_1` covered this document.
 :date: 2026-11-09
 Reviewed the move to implemented and the updated overview and risks, with
 {need}`REV_PLAN_0005_2`.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0006_3
+:k: 2
+:date: 2026-11-09
+:digest: 993d18da1dd035ae59a36de79225c05e8df11566b27813b1d6a4dbda265a45c9
 :::

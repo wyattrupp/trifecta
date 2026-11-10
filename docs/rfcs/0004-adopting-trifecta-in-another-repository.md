@@ -161,3 +161,10 @@ the credential requirement made conditional, and a plain statement that review, 
 check, guards changes to the check. Not taken: required review and code owners, which no
 single maintainer could satisfy; signed commits and tags.
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_3
+:k: 2
+:date: 2026-11-09
+:digest: a3456913c7cdcc11cb7e19d3a7b547ee077dbaea8c63c85973028bbb84b02ef5
+:::

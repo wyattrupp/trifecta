@@ -19,11 +19,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from check import repo_files  # noqa: E402
 from findings import CHILD_ENV, Finding  # noqa: E402
 from toolchain import vale_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-IGNORE = shutil.ignore_patterns("_build", "bin", ".git", "__pycache__", "TrifectaGenerated", "venv", ".venv")
 
 
 class FixtureError(Exception):
@@ -36,8 +36,17 @@ def _git(cwd: Path, *args: str) -> None:
 
 
 def make_base(tmp: Path) -> Path:
+    """Copy what git tracks or would track, so every ignore rule holds, the repository's own
+    .git/info/exclude included, which the copy's fresh git would not read."""
     base = tmp / "base"
-    shutil.copytree(ROOT, base, ignore=IGNORE)
+    files, problems = repo_files(ROOT)
+    if problems:
+        raise FixtureError(problems[0].message)
+    for name in files:
+        source, target = ROOT / name, base / name
+        if source.is_file() or source.is_symlink():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target, follow_symlinks=False)
     _git(base, "init", "-q")
     _git(base, "-c", "user.name=fixtures", "-c", "user.email=fixtures@localhost",
          "add", "-A")
@@ -83,7 +92,7 @@ def run_check(copy: Path, vale: Path) -> tuple[int, list[Finding]]:
 def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, bool, str]:
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     copy = tmp / path.stem
-    shutil.copytree(base, copy)
+    shutil.copytree(base, copy, symlinks=True)
     try:
         apply(copy, spec["mutations"])
     except FixtureError as exc:
@@ -92,7 +101,9 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, boo
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
     # point is that a mutation is read correctly, not only that its error is caught.
-    others = spec.get("only") and any(f.req != spec["expect"] for f in findings)
+    # `allow` names the requirements its mutation also breaks of necessity.
+    allowed = {spec["expect"], *spec.get("allow", [])}
+    others = spec.get("only") and any(f.req not in allowed for f in findings)
     if code != 0 and hits and not others:
         return path.stem, True, f"{spec['expect']}: {hits[0].message}"
     got = sorted({f.req for f in findings}) or ["no findings"]

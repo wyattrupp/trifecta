@@ -25,7 +25,7 @@ files that init writes carry an evidence step for `evidence` and above.
 | Survey and experiment shapes, forward statuses, frozen retractions, in-repository data hashes | yes | yes | yes |
 | Sound support, reviewed evidence, retractions reported | yes | yes | yes |
 | Every accepted decision's chosen option has support | | yes | yes |
-| Experiments arrive planned and are frozen once running; results only when concluded | | | yes |
+| Experiments arrive planned and are frozen in hypothesis, prediction and method once running; results only when concluded | | | yes |
 | Every survey declares its protocol, frozen once merged | | | yes |
 
 The level that applies is the stricter of the level at the base ref and the level in the
@@ -87,18 +87,22 @@ sections Hypothesis, Method, Results, Conclusion and Review; the `hypothesis` ne
 `prediction`; the `result` need with `data`, `sha256` and, for a URL, `bytes`; and the
 `conclusion` need with a `verdict` and a `rests_on` link to results of the same
 experiment. A concluded experiment's frontmatter takes an optional `retracted`. The
-lifecycle checker reports a status that moved backward. `trifecta new experiment` writes
-the skeleton.
+lifecycle checker allows a status to move from `planned` to `running`, `concluded` or
+`abandoned`, and from `running` to `concluded` or `abandoned`, and reports any other
+change of status. `trifecta new experiment` writes the skeleton.
 :::
 
 :::{component} Data hashes
 :id: COMP_DATA_PIN
 :satisfies: REQ_DATA_PINNED
 :constrained_by: DEC_0021
-A check stage that tests each `data` path as text first, then asks git whether that exact
-path is tracked, checks with `lstat` every component from the repository root down for a
-link or reparse point, refuses an LFS pointer, and hashes the regular file in chunks. A
-result with a URL is checked only for its declared hash, size and form.
+A check stage that tests each `data` path as text first, then asks git for the path's
+mode and name with `ls-files -s`, run with literal pathspecs and NUL-separated output,
+and requires a regular file mode, `100644` or `100755`, and a name equal byte for byte to
+the declared one. It checks with `lstat` every component from the
+repository root down for a link or reparse point, refuses an LFS pointer, and hashes the
+regular file in chunks. A result with a URL is checked only for its declared hash, size
+and form.
 :::
 
 :::{component} Data verifier
@@ -108,10 +112,19 @@ result with a URL is checked only for its declared hash, size and form.
 :provides: IF_VERIFY_DATA
 :consumes: IF_CLI
 The `trifecta verify-data` command. For each external result it resolves the host,
-refuses a non-public address, connects to the address it checked with certificate
+refuses an address that is not global, connects to the address it checked with certificate
 verification, requests the raw content, and streams it into a SHA-256 and a byte count,
-keeping nothing on disk; each redirect is checked like the first request. Its tests
-replace the connection layer through a function argument the command line cannot reach.
+keeping nothing on disk; each redirect is checked like the first request. It ignores
+environment settings: its opener is built with an empty proxy handler,
+`ProxyHandler({})`, so no proxy is read; it verifies certificates against the certifi
+bundle pinned in the lock, loaded explicitly, with no key log file; and it sends the host
+name for TLS while it connects to the checked address. A global address is one Python's
+`ipaddress` reports as global, read after unwrapping IPv4-mapped, IPv4-compatible, NAT64
+under `64:ff9b::/96` and `64:ff9b:1::/48`, and 6to4 forms. A total deadline, measured on a
+monotonic clock, is checked before every connection attempt and every read, the response
+headers included; each connection, TLS handshake and read has the time left as its
+timeout; and name resolution runs in a worker thread that the deadline stops waiting for. Its tests replace the connection layer through a function argument the command line
+cannot reach.
 A scheduled workflow, documented with the command, runs it on the default branch only,
 with read-only permissions, no persisted credentials, no secrets and SHA-pinned actions.
 :::
@@ -141,8 +154,9 @@ chooses has at least one `supported_by` link.
 :satisfies: REQ_PREREGISTERED
 :constrained_by: DEC_0020
 At `strict`, the lifecycle checker reads each experiment at the base ref by its ID and its
-path. It reports a new experiment that is not `planned`, a status that moved more than one
-step, a change to the hypothesis need, its prediction or the Method section of one that
+path. It reports a new experiment that is not `planned`, and any change of status other
+than `planned` to `running` or `abandoned`, or `running` to `concluded` or `abandoned`. It
+reports a change to the hypothesis need, its prediction or the Method section of one that
 was `running`, a change outside the Review section and the `retracted` field of one that
 was `concluded`, and the removal, move or new ID of one that was `running` or `concluded`.
 The extension reports result and conclusion needs in an experiment that is not
@@ -175,9 +189,10 @@ sent.
 
 ## Risks
 
-A pull request can add a result whose URL points anywhere, so the verifier runs only on
-demand, reads only `https` from public addresses, sends nothing but the request, caps each
-download and keeps nothing; DNS answers that change between checks are met by connecting
+A pull request can add a result whose URL points anywhere, so the verifier never runs on
+a pull request: it runs on demand or by schedule on the default branch, reads only `https`
+from public addresses, sends nothing but the request, caps each download and keeps
+nothing; DNS answers that change between checks are met by connecting
 to the checked address. A retraction fails the check of the pull request that records it,
 so that pull request carries the superseding MADR as well. The check holds the shape of
 evidence, not its quality: a claim can misread its source, and a method can fail to test
@@ -192,4 +207,11 @@ without support, so they name the location of the finding they expect.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0005_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0005_2
+:k: 2
+:date: 2026-11-09
+:digest: 0f1bc4c435ea194eb33f42390b1dd57dffb96eecf458948cb62f58461947a391
 :::

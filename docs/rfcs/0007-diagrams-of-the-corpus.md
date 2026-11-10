@@ -15,7 +15,8 @@ a {need}`meta-model <TERM_META_MODEL>` of the need types and the link types betw
 them, and a {need}`trace <TERM_TRACE>` for each RFC. Both are generated, so they cannot
 drift from the corpus. Graphviz lays them out inside the build, from the hashed Python
 lock, and the page embeds them as SVG, so a diagram needs no script and the build runs no
-extra program. No built page loads anything from outside the build.
+extra program. The check reports a built page whose attributes or CSS load anything from
+outside the build.
 
 ## Motivation
 
@@ -65,7 +66,7 @@ loaded extension among `sphinx.ext.graphviz`, `sphinx.ext.inheritance_diagram` a
 PlantUML and Mermaid extensions.
 :::
 
-:::{req} Built pages load nothing from outside the build
+:::{req} Built pages load nothing from outside the build through attributes or CSS
 :id: REQ_PAGES_SELF_CONTAINED
 The check MUST report, in every built page, an address in an attribute that loads a
 resource, or in a CSS `url()` or `@import`, that resolves outside the built site once
@@ -89,7 +90,10 @@ An interactive explorer page; a command that writes diagrams outside the build; 
 of research-rigor evidence, which plan 0004 can add to the trace once its types exist;
 pixel-identical SVG across platforms, since fonts differ; a rule against raw HTML, inline
 scripts or hand-drawn images in documents, which would be a new authoring rule for wyatt
-to make; `docs/conf.py`, which is trusted code and can run anything.
+to make. The page guard reads attributes and CSS only, so an inline script or an
+event-handler attribute in raw HTML can still fetch from outside the build; closing that
+gap needs the same authoring rule. Also out of scope: `docs/conf.py`, which is trusted
+code and can run anything.
 
 ## Review
 
@@ -116,4 +120,11 @@ requirement they prove; each task's guard rules land with its directive. Not tak
 rule against raw HTML, inline scripts or hand-drawn images in documents, a new authoring
 rule left to wyatt; loading only Graphviz's layout and core plugins, which pygraphviz does
 not expose.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0007_2
+:k: 2
+:date: 2026-11-09
+:digest: 21cef5b682f3921c36fa92a64d0c3d451031664d559956f6eba190776e6243f0
 :::

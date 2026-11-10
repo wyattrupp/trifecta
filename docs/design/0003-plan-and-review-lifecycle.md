@@ -41,6 +41,7 @@ Components here have no `spec` until they are built; the plan that builds them a
 
 :::{component} Review digest
 :id: COMP_REVIEW_DIGEST
+:spec: ext/digest.py#def digest
 :satisfies: REQ_REVIEW_CURRENT
 :constrained_by: DEC_0011
 :provides: IF_REVIEW_DIGEST
@@ -51,6 +52,7 @@ that digest, and reports anything but a review record in a Review section.
 
 :::{component} Review command
 :id: COMP_REVIEW_COMMAND
+:spec: tools/review.py#def stamp
 :constrained_by: DEC_0011
 :consumes: IF_REVIEW_DIGEST
 `review digest <doc>` prints the digest when a review starts; `review stamp <doc>` appends
@@ -66,6 +68,13 @@ when the file's digest no longer matches or the path is not a typed document.
 Reads every plan under `docs/plans/` at the base ref, and reports a task resolved there
 whose raw text, step marks or As built entry differ now, or that is gone from its plan.
 Compares each typed document's status with the base ref and reports a backward move.
+It reads each status with the frontmatter's YAML loader, and reports a frontmatter key
+given twice. Statuses rank per type: an RFC's draft, review, accepted; a design doc's
+draft, approved, implemented; a plan's draft, active, done. A move to a lower rank is
+backward, and so is a typed document that is gone from the tree after being accepted,
+approved, implemented, active or done at the base ref. A move into rejected, withdrawn,
+obsolete or abandoned is outside this rule, and a move out of one of them, into any
+other status, is reported as backward.
 :::
 
 :::{component} Drop-reason rule
@@ -74,7 +83,9 @@ Compares each typed document's status with the base ref and reports a backward m
 :constrained_by: DEC_0009
 :consumes: IF_PLAN_SHAPE
 Reports a dropped step of a resolved task whose number `N.k` does not occur in its task's
-As built entry as a whole number pair, not inside a longer number.
+As built entry as a whole number pair. An occurrence counts when it is not preceded by a
+digit or by a digit and a dot, and not followed by a digit or by a dot and a digit, so a
+period that ends a sentence after it still counts.
 :::
 
 :::{component} Build-state rules
@@ -90,14 +101,18 @@ component or interface of an implemented design doc with no `spec`.
 
 :::{interface} Review digest
 :id: IF_REVIEW_DIGEST
+:spec: ext/digest.py#def reviewed_content
 :constrained_by: DEC_0011
-The digest is computed from the raw file. The `status:` line inside the first `---`
-frontmatter block, every `:spec:` option line, and the Review section, from its H2 line up
-to the next H2 outside a code fence or the end of the file, MUST be removed; for a plan,
-the As built section MUST be removed the same way and the mark of every step line read as
-open. Each remaining line MUST be stripped of trailing whitespace, the lines MUST be
-joined with a single newline and no final newline, and the digest MUST be the lowercase
-hex SHA-256 of that text encoded as UTF-8.
+The digest is computed from the raw file, which MUST be read as UTF-8 with a leading byte
+order mark dropped and each CRLF read as LF. The `status:` line inside the first `---`
+frontmatter block, every `:spec:` line that is an option line of a `component` or
+`interface` directive, in the run of option lines right after its opener, and the Review
+section, from its H2 line up to the next H2 outside a code fence or the end of the file,
+MUST be removed; no other `:spec:` line is removed. For a plan, the As built section MUST
+be removed the same way and the mark of every step line read as open. Each remaining line
+MUST be stripped of trailing whitespace and the lines MUST be joined with a single
+newline; trailing empty lines MUST then be removed, so the text has no final newline. The
+digest MUST be the lowercase hex SHA-256 of that text encoded as UTF-8.
 :::
 
 ## Risks
@@ -109,6 +124,13 @@ is stamped, so the plan reviews the corpus again in the same task. CI freezes hi
 when it can resolve a base, so a push whose base cannot be resolved fails, and the base
 branch needs protection against force pushes.
 
+Whoever stamps a review records it, so the digest proves which text a record names, not
+that the text was read ({need}`DEC_0011`). `spec` lines are outside the digest, so a
+changed `spec` path is not reviewed again. A move into rejected, withdrawn, obsolete or
+abandoned is not held by the forward rule, though a move out of one is, and it drops a
+design's requirements from the fixture audit. Required checks are not strict, so a pull request is checked against
+the base it was last run on, and the push check on main reports what that missed.
+
 ## Review
 
 :::{review} Correctness; security
@@ -116,4 +138,11 @@ branch needs protection against force pushes.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0003_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0003_2
+:k: 2
+:date: 2026-11-09
+:digest: 7aacfd80b169d170004caabf723a2deb83527ccf0dfe90d7165c476bb9904b03
 :::

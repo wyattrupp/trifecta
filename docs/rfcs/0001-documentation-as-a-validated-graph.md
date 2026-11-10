@@ -176,7 +176,8 @@ A declared synonym of a defined term MUST NOT appear in prose in place of the te
 :::{req} Decision records are immutable
 :id: REQ_IMMUTABLE_DECISIONS
 Once a MADR is accepted, a change MUST only move its status to deprecated or superseded.
-A MADR in a terminal status MUST NOT change, and an accepted MADR MUST NOT be deleted.
+A MADR in a terminal status MUST NOT change, and an accepted MADR or a MADR in a terminal
+status MUST NOT be deleted or renamed.
 :::
 
 :::{req} Warnings are fatal
@@ -248,4 +249,11 @@ a corpus mutation can show them.
 :k: 2
 :date: 2026-11-08
 The new text of REQ_FIXTURE_PER_INVARIANT, in the review recorded as {need}`REV_RFC_0003_1`.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0001_3
+:k: 2
+:date: 2026-11-09
+:digest: 28080b0ffc763891dcfa0453c75220a9a086ba9fd5863b2d9e44068bfeab6caf
 :::

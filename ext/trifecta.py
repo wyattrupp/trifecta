@@ -20,6 +20,7 @@ from docutils import nodes
 from sphinx.application import Sphinx
 from sphinx.util import logging
 
+import digest
 import plans
 
 logger = logging.getLogger(__name__)
@@ -124,14 +125,7 @@ def _warn(req: str, msg: str, docname: str, line: int | None = None) -> None:
     logger.warning(f"{req}: {msg}", type="trifecta", subtype=req, location=location)
 
 
-def _split_frontmatter(lines: list[str]) -> int | None:
-    """Index of the closing ``---`` line, or None if there is no frontmatter."""
-    if not lines or lines[0].strip() != "---":
-        return None
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            return i
-    return None
+_split_frontmatter = plans.frontmatter_end
 
 
 def _field_name(key: str) -> str:
@@ -232,6 +226,12 @@ def on_source_read(app: Sphinx, docname: str, source: list[str]) -> None:
         number = need_id.split("_", 1)[1]
         for req, msg, line in plans.problems(plans.parse(lines), number, meta.get("status")):
             _warn(req, msg, docname, line)
+
+    # REQ_REVIEW_CURRENT (DEC_0011): read from the raw file, as the digest is defined on it.
+    if spec["directive"] in digest.RELIED_ON:
+        raw = digest.read(Path(app.env.doc2path(docname)))
+        for msg, line in digest.problems(raw, spec["directive"], meta.get("status")):
+            _warn("REQ_REVIEW_CURRENT", msg, docname, line)
 
     # Inject the owned facts. The frontmatter block is replaced by blank lines, k fewer
     # than it had, and k option lines are inserted into the directive, so every line

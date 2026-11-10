@@ -41,7 +41,7 @@ A planning session writes an RFC, MADRs and this kind of design doc, then a plan
 
 :::{component} Plan and review ontology
 :id: COMP_PLAN_TYPES
-:spec: docs/conf.py#def _same_file
+:spec: docs/conf.py#needs_types
 :satisfies: REQ_PLAN_IMPLEMENTS, REQ_REVIEWED
 :constrained_by: DEC_0008, DEC_0010
 The plan, task and review need types; the `implements` and `builds` links; the derived
@@ -106,6 +106,10 @@ rejects that path and names the typed directories, and the template work planned
 points the skills at `tools/new.py`. Renumbering open tasks can miss a citation in prose;
 nothing outside a plan cites an open task.
 
+Whoever stamps a review records it; the digest binds the record to text, not to a
+reviewer ({need}`DEC_0011`). `spec` option lines are outside the digest, so a changed
+`spec` path is not reviewed again.
+
 ## Review
 
 :::{review} Correctness; single source of truth and fidelity to the superpowers shapes
@@ -113,4 +117,11 @@ nothing outside a plan cites an open task.
 :k: 2
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0002_1` covered this document.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0002_2
+:k: 2
+:date: 2026-11-09
+:digest: f7ea0c55148fcf72d37000a92ed6a78bffae7c82d286d36b69e14bba40f96f53
 :::

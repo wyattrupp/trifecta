@@ -238,6 +238,10 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
     findings = []
     if proc.stderr.strip():
         findings.append(Finding("REQ_WARNINGS_FATAL", f"vale/{config}", proc.stderr.strip()[:500]))
+    elif proc.returncode != 0:
+        # With --no-exit Vale exits non-zero only when it fails to run, which can be silent.
+        findings.append(Finding("REQ_WARNINGS_FATAL", f"vale/{config}",
+                                f"vale exited {proc.returncode} with no message"))
     for line in proc.stdout.splitlines():
         if not (m := VALE_LINE.match(line)):
             continue

@@ -1,0 +1,8 @@
+# Prose added to a Review section, outside any review record. The section is outside the
+# digest, so only the rule that it holds review records alone can see it.
+expect: REQ_REVIEW_CURRENT
+only: true
+mutations:
+- file: docs/rfcs/0003-plan-and-review-lifecycle.md
+  find: "\n## Review\n"
+  replace: "\n## Review\n\nThis RFC was reviewed by everyone.\n"

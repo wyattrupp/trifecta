@@ -98,8 +98,11 @@ the date and the reason.
 :::{req} Data is pinned by hash
 :id: REQ_DATA_PINNED
 The check MUST refuse, before any filesystem access, a `data` path that is not a relative
-POSIX path, or that holds an empty, `.` or `..` segment, a drive, a backslash or a
-reserved device name. The data MUST be a regular file tracked by git at exactly that path
+POSIX path, or that holds an empty, `.` or `..` segment, a drive, a backslash, a colon
+anywhere, or a segment ending in a dot or a space. It MUST refuse a segment that names a
+reserved device, matched without case: `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`,
+`COM0` to `COM9`, `COM¹` to `COM³`, `LPT0` to `LPT9` or `LPT¹` to `LPT³`, with or without
+an extension. The data MUST be a regular file tracked by git at exactly that path
 and case, MUST NOT be or sit under a symbolic link or other reparse point, and MUST NOT
 be a Git LFS pointer. The check MUST hash it and report a difference from its SHA-256. A
 result whose data is at a URL MUST declare its size as a positive number of bytes. The
@@ -110,13 +113,14 @@ check MUST NOT access the network.
 :id: REQ_EXTERNAL_DATA
 A separate command MUST download the data of every result whose data is at a URL and
 report each whose SHA-256 or size differs from the declared one. It MUST fetch only
-`https` URLs with verified certificates, MUST refuse a host that resolves to a loopback,
-private, link-local, unique-local, multicast or unspecified address, MUST connect to the
-address it checked, MUST check every redirect the same way, and MUST follow no more
-redirects than a limit fixed in the package. It MUST request the content without
-encoding and hash the bytes as received, MUST stop reading at the declared size or at a
-size limit fixed in the package, whichever is smaller, and MUST stop at a deadline fixed
-in the package. It MUST NOT read credentials, proxies or certificate settings from the
+`https` URLs with verified certificates, MUST refuse a host unless every address it
+resolves to is a global address, read after unwrapping IPv4-mapped, NAT64 and 6to4 forms,
+MUST connect to an address it checked, MUST check every redirect the same way, and MUST
+follow no more redirects than a limit fixed in the package. It MUST request the content
+without encoding and hash the bytes as received, MUST read at most one byte more than the
+declared size, or than a size limit fixed in the package if that is smaller, MUST report
+more bytes than declared as a size difference, and MUST stop at a deadline fixed in the
+package. It MUST NOT read credentials, proxies or certificate settings from the
 environment, MUST NOT send credentials or cookies, and MUST NOT write, unpack or run what
 it downloads.
 :::
@@ -232,4 +236,11 @@ since the stricter-of rule already holds the line; a cut-off for decisions accep
 the level was raised, which is a ruling for wyatt and is recorded as a consequence in
 DEC_0017; freezing a supporting claim's source fields, which the current-digest rule
 covers; a size limit on data in the repository, now out of scope.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0005_2
+:k: 2
+:date: 2026-11-09
+:digest: 3e63a79632e8f6b6981ae28ef92e7031604d7828136fc8dd2a8e5522d8810e56
 :::

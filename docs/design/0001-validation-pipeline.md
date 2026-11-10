@@ -13,9 +13,10 @@ authors: [wyatt]
 with warnings as errors; the trifecta extension checks each document's shape while it is
 read; sphinx-needs schemas check the graph; a post-build checker reads `needs.json` for
 the rules schemas cannot express; Vale lints the rendered prose; a git-aware checker
-guards MADR history; and the fixture audit confirms every invariant has a negative
-fixture. Each stage reports findings in one format, and the pipeline fails on any
-finding.
+guards MADR history when the check is given a base ref with `--base`; and the fixture
+audit confirms every invariant has a negative fixture. Each stage reports findings in one
+format, and the pipeline fails on any finding. The toolchain-table, line-ending and
+location stages are described in {need}`DES_0006`.
 
 ## Requirements
 
@@ -73,7 +74,9 @@ value comparisons across needs, disjunctions across link types, and filesystem p
 :constrained_by: DEC_0005
 Vale rules named by the requirement they enforce, applied to the rendered HTML through
 two configurations: one ignoring requirement and interface needs, one ignoring nothing
-but page chrome and generated tables.
+but page chrome and generated tables. Before both runs, the pipeline removes the need
+metadata rows from a copy of the built pages, so option text such as a task's gate is
+not linted.
 :::
 
 :::{component} Term rule generator
@@ -137,8 +140,15 @@ runs over the same input are byte-identical.
 ## Risks
 
 A sphinx-needs upgrade can change warning codes or schema output; the fixture runner
-catches it, because each fixture names the finding it expects. Vale runs only on Linux,
-so a Windows session can run every stage but the prose lint.
+catches it, because each fixture names the finding it expects. Vale runs on Windows as
+`bin/vale.exe`, and the `check-windows` job runs every stage ({need}`DES_0006`).
+
+CI runs the pull request's own checker, extension, `docs/conf.py`, fixtures and
+workflow, so a pull request can change what checks it; the maintainer's review of the
+pull request is the safeguard, and no ruleset requires an approval. Vale skips content by class name, so raw HTML that carries an ignored class
+escapes the lint. The Vale table in `tools/setup.py` is checked for form, not against
+Vale's published checksums. A `spec` fragment is matched as text in the file. A fixture
+passes on any finding of its requirement, unless it sets `only`.
 
 ## Review
 
@@ -148,4 +158,11 @@ so a Windows session can run every stage but the prose lint.
 :date: 2026-11-08
 The review recorded as {need}`REV_RFC_0001_1` covered this design doc and the code it
 describes.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0001_2
+:k: 2
+:date: 2026-11-09
+:digest: 54531476db4f20338fd29c9b05a4b368202d62d5bbe0d7a16f868d95f4506826
 :::
