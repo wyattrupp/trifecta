@@ -364,3 +364,10 @@ of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 :date: 2026-11-10
 :digest: f39d3696b8ef1d56d661eb0b400fab67c8f1fc345da7f3b01f9cdf5af76461bd
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_10
+:k: 2
+:date: 2026-11-10
+:digest: f051b332e58f12725ff83ba7dc02f3e73c21f415295da6ac427abc79c0abf88e
+:::

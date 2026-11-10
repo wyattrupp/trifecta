@@ -227,3 +227,10 @@ single maintainer could satisfy; signed commits and tags.
 :date: 2026-11-10
 :digest: f90c739b03aee0de28d03556142cb3400684b44dc606e632df57b4a0aeb2f52a
 :::
+
+:::{review} Correctness; security
+:id: REV_RFC_0004_7
+:k: 2
+:date: 2026-11-10
+:digest: 2372ee772c94403ef352a9c401ac887b88ca76a842349193417ec272d35f5495
+:::

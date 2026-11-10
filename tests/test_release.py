@@ -1,7 +1,8 @@
 """REQ_RELEASE_TRUST: a version tag builds the wheel with pinned and hashed build
-dependencies and SHA-pinned actions; a workflow that always runs from main publishes it,
-only for a tag whose commit is on main, after the `release` environment is approved, from
-the only job that may write, with its SHA-256 and a provenance attestation."""
+dependencies and SHA-pinned actions and attests its build provenance; a workflow that
+always runs from main publishes it, only for a tag whose commit is on main, after the
+`release` environment is approved, from the only job that may write, which verifies the
+attestation and publishes the wheel and its SHA-256."""
 
 from __future__ import annotations
 
@@ -112,15 +113,18 @@ class ReleasePublish(unittest.TestCase):
         self.assertEqual(download["with"]["github-token"], "${{ github.token }}")
         verify = index(steps, "for wheel in dist/trifecta-*.whl")
         check = steps[verify]["run"]
-        for part in ('--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml"',
+        for part in ('gh attestation verify "$wheel" --repo "$GITHUB_REPOSITORY"',
+                     '--cert-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/'
+                     'release-build.yml@refs/tags/$TAG"',
                      '--source-ref "refs/tags/$TAG"', '--source-digest "$SHA"',
-                     "--deny-self-hosted-runners"):
+                     "--deny-self-hosted-runners", "sha256sum -c SHA256SUMS"):
             self.assertIn(part, check)
         publish = index(steps, "gh release create")
         command = steps[publish]["run"]
         for part in ("dist/trifecta-*.whl", "dist/SHA256SUMS", "--verify-tag",
                      '--jq .sha)" = "$SHA"', "--notes-file",
-                     "--signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-build.yml",
+                     "--cert-identity https://github.com/$GITHUB_REPOSITORY/.github/workflows/"
+                     "release-build.yml@refs/tags/$TAG",
                      "--source-ref refs/tags/$TAG", "--source-digest $SHA",
                      "--deny-self-hosted-runners"):
             self.assertIn(part, command)

@@ -63,9 +63,11 @@ jobs:
         run: |
           for wheel in dist/trifecta-*.whl; do
             gh attestation verify "$wheel" --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml" \
+              --cert-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release-build.yml@refs/tags/$TAG" \
               --source-ref "refs/tags/$TAG" --source-digest "$SHA" --deny-self-hosted-runners
           done
+          # The checksum file is from the same build; it must agree with the verified wheel.
+          (cd dist && sha256sum -c SHA256SUMS)
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,10 +78,10 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)" = "$SHA"
           wheel="trifecta-${TAG#v}-py3-none-any.whl"
           {
-            echo "Built from \`$TAG\` (commit \`$SHA\`). Verify the wheel's provenance:"
+            echo "Built from \`$TAG\` (commit \`$SHA\`, on main). Verify the wheel's provenance:"
             echo
             echo '```sh'
-            echo "gh attestation verify $wheel --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-build.yml --source-ref refs/tags/$TAG --source-digest $SHA --deny-self-hosted-runners"
+            echo "gh attestation verify $wheel --repo $GITHUB_REPOSITORY --cert-identity https://github.com/$GITHUB_REPOSITORY/.github/workflows/release-build.yml@refs/tags/$TAG --source-ref refs/tags/$TAG --source-digest $SHA --deny-self-hosted-runners"
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$TAG" dist/trifecta-*.whl dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" \

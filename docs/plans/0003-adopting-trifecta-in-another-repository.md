@@ -174,6 +174,13 @@ The review recorded as {need}`REV_RFC_0006_1` covered this change.
 :digest: a622afea5bba8bdda86420eee7ede5a4da21d8df6197ed1c995f8b4cf722a589
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0003_9
+:k: 2
+:date: 2026-11-10
+:digest: 2052b4e5cad35b41c9c2d9065402186a8e5b494aced84cf1d7ca2770a793efd1
+:::
+
 ## As built
 
 ### Task 1 (2026-11-08)
