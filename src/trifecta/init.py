@@ -2,11 +2,14 @@
 
     trifecta init [--codeowner @name] [--wheel-url URL --wheel-sha256 HEX]
 
-It writes the corpus skeleton, the build files, the hashed lock, the CI workflow and the
-CODEOWNERS entry into the working directory. Every refusal is decided before the first
-write: a target that exists, a target or a directory on its way that is a link or other
-reparse point, and a target that resolves outside the repository. Each file is created
-exclusively, and a run that fails part way removes every file and directory it created.
+It writes the corpus skeleton, the build files, the hashed lock, the CI workflow, the
+CODEOWNERS entry and the planning files into the working directory: the CLAUDE.md section,
+the project skill, the hook and its registration. Every refusal is decided before the
+first write: a target that exists, a target or a directory on its way that is a link or
+other reparse point, and a target that resolves outside the repository. An existing
+CLAUDE.md gains the section and an existing .claude/settings.json the hook's
+registration, each through a new file moved over it. Each file is created exclusively,
+and a run that fails part way removes what it created and restores CLAUDE.md.
 """
 
 from __future__ import annotations
@@ -252,7 +255,7 @@ class Run:
     created_files: list[tuple[str, int, int]] = field(default_factory=list)
     created_dirs: list[str] = field(default_factory=list)
 
-    def write(self, rel: str, data: bytes) -> None:
+    def write(self, rel: str, data: bytes, mode: int = 0o644) -> None:
         for directory in _parents(rel):
             check_parents(self.root, f"{directory}/x")
             path = self.root / directory
@@ -264,7 +267,7 @@ class Run:
         check_parents(self.root, rel)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) \
             | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(self.root / rel, flags, 0o644)
+        fd = os.open(self.root / rel, flags, mode)
         with os.fdopen(fd, "wb") as out:
             st = os.fstat(out.fileno())
             self.created_files.append((rel, st.st_dev, st.st_ino))
@@ -305,24 +308,241 @@ class Run:
         return left
 
 
-def init(root: Path, owner: str | None, url: str | None, sha256: str | None) -> list[str]:
-    """Write the starting point into ``root``; return what was written."""
+# --- the two files init changes: CLAUDE.md and .claude/settings.json -----------------
+
+CLAUDE_MD = "CLAUDE.md"
+SETTINGS = ".claude/settings.json"
+HOOK = ".claude/hooks/trifecta_guard.py"
+SKILL = ".claude/skills/trifecta-planning/SKILL.md"
+NEW = ".trifecta-new"
+#: The tools the hook covers, and the command that runs it: fixed text naming the script
+#: through $CLAUDE_PROJECT_DIR, trying python3 then python, and blocking with exit 2 when
+#: neither can start (REQ_INIT_SAFE, REQ_HOOK_FAILS_CLOSED).
+MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash"
+_RUN_HOOK = f'"$CLAUDE_PROJECT_DIR/{HOOK}"'
+COMMAND = f"python3 {_RUN_HOOK} || python {_RUN_HOOK} || exit 2"
+ENTRY = {"matcher": MATCHER, "hooks": [{"type": "command", "command": COMMAND}]}
+
+
+def section() -> str:
+    return (PACKAGE_DIR / "claude" / "CLAUDE_SECTION.md").read_text(encoding="utf-8")
+
+
+def appended(original: bytes) -> bytes | None:
+    """CLAUDE.md with init's section appended, or None when it already holds the section."""
+    try:
+        text = original.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"{CLAUDE_MD} is not UTF-8") from None
+    body = text.removeprefix("﻿")
+    lines = body.splitlines()
+    wanted = section().splitlines()
+    starts = [i for i, line in enumerate(lines) if line == wanted[0]]
+    if any(lines[i:i + len(wanted)] == wanted for i in starts):
+        return None
+    if starts:
+        raise Refused(f"{CLAUDE_MD} holds the heading {wanted[0]!r} without the rest of the "
+                      "section; restore or remove it")
+    if not original:
+        return section().encode("utf-8")
+    first = body.find("\n")
+    nl = "\r\n" if first > 0 and body[first - 1] == "\r" else "\n"
+    tail = "" if body.endswith(("\n", "\r")) else nl
+    return original + (tail + nl + nl.join(wanted) + nl).encode("utf-8")
+
+
+class _Strict:
+    """Hooks for json.loads that refuse what REQ_INIT_SAFE refuses in the settings file."""
+
+    @staticmethod
+    def pairs(pairs):
+        keys = [k for k, _ in pairs]
+        if len(set(keys)) != len(keys):
+            raise ValueError("a key is repeated")
+        return dict(pairs)
+
+    @staticmethod
+    def constant(name):
+        raise ValueError(f"{name} is not a finite number")
+
+    @staticmethod
+    def number(text):
+        value = float(text)
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError(f"{text[:20]} is not a finite double")
+        return value
+
+    @staticmethod
+    def integer(text):
+        value = int(text)
+        try:
+            float(value)
+        except OverflowError:
+            raise ValueError(f"{text[:20]}... does not convert to a finite double") from None
+        return value
+
+
+def merged(original: bytes) -> bytes | None:
+    """The settings with init's hook entry added, or None when an equal entry is there."""
+    where = SETTINGS
+    if not original:
+        raise Refused(f"{where} is empty")
+    if original.startswith(b"\xef\xbb\xbf"):
+        raise Refused(f"{where} carries a byte-order mark")
+    try:
+        text = original.decode("utf-8")
+        data = json.loads(text, object_pairs_hook=_Strict.pairs, parse_constant=_Strict.constant,
+                          parse_float=_Strict.number, parse_int=_Strict.integer)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise Refused(f"{where} is not strict JSON: {exc}") from None
+    if not isinstance(data, dict):
+        raise Refused(f"{where} does not hold a JSON object")
+    if "disableAllHooks" in data and data["disableAllHooks"] is not False:
+        raise Refused(f"{where} sets disableAllHooks, which would switch the hook off")
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        raise Refused(f"{where}: hooks is not an object")
+    entries = hooks.get("PreToolUse", [])
+    if not isinstance(entries, list):
+        raise Refused(f"{where}: hooks.PreToolUse is not an array")
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+            raise Refused(f"{where}: a hooks.PreToolUse entry is not an object with a hooks array")
+    if ENTRY in entries:
+        return None
+    for entry in entries:
+        if any(isinstance(h, dict) and h.get("command") == COMMAND for h in entry["hooks"]):
+            raise Refused(f"{where}: an entry runs init's hook but differs from init's entry")
+    data.setdefault("hooks", hooks)
+    hooks.setdefault("PreToolUse", entries)
+    entries.append(ENTRY)
+    return (json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+
+
+@dataclass
+class Change:
+    """An existing file init changes: its bytes and identity as read, and the new bytes."""
+    rel: str
+    original: bytes
+    st: os.stat_result
+    new: bytes
+    moved: os.stat_result | None = None
+
+
+def read_existing(root: Path, rel: str) -> tuple[bytes, os.stat_result] | None:
+    """An existing CLAUDE.md or settings file, read through a handle that does not follow
+    links, or None when there is none; refused unless it is a regular file in the
+    repository, reached through no link."""
+    check_parents(root, rel)
+    path = root / rel
+    st = _lstat(path)
+    if st is None:
+        return None
+    if _is_link(st):
+        raise Refused(f"{rel} is a link or other reparse point")
+    if not stat.S_ISREG(st.st_mode):
+        raise Refused(f"{rel} is not a regular file")
+    if not path.resolve().is_relative_to(root):
+        raise Refused(f"{rel} resolves outside the repository")
+    if _lstat(root / (rel + NEW)) is not None:
+        raise Refused(f"{rel + NEW} is left from an earlier run; remove it")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) \
+        | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        if (opened.st_dev, opened.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(opened.st_mode):
+            raise Refused(f"{rel} changed while it was read")
+        return handle.read(), opened
+
+
+#: Test seams: called with the repository-relative path just before an existing file is
+#: replaced, and just after.
+before_move = None
+after_move = None
+
+
+def _same(a: os.stat_result, b: os.stat_result) -> bool:
+    return (a.st_dev, a.st_ino, a.st_mtime_ns) == (b.st_dev, b.st_ino, b.st_mtime_ns)
+
+
+def _replace(run: "Run", rel: str, data: bytes, mode: int, expected: os.stat_result) -> os.stat_result:
+    """Write ``data`` to ``rel`` + .trifecta-new, created exclusively with mode 0600 and then
+    given ``mode``, and move it over ``rel`` once ``rel`` is still the file ``expected``
+    describes, reached through no link. Return the moved file's identity."""
+    run.write(rel + NEW, data, mode=0o600)
+    os.chmod(run.root / (rel + NEW), stat.S_IMODE(mode))
+    if before_move:
+        before_move(rel)
+    check_parents(run.root, rel)
+    now = _lstat(run.root / rel)
+    if now is None or _is_link(now) or not _same(now, expected):
+        raise Refused(f"{rel} changed after init read it")
+    os.replace(run.root / (rel + NEW), run.root / rel)
+    run.created_files = [f for f in run.created_files if f[0] != rel + NEW]
+    moved = os.lstat(run.root / rel)
+    if after_move:
+        after_move(rel)
+    return moved
+
+
+def init(root: Path, owner: str | None, url: str | None, sha256: str | None
+         ) -> tuple[list[str], list[str]]:
+    """Write the starting point into ``root``; return what was written and what changed."""
     root = root.resolve()
     targets = files(root.name, codeowner(root, owner), package_line(url, sha256))
+    targets[HOOK] = (PACKAGE_DIR / "claude" / "trifecta_guard.py").read_bytes()
+    targets[SKILL] = (PACKAGE_DIR / "claude" / "SKILL.md").read_bytes()
+    # Every refusal before the first write: the new files, then the two init may change.
     for rel in targets:
         check_target(root, rel)
+    changes: dict[str, Change] = {}
+    for rel, build in ((CLAUDE_MD, appended), (SETTINGS, merged)):
+        existing = read_existing(root, rel)
+        if existing is None:
+            check_target(root, rel)
+            continue
+        original, st = existing
+        new = build(original)
+        if new is not None:
+            changes[rel] = Change(rel, original, st, new)
+    created = dict(targets)
+    if CLAUDE_MD not in changes and _lstat(root / CLAUDE_MD) is None:
+        created[CLAUDE_MD] = section().encode("utf-8")
+    settings_new = SETTINGS not in changes and _lstat(root / SETTINGS) is None
     run = Run(root)
     try:
-        for rel, data in targets.items():
+        for rel, data in created.items():
             run.write(rel, data)
+        if CLAUDE_MD in changes:
+            c = changes[CLAUDE_MD]
+            c.moved = _replace(run, CLAUDE_MD, c.new, c.st.st_mode, c.st)
+        # The settings are the last write, so the hook is registered only once its script
+        # and instructions are in place.
+        if settings_new:
+            run.write(SETTINGS, merged(b'{}'))
+        elif SETTINGS in changes:
+            c = changes[SETTINGS]
+            c.moved = _replace(run, SETTINGS, c.new, c.st.st_mode, c.st)
     except BaseException as exc:
         left = run.undo()
         detail = exc if isinstance(exc, (Refused, OSError)) else repr(exc)
-        message = f"stopped part way, and removed what it wrote: {detail}"
+        message = f"stopped part way: {detail}; removed the files it created"
         if left:
-            message += f"; could not remove {', '.join(left)}"
+            message += f", but could not remove {', '.join(left)}"
+        claude = changes.get(CLAUDE_MD)
+        if claude and claude.moved is not None:
+            try:
+                restore = Run(root)
+                _replace(restore, CLAUDE_MD, claude.original, claude.st.st_mode, claude.moved)
+                message += f"; restored {CLAUDE_MD}"
+            except BaseException as again:
+                restore.undo()
+                message += (f"; {CLAUDE_MD} still holds the section, since restoring it failed: "
+                            f"{again}")
         raise Refused(message) from exc
-    return list(targets)
+    written = [rel for rel in created] + ([SETTINGS] if settings_new else [])
+    return written, [rel for rel in changes]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -333,10 +553,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wheel-sha256", help="that wheel's SHA-256")
     args = parser.parse_args(argv)
     try:
-        written = init(corpus_root(), args.codeowner, args.wheel_url, args.wheel_sha256)
+        written, changed = init(corpus_root(), args.codeowner, args.wheel_url, args.wheel_sha256)
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     for rel in written:
         print(f"wrote {rel}")
+    for rel in changed:
+        print(f"changed {rel}")
     return 0

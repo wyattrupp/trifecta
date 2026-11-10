@@ -51,9 +51,9 @@ class Repo:
         self.tmp.cleanup()
 
 
-def run_init(root: Path) -> list[str]:
-    with mock.patch("trifecta.init.corpus_root", return_value=root):
-        return init_module.init(root, "@someone", URL, SHA)
+def run_init(root: Path) -> tuple[list[str], list[str]]:
+    """Run init in ``root``; return what it wrote and what it changed."""
+    return init_module.init(root, "@someone", URL, SHA)
 
 
 class InitPasses(unittest.TestCase):
