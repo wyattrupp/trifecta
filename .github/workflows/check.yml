@@ -37,11 +37,11 @@ jobs:
             make check BASE="origin/$BASE_REF"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             make check BASE="$BEFORE"
-          elif git rev-parse -q --verify HEAD^ >/dev/null; then
-            echo "::warning::push base $BEFORE is not in the clone; checking against HEAD^ only"
-            make check BASE=HEAD^
           else
-            make check
+            # History is held only against a base; a push whose base is not in the clone
+            # (a force push, or a new branch) is not checked partially (REQ_FROZEN_TASKS).
+            echo "::error::push base $BEFORE is not in the clone; history cannot be checked"
+            exit 1
           fi
       - run: make fixtures
 
@@ -73,10 +73,8 @@ jobs:
             python tools/check.py --base "origin/$BASE_REF"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             python tools/check.py --base "$BEFORE"
-          elif git rev-parse -q --verify HEAD^ >/dev/null; then
-            echo "::warning::push base $BEFORE is not in the clone; checking against HEAD^ only"
-            python tools/check.py --base HEAD^
           else
-            python tools/check.py
+            echo "::error::push base $BEFORE is not in the clone; history cannot be checked"
+            exit 1
           fi
       - run: python tools/run_fixtures.py

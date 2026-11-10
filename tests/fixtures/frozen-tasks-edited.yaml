@@ -1,0 +1,8 @@
+# A step of a task resolved at the base is reworded.
+expect: REQ_FROZEN_TASKS
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: '- [x] **5.1** Bound task blocks by MyST''s closing colons, the next task or the next section,
+    and report an unclosed task.'
+  replace: '- [x] **5.1** Bound task blocks by MyST''s closing colons, the next task or the next section,
+    and report an unclosed task. Reworded.'

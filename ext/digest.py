@@ -105,7 +105,7 @@ def structure(lines: list[str]) -> Structure:
     return found
 
 
-def _frontmatter_status(lines: list[str]) -> int | None:
+def status_line(lines: list[str]) -> int | None:
     """Index of the line YAML reads as the frontmatter's one ``status`` key and its value,
     when that pair fills one line on its own; otherwise None, and nothing is left out."""
     end = plans.frontmatter_end(lines)
@@ -148,7 +148,7 @@ def reviewed_content(text: str, directive: str) -> str:
     lines = split_lines(text)
     found = structure(lines)
     drop = set()
-    if (status := _frontmatter_status(lines)) is not None:
+    if (status := status_line(lines)) is not None:
         drop.add(status)
     drop.update(_spec_lines(found))
     for title in LEFT_OUT.get(directive, ("Review",)):

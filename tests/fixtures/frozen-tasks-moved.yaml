@@ -1,0 +1,74 @@
+# A task resolved at the base is moved to another plan.
+expect: REQ_FROZEN_TASKS
+mutations:
+- file: docs/plans/0001-plans-and-reviews.md
+  find: ':::{task} Fold in the k=2 review
+
+    :id: TASK_0001_05
+
+    :builds: COMP_PLAN_RULES, COMP_PLAN_TYPES, COMP_NEW_COMMAND, COMP_NEXT_COMMAND
+
+    :gate: The fixtures for every finding that a corpus mutation can show are rejected; the corpus passes.
+
+    Apply the findings of the review recorded in RFC_0002 that held up.
+
+
+    - [x] **5.1** Bound task blocks by MyST''s closing colons, the next task or the next section, and
+    report an unclosed task.
+
+    - [x] **5.2** Report checkboxes outside a task, a plan with no task, padded task and step numbers,
+    and placeholders in an active or done plan.
+
+    - [x] **5.3** Exempt abandoned plans in the requirement text, and add Out of scope to RFCs and Risks
+    to design docs.
+
+    - [x] **5.4** Reject documents outside the typed directories, and point the README away from the superpowers
+    default paths.
+
+    - [x] **5.5** Give plan statuses, frontmatter parsing, the lint directories and the derived views
+    one home each.
+
+    - [x] **5.6** Record the review in RFC_0002, DES_0002 and this plan, and add the fixtures.
+
+    :::
+
+    '
+  replace: ''
+- file: docs/plans/0006-diagrams-of-the-corpus.md
+  find: ':::{task} Meta-model directive
+
+    '
+  replace: ':::{task} Fold in the k=2 review
+
+    :id: TASK_0001_05
+
+    :builds: COMP_PLAN_RULES, COMP_PLAN_TYPES, COMP_NEW_COMMAND, COMP_NEXT_COMMAND
+
+    :gate: The fixtures for every finding that a corpus mutation can show are rejected; the corpus passes.
+
+    Apply the findings of the review recorded in RFC_0002 that held up.
+
+
+    - [x] **5.1** Bound task blocks by MyST''s closing colons, the next task or the next section, and
+    report an unclosed task.
+
+    - [x] **5.2** Report checkboxes outside a task, a plan with no task, padded task and step numbers,
+    and placeholders in an active or done plan.
+
+    - [x] **5.3** Exempt abandoned plans in the requirement text, and add Out of scope to RFCs and Risks
+    to design docs.
+
+    - [x] **5.4** Reject documents outside the typed directories, and point the README away from the superpowers
+    default paths.
+
+    - [x] **5.5** Give plan statuses, frontmatter parsing, the lint directories and the derived views
+    one home each.
+
+    - [x] **5.6** Record the review in RFC_0002, DES_0002 and this plan, and add the fixtures.
+
+    :::
+
+
+    :::{task} Meta-model directive
+
+    '

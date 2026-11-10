@@ -1,0 +1,9 @@
+# A line of an accepted MADR's frontmatter that starts like its status, inside another
+# value, changes; only the status key's own line may.
+expect: REQ_IMMUTABLE_DECISIONS
+mutations:
+- file: docs/decisions/0011-a-review-records-a-digest-of-what-it-read.md
+  find: 'informed: [wyatt]
+
+    '
+  replace: "informed: [wyatt,\n  status: x]\n"

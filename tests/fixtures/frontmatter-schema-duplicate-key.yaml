@@ -1,0 +1,17 @@
+# An accepted MADR whose frontmatter gives status twice: readers taking the first and the
+# last would disagree, so a key given twice is an error.
+expect: REQ_FRONTMATTER_SCHEMA
+mutations:
+- file: docs/decisions/0011-a-review-records-a-digest-of-what-it-read.md
+  find: '---
+
+    status: accepted
+
+    '
+  replace: '---
+
+    status: proposed
+
+    status: accepted
+
+    '

@@ -45,11 +45,11 @@ review stale until it is stamped.
 :gate: The fixtures that edit, remove, and move a task resolved at the base ref, that delete a plan holding one, and that move an implemented design back to approved, are rejected.
 Extend the lifecycle checker that freezes MADRs.
 
-- [ ] **2.1** List every plan under `docs/plans/` at the base ref, and collect each resolved task with its raw lines, step marks and As built entry.
-- [ ] **2.2** Report a resolved task whose raw text, marks or entry differ now, or that is gone from its plan, including when the plan file is gone.
-- [ ] **2.3** Compare each typed document's status with the base ref, and report a backward move.
-- [ ] **2.4** Make CI fail a push whose base it cannot resolve, in place of falling back to `HEAD^` or to no base.
-- [ ] **2.5** Add the five fixtures, and set the component's `spec` path.
+- [x] **2.1** List every plan under `docs/plans/` at the base ref, and collect each resolved task with its raw lines, step marks and As built entry.
+- [x] **2.2** Report a resolved task whose raw text, marks or entry differ now, or that is gone from its plan, including when the plan file is gone.
+- [x] **2.3** Compare each typed document's status with the base ref, and report a backward move.
+- [x] **2.4** Make CI fail a push whose base it cannot resolve, in place of falling back to `HEAD^` or to no base.
+- [x] **2.5** Add the five fixtures, and set the component's `spec` path.
 :::
 
 :::{task} Dropped-step citations and build state
@@ -134,3 +134,21 @@ directive whose body holds options and plain paragraphs with no raw HTML. DES_00
 component and interface say so. Its last edits follow the fixes the two reviewers stated
 and were checked by a probe that runs each exploit, with no further pass. Each exploit has
 a fixture.
+
+### Task 2 (2026-11-09)
+
+The lifecycle checker reads every status with the frontmatter's YAML loader, which now
+refuses a key given twice and an unhashable key, so the build and the checker read one
+status; the MADR freeze leaves out only the line YAML reads as the status key, which
+closes a duplicate `status` that read as proposed to the old checker and accepted to the
+build. A document is its number: a renamed document is still compared, so a rename cannot
+revive one that left by an exit or hide a backward move, and a task in a renamed plan is
+not moved. A status that can be read at the base and not now counts as a backward move.
+A base directory that is absent lists nothing; any other git failure is reported, not
+read as empty. Beyond the five fixtures the step names: an edited As built entry, a
+status-looking line inside another frontmatter value, a duplicate frontmatter key, a
+renamed plan set back to draft, and an unreadable status. The CRLF step-gap fixture
+allows REQ_FROZEN_TASKS, since its renumbered step is in a resolved task. Not taken from
+the code review: a second `## As built` or a second task with a resolved task's ID, since
+REQ_SECTION_SKELETON and REQ_TASK_ORDER fail the build on each; the pull request's own
+checker running in CI, which awaits a ruling.

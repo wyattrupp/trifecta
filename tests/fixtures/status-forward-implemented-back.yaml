@@ -1,0 +1,10 @@
+# An implemented design doc is moved back to approved.
+expect: REQ_STATUS_FORWARD
+mutations:
+- file: docs/design/0006-running-on-windows.md
+  find: 'status: implemented
+
+    '
+  replace: 'status: approved
+
+    '
