@@ -127,6 +127,10 @@ jobs:
             make check BASE="origin/$BASE_REF"
           elif git cat-file -e "$BEFORE^{{commit}}" 2>/dev/null; then
             make check BASE="$BEFORE"
+          elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ] \\
+              && [ -z "$(git rev-list --parents -n 1 HEAD | cut -s -d' ' -f2)" ]; then
+            # A repository's first commit: there is no history to hold it against.
+            make check
           else
             echo "::error::push base $BEFORE is not in the clone; history cannot be checked"
             exit 1

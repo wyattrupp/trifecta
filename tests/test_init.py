@@ -228,6 +228,37 @@ class InitSafe(unittest.TestCase):
         self.assertEqual(workflow.count("persist-credentials: false"),
                          workflow.count("actions/checkout@"))
 
+    @proves("REQ_INIT_PASSES")
+    def test_workflow_checks_a_first_push_and_refuses_a_missing_base(self):
+        import yaml
+        from tests.test_planning import git_bash
+        steps = yaml.safe_load(init_module._workflow())["jobs"]["check"]["steps"]
+        script = next(s["run"] for s in steps if "make check" in s.get("run", ""))
+        bash = git_bash()
+        zero = "0" * 40
+
+        def run(root: Path, before: str) -> subprocess.CompletedProcess:
+            stub = root.parent / "bin"
+            stub.mkdir(exist_ok=True)
+            (stub / "make").write_text('#!/bin/sh\necho "make $*"\n', encoding="utf-8", newline="\n")
+            os.chmod(stub / "make", 0o755)
+            env = {**os.environ, "EVENT": "push", "BASE_REF": "", "BEFORE": before,
+                   "PATH": f"{stub.as_posix()}{os.pathsep}{os.environ['PATH']}"}
+            return subprocess.run([bash, "-e", "-c", script], cwd=root, env=env,
+                                  capture_output=True, encoding="utf-8")
+
+        with Repo() as root:
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@localhost"]
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True)
+            first = run(root, zero)
+            self.assertEqual((first.returncode, first.stdout.strip()), (0, "make check"))
+            base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+                                  encoding="utf-8", check=True).stdout.strip()
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], cwd=root, check=True)
+            self.assertEqual(run(root, zero).returncode, 1, "a new branch's push is refused")
+            later = run(root, base)
+            self.assertEqual((later.returncode, later.stdout.strip()), (0, f"make check BASE={base}"))
+
     @proves("REQ_INIT_SAFE")
     def test_workflow_pins_are_this_repositorys_own(self):
         ours = (REPO / ".github/workflows/check.yml").read_text(encoding="utf-8")
