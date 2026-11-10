@@ -102,7 +102,7 @@ Each step outside this repository waits for wyatt's yes.
 - [ ] **6.2** Confirm that creating a release through the API cannot make a tag the ruleset refuses, then tag the first release on main.
 - [ ] **6.3** Create the template repository from `trifecta init` output pinned to that release, and mark it a template.
 - [ ] **6.4** Create a repository from the template and confirm its CI passes.
-- [x] **6.5** Add the test that names REQ_RELEASE_TRUST: the release workflow runs only on a tag whose commit is on main, pins every action by commit SHA, waits for the `release` environment, and publishes a provenance attestation.
+- [ ] **6.5** Add the test that names REQ_RELEASE_TRUST: the release workflow runs only on a tag whose commit is on main, pins every action by commit SHA, waits for the `release` environment, and publishes a provenance attestation.
 :::
 
 :::{task} Adoption guide
