@@ -252,6 +252,8 @@ class InitSafe(unittest.TestCase):
             subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True)
             first = run(root, zero)
             self.assertEqual((first.returncode, first.stdout.strip()), (0, "make check"))
+            self.assertEqual(run(root, "1" * 40).returncode, 1,
+                             "a missing base is refused even at the first commit")
             base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
                                   encoding="utf-8", check=True).stdout.strip()
             subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], cwd=root, check=True)
