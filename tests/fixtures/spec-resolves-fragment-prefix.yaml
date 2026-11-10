@@ -3,6 +3,6 @@ expect: REQ_SPEC_RESOLVES
 mutations:
 - file: docs/design/0001-validation-pipeline.md
   find: |
-    :spec: tools/check_graph.py#def check
+    :spec: src/trifecta/check_graph.py#def check
   replace: |
-    :spec: tools/check_graph.py#def chec
+    :spec: src/trifecta/check_graph.py#def chec

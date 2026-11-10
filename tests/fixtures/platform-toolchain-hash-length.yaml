@@ -1,6 +1,6 @@
 # A hash one digit short.
 expect: REQ_PLATFORM_TOOLCHAIN
 mutations:
-- file: tools/setup.py
+- file: src/trifecta/setup.py
   find: '"2e89bd82cadfffa6abebda80a141529db2799df5d4197e6aa0489a4d711d8a3b"'
   replace: '"2e89bd82cadfffa6abebda80a141529db2799df5d4197e6aa0489a4d711d8a3"'

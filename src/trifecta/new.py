@@ -1,13 +1,13 @@
 """Write a skeleton document (COMP_NEW_COMMAND).
 
-    python tools/new.py rfc <slug>
-    python tools/new.py decision <slug>
-    python tools/new.py design <slug>
-    python tools/new.py plan <slug> --implements DES_NNNN
+    trifecta new rfc <slug>
+    trifecta new decision <slug>
+    trifecta new design <slug>
+    trifecta new plan <slug> --implements DES_NNNN
 
 The document takes its type's next number and today's date, and has every section its
-type declares. The shapes come from ``DOC_TYPES`` in ext/trifecta.py and from
-ext/plans.py, the constants the check reads, so there is no template to drift. A
+type declares. The shapes come from ``DOC_TYPES`` in trifecta/ext/__init__.py and from
+trifecta/ext/plans.py, the constants the check reads, so there is no template to drift. A
 skeleton is a draft and passes the check; review is what makes it accepted, approved
 or active.
 """
@@ -22,11 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "ext"))
 
-import plans  # noqa: E402
-from trifecta import DOC_TYPES, FILENAME_RE  # noqa: E402
+from .ext import DOC_TYPES, FILENAME_RE, plans
+from .toolchain import corpus_root
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ELEMENT_RE = re.compile(r"^:id: ((?:COMP|IF)_[A-Z0-9_]+)\s*$", re.M)
@@ -35,7 +33,7 @@ TODO = plans.PLACEHOLDER
 
 def _author() -> str:
     try:
-        name = subprocess.run(["git", "-C", str(ROOT), "config", "user.name"],
+        name = subprocess.run(["git", "-C", str(corpus_root()), "config", "user.name"],
                               capture_output=True, encoding="utf-8", errors="replace",
                               check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
@@ -50,7 +48,7 @@ def _next_number(directory: Path) -> str:
 
 def _design_elements(design_id: str) -> list[str]:
     number = design_id.removeprefix("DES_")
-    files = sorted((ROOT / "docs" / "design").glob(f"{number}-*.md"))
+    files = sorted((corpus_root() / "docs" / "design").glob(f"{number}-*.md"))
     if not re.fullmatch(r"\d{4}", number) or not files:
         sys.exit(f"no design doc {design_id} under docs/design/")
     return ELEMENT_RE.findall(files[0].read_text(encoding="utf-8"))
@@ -112,15 +110,16 @@ def main(argv: list[str] | None = None) -> int:
     if (args.kind == "plan") != bool(args.implements):
         parser.error("--implements is required for a plan and only for a plan")
 
-    directory = ROOT / "docs" / next(d for d, s in DOC_TYPES.items() if s["directive"] == args.kind)
+    root = corpus_root()
+    directory = root / "docs" / next(d for d, s in DOC_TYPES.items() if s["directive"] == args.kind)
     number = _next_number(directory)
     path = directory / f"{number}-{args.slug}.md"
     if path.exists():
-        parser.error(f"{path.relative_to(ROOT)} exists")
+        parser.error(f"{path.relative_to(root)} exists")
     today = datetime.date.today().isoformat()
     path.write_text(render(args.kind, number, args.slug, _author(), today, args.implements),
                     encoding="utf-8", newline="\n")
-    print(path.relative_to(ROOT).as_posix())
+    print(path.relative_to(root).as_posix())
     return 0
 
 

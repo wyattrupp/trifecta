@@ -1,8 +1,8 @@
 """Take a document's digest when a review starts, and stamp the review with it
 (COMP_REVIEW_COMMAND, DEC_0011).
 
-    python tools/review.py digest docs/plans/0002-plan-and-review-lifecycle.md
-    python tools/review.py stamp docs/plans/0002-plan-and-review-lifecycle.md \\
+    trifecta review digest docs/plans/0002-plan-and-review-lifecycle.md
+    trifecta review stamp docs/plans/0002-plan-and-review-lifecycle.md \\
         --digest D --lenses "Correctness; security" --k 2
 
 ``stamp`` appends a review record to the document's Review section with today's date. It
@@ -18,11 +18,10 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "ext"))
 
-import digest as reviewed  # noqa: E402
-from trifecta import doc_need_id, doc_type  # noqa: E402
+from .ext import digest as reviewed
+from .ext import doc_need_id, doc_type
+from .toolchain import OutsideRepository, corpus_root, inside
 
 REVIEW_ID_RE = re.compile(r"^:id: REV_[A-Z]+_\d{4}_(?P<n>\d+)\s*$")
 
@@ -33,9 +32,10 @@ class Refused(Exception):
 
 def typed(path: Path) -> tuple[str, str]:
     """The document's directive and need ID, or Refused."""
+    root = corpus_root()
     try:
-        rel = path.resolve().relative_to((ROOT / "docs").resolve())
-    except ValueError:
+        rel = inside(path, root).relative_to(root / "docs")
+    except (OutsideRepository, ValueError):
         raise Refused(f"{path} is not under docs/") from None
     docname = rel.with_suffix("").as_posix()
     kind, need_id = doc_type(docname), doc_need_id(docname)

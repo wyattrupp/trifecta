@@ -1,0 +1,23 @@
+[build-system]
+requires = ["flit_core==4.2.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "trifecta"
+version = "0.1.0"
+description = "A docs-as-code checker for RFCs, decisions, designs and plans."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "Sphinx",
+    "sphinx-needs",
+    "myst-parser",
+    "PyYAML",
+    "jsonschema",
+]
+
+[project.scripts]
+trifecta = "trifecta.cli:main"
+
+[project.urls]
+Source = "https://github.com/wyattrupp/trifecta"

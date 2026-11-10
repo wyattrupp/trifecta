@@ -1,0 +1,9 @@
+# The package's lock line names another project's release.
+expect: REQ_ONE_PACKAGE
+only: true
+mutations:
+- file: requirements.lock
+  find: 'flit_core==4.2.0 '
+  replace: 'trifecta @ https://github.com/someone/trifecta/releases/download/v0.1.0/trifecta-0.1.0-py3-none-any.whl --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    flit_core==4.2.0 '

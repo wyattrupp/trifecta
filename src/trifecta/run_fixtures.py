@@ -17,13 +17,9 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from check import repo_files  # noqa: E402
-from findings import CHILD_ENV, Finding  # noqa: E402
-from toolchain import vale_path  # noqa: E402
-
-ROOT = Path(__file__).resolve().parent.parent
+from .check import repo_files
+from .findings import Finding, child_env
+from .toolchain import VALE_ENV, corpus_root, vale_path
 
 
 class FixtureError(Exception):
@@ -35,15 +31,15 @@ def _git(cwd: Path, *args: str) -> None:
                    encoding="utf-8", errors="replace")
 
 
-def make_base(tmp: Path) -> Path:
+def make_base(tmp: Path, root: Path) -> Path:
     """Copy what git tracks or would track, so every ignore rule holds, the repository's own
     .git/info/exclude included, which the copy's fresh git would not read."""
     base = tmp / "base"
-    files, problems = repo_files(ROOT)
+    files, problems = repo_files(root)
     if problems:
         raise FixtureError(problems[0].message)
     for name in files:
-        source, target = ROOT / name, base / name
+        source, target = root / name, base / name
         if source.is_file() or source.is_symlink():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target, follow_symlinks=False)
@@ -80,10 +76,12 @@ def apply(copy: Path, mutations: list[dict]) -> None:
 
 
 def run_check(copy: Path, vale: Path) -> tuple[int, list[Finding]]:
+    # The copy's own package runs, so a fixture that changes the package's code or data
+    # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
     proc = subprocess.run(
-        [sys.executable, str(copy / "tools" / "check.py"), "--root", str(copy),
-         "--base", "HEAD", "--vale", str(vale)],
-        capture_output=True, encoding="utf-8", errors="replace", env=CHILD_ENV,
+        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD"],
+        capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
+        env={**child_env(copy / "src"), VALE_ENV: str(vale)},
     )
     findings = [Finding.parse(l) for l in proc.stdout.splitlines() if l.count("\t") >= 2]
     return proc.returncode, findings
@@ -113,10 +111,10 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path) -> tuple[str, boo
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("names", nargs="*", help="run only these fixtures")
-    parser.add_argument("--vale", type=Path, default=vale_path(ROOT))
+    root = corpus_root()
     args = parser.parse_args(argv)
-    vale = args.vale.resolve()
-    fixtures = sorted((ROOT / "tests" / "fixtures").glob("*.yaml"))
+    vale = vale_path(root).resolve()
+    fixtures = sorted((root / "tests" / "fixtures").glob("*.yaml"))
     if args.names:
         unknown = sorted(set(args.names) - {f.stem for f in fixtures})
         if unknown:
@@ -126,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         try:
-            base = make_base(tmp)
+            base = make_base(tmp, root)
         except (OSError, subprocess.CalledProcessError, FixtureError) as exc:
             print(f"FAIL  control: cannot copy the repository: {exc}")
             return 1

@@ -1,7 +1,7 @@
 """The plan shape (DEC_0009): tasks in build order, steps as checkboxes, linear execution.
 
 Pure functions over a plan's source lines. The Sphinx extension reports what
-``problems`` finds; ``tools/next.py`` and ``tools/new.py`` read and write the same
+``problems`` finds; ``trifecta next`` and ``trifecta new`` read and write the same
 shape through the constants here, so the shape has one home.
 
 A task is a ``:::{task}`` need under ``## Tasks`` with ``:id: TASK_<plan>_<NN>``,
@@ -27,7 +27,7 @@ import yaml
 
 OPEN, DONE, DROPPED = " ", "x", "-"
 #: Statuses whose plans make the linear promise and whose tasks count as building their
-#: design. An abandoned plan is past changing. tools/check_graph.py reads this.
+#: design. An abandoned plan is past changing. trifecta.check_graph reads this.
 HELD = ("draft", "active", "done")
 #: Statuses in which a plan is relied on, so it must be reviewed. docs/conf.py reads this.
 RELIED_ON = ("active", "done")
@@ -38,7 +38,7 @@ TASK_OPEN_RE = re.compile(r"^(?P<colons>:{3,})\{task\}(?:[ \t]+(?P<title>.*?))?[
 TASK_ID_RE = re.compile(r"^TASK_(?P<plan>\d{4})_(?P<n>0[1-9]|[1-9]\d+)$")
 OPTION_RE = re.compile(r"^:(?P<key>[A-Za-z_][\w-]*):(?P<value>.*)$")
 STEP_RE = re.compile(r"^- \[(?P<state>[ x-])\] \*\*(?P<n>[1-9]\d*)\.(?P<k>[1-9]\d*)\*\* \S")
-#: The text tools/new.py writes where an author has to write something.
+#: The text trifecta new writes where an author has to write something.
 PLACEHOLDER = "TODO."
 #: Anything that looks like a checkbox, so a malformed step is reported, not ignored.
 STEP_LIKE_RE = re.compile(r"^\s*[-*+]\s+\[[^\]]{0,3}\](?!\()")
