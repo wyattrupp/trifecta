@@ -2,5 +2,5 @@
 expect: REQ_IMPLEMENTED_HAS_SPEC
 mutations:
 - file: docs/design/0006-running-on-windows.md
-  find: ":spec: tools/findings.py#def relative_location\n"
+  find: ":spec: src/trifecta/findings.py#def relative_location\n"
   replace: ""

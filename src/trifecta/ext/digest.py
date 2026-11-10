@@ -9,7 +9,7 @@ Structure (H2 headings, code fences, directives, HTML blocks) is read with MyST'
 Markdown parser, configured as the build configures it, so this module finds exactly the
 sections and blocks Sphinx renders: a regex reading of Markdown can be led to see a
 heading or a fence that the build does not, or to miss one it does. No Sphinx build runs,
-so ``tools/review.py`` uses these functions on their own.
+so ``trifecta review`` uses these functions on their own.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-import plans
+from . import plans
 
 #: Per directive, the statuses in which a document is relied on, so it must be reviewed and
 #: its review must be current. docs/conf.py reads this for REQ_REVIEWED.
@@ -252,6 +252,6 @@ def problems(text: str, directive: str, status: str | None) -> list[tuple[str, i
         current = digest(text, directive)
         if current not in section.digests:
             out.append((f"no review carries the current digest {current}; review the "
-                        f"document and stamp the review with tools/review.py",
+                        f"document and stamp the review with trifecta review",
                         found.spans("Review")[0][0] + 1))
     return out

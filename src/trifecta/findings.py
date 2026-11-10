@@ -7,8 +7,18 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-#: The environment every Python program the check starts runs with, so its output is UTF-8.
-CHILD_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+def child_env(package_parent: Path | None = None) -> dict[str, str]:
+    """The environment for a Python program the check starts: UTF-8 output, and, when
+    ``package_parent`` is given, the package under it first on the path."""
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    if package_parent is not None:
+        env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (str(package_parent), os.environ.get("PYTHONPATH")) if p)
+    return env
+
+
+#: The environment every Python program the check starts runs with.
+CHILD_ENV = child_env()
 
 
 @dataclass(frozen=True, order=True)

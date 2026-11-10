@@ -46,13 +46,13 @@ Done first on wyatt's ruling in DEC_0016, since none of it depends on the packag
 :gate: PLAN_0002 is done; the test for REQ_ONE_PACKAGE passes; `trifecta fixtures` from the installed package rejects every fixture; every command in both jobs of `.github/workflows/check.yml` runs the package; the corpus passes.
 Move the code without changing what it checks.
 
-- [ ] **2.1** Move the extension, schemas, plan rules, tools, Vale styles and configurations into `src/trifecta/`, with the extension as a submodule so its name no longer collides with the package, and rewrite every import as a package import.
-- [ ] **2.2** Add `pyproject.toml`, pin its build backend in the lock, and install this repository's package with `--no-build-isolation` after the backend.
-- [ ] **2.3** Add the `trifecta` command with `setup`, `check`, `fixtures`, `new`, `next` and `review`, to which task 4 adds `init`, `setup` being plan 0005's setup script reading the Vale table from the package's own data, not from the repository's `tools/setup.py`; resolve the corpus from the working directory everywhere, including the fixture runner's path to the check, and make the Makefile call the command.
-- [ ] **2.4** Accept the package's lock line only in the URL form REQ_ONE_PACKAGE states, with the URL's owner and repository the package's own project as COMP_PACKAGE says, each path segment matched whole and the path under `releases/download/v<version>/`, and reject `http`, other hosts, another project, another path, non-wheel files and a missing hash.
-- [ ] **2.5** Add the test that the wheel holds every part REQ_ONE_PACKAGE lists, and the fixtures for each rejected lock form.
-- [ ] **2.6** Move the `spec` paths of DES_0001, DES_0002, DES_0003 and DES_0006 to the new files.
-- [ ] **2.7** Repoint every command in both jobs of `.github/workflows/check.yml` at the package, in the same change as the move in step 2.1.
+- [x] **2.1** Move the extension, schemas, plan rules, tools, Vale styles and configurations into `src/trifecta/`, with the extension as a submodule so its name no longer collides with the package, and rewrite every import as a package import.
+- [x] **2.2** Add `pyproject.toml`, pin its build backend in the lock, and install this repository's package with `--no-build-isolation` after the backend.
+- [x] **2.3** Add the `trifecta` command with `setup`, `check`, `fixtures`, `new`, `next` and `review`, to which task 4 adds `init`, `setup` being plan 0005's setup script reading the Vale table from the package's own data, not from the repository's `tools/setup.py`; resolve the corpus from the working directory everywhere, including the fixture runner's path to the check, and make the Makefile call the command.
+- [x] **2.4** Accept the package's lock line only in the URL form REQ_ONE_PACKAGE states, with the URL's owner and repository the package's own project as COMP_PACKAGE says, each path segment matched whole and the path under `releases/download/v<version>/`, and reject `http`, other hosts, another project, another path, non-wheel files and a missing hash.
+- [x] **2.5** Add the test that the wheel holds every part REQ_ONE_PACKAGE lists, and the fixtures for each rejected lock form.
+- [x] **2.6** Move the `spec` paths of DES_0001, DES_0002, DES_0003 and DES_0006 to the new files.
+- [x] **2.7** Repoint every command in both jobs of `.github/workflows/check.yml` at the package, in the same change as the move in step 2.1.
 :::
 
 :::{task} Test proofs
@@ -181,3 +181,24 @@ merge. The tag ruleset first covered `v*` only; review widened it to every tag. 
 and 1.6 came from the same review. Secret scanning for generic patterns and validity
 checks were requested and stayed off, since GitHub did not enable them for this account.
 Not taken: required signatures on main and tags, since commits here are not signed.
+
+### Task 2 (2026-11-10)
+
+The extension is `trifecta.ext`. The ontology and the graph rules sphinx-needs enforces
+natively moved from `docs/conf.py` into `trifecta.ext.ontology`, since they are the
+schemas an adopting repository must not copy; this repository's `docs/conf.py` imports
+them and names the project. The build backend is `flit_core`, pinned and hashed in the
+lock. `trifecta setup` runs from `src/` on its first run, since it is what installs the
+package, and installs this repository's package editable, so the command runs the source
+it checks. The check copies the package's Vale configurations and styles into
+`docs/_build/vale/` beside the generated term rule, so it only reads the package's own
+files, and it reads the Vale table from the package that runs it. The fixture runner runs
+each repository copy's own package, so a fixture that changes the package's code is
+checked by that code, and passes the Vale path in `TRIFECTA_VALE`, since `--root` and
+`--vale` went; the check reports a Vale whose version is not the one the table pins,
+whichever runs. Setup installs the package editable only when `pyproject.toml` names it
+`trifecta`. Every command reads the corpus from the working directory: `next` and
+`review` refuse a path outside it. The wheel test is `tests/test_package.py`, run with
+`python -m unittest discover -s tests` until task 3 runs tests in the check. Prose in
+done plans, design docs and MADRs still names the old `tools/` and `ext/` paths, as
+history.

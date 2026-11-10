@@ -1,0 +1,9 @@
+# The package is pinned by version, not by its release URL.
+expect: REQ_ONE_PACKAGE
+only: true
+mutations:
+- file: requirements.lock
+  find: 'flit_core==4.2.0 '
+  replace: 'trifecta==0.1.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    flit_core==4.2.0 '

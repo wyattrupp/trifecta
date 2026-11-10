@@ -1,6 +1,6 @@
 """Print where an active plan stands (COMP_NEXT_COMMAND).
 
-    python tools/next.py docs/plans/NNNN-slug.md
+    trifecta next docs/plans/NNNN-slug.md
 
 Prints the plan's "Rules for every task" and the whole task holding the next open
 step, with that step marked. Task numbers are build order, so the next step is the
@@ -13,9 +13,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
-
-import plans  # noqa: E402
+from .ext import plans
+from .toolchain import OutsideRepository, corpus_root, inside
 
 MARK = ">>> "
 
@@ -25,6 +24,11 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("plan", type=Path)
     args = parser.parse_args(argv)
+    try:
+        inside(args.plan, corpus_root())
+    except OutsideRepository as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
     lines = args.plan.read_text(encoding="utf-8").splitlines()
     status = plans.frontmatter(lines).get("status")
     plan = plans.parse(lines)

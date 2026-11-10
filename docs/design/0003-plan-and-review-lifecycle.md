@@ -39,7 +39,7 @@ implemented one.
 
 :::{component} Review digest
 :id: COMP_REVIEW_DIGEST
-:spec: ext/digest.py#def digest
+:spec: src/trifecta/ext/digest.py#def digest
 :satisfies: REQ_REVIEW_CURRENT
 :constrained_by: DEC_0011
 :provides: IF_REVIEW_DIGEST
@@ -57,7 +57,7 @@ outside the digest and a block there could define a need.
 
 :::{component} Review command
 :id: COMP_REVIEW_COMMAND
-:spec: tools/review.py#def stamp
+:spec: src/trifecta/review.py#def stamp
 :constrained_by: DEC_0011
 :consumes: IF_REVIEW_DIGEST
 `review digest <doc>` prints the digest when a review starts; `review stamp <doc>` appends
@@ -67,7 +67,7 @@ when the file's digest no longer matches or the path is not a typed document.
 
 :::{component} Lifecycle extension
 :id: COMP_TASK_FREEZE
-:spec: tools/check_lifecycle.py#def check_tasks
+:spec: src/trifecta/check_lifecycle.py#def check_tasks
 :satisfies: REQ_FROZEN_TASKS, REQ_STATUS_FORWARD
 :constrained_by: DEC_0012
 :consumes: IF_PLAN_SHAPE
@@ -85,7 +85,7 @@ other status, is reported as backward.
 
 :::{component} Drop-reason rule
 :id: COMP_DROP_REASONS
-:spec: ext/plans.py#def cited
+:spec: src/trifecta/ext/plans.py#def cited
 :satisfies: REQ_DROP_REASONS
 :constrained_by: DEC_0009
 :consumes: IF_PLAN_SHAPE
@@ -97,7 +97,7 @@ period that ends a sentence after it still counts.
 
 :::{component} Build-state rules
 :id: COMP_BUILD_STATE
-:spec: tools/check_graph.py#def check_build_state
+:spec: src/trifecta/check_graph.py#def check_build_state
 :satisfies: REQ_APPROVED_IS_PLANNED, REQ_IMPLEMENTED_HAS_SPEC
 :constrained_by: DEC_0008
 :consumes: IF_NEEDS_JSON
@@ -109,7 +109,7 @@ component or interface of an implemented design doc with no `spec`.
 
 :::{interface} Review digest
 :id: IF_REVIEW_DIGEST
-:spec: ext/digest.py#def reviewed_content
+:spec: src/trifecta/ext/digest.py#def reviewed_content
 :constrained_by: DEC_0011
 The digest is computed from the raw file, which MUST be read as UTF-8 with a leading byte
 order mark dropped, and each CRLF and each lone CR read as LF. The line YAML reads as the

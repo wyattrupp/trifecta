@@ -2,9 +2,9 @@
 expect: REQ_PORTABLE_FINDINGS
 mutations:
 - file: docs/conf.py
-  find: "import plans  # noqa: E402\n"
+  find: "from trifecta.ext.ontology import *  # noqa: F403\n"
   replace: |
-    import plans  # noqa: E402
+    from trifecta.ext.ontology import *  # noqa: F403
 
 
     def setup(app):

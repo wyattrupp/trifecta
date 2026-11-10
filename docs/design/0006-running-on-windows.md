@@ -40,7 +40,7 @@ Plan 0005 built every component here and set its `spec`.
 
 :::{component} Vale setup
 :id: COMP_VALE_SETUP
-:spec: tools/setup.py#VALE_FILES
+:spec: src/trifecta/setup.py#VALE_FILES
 :satisfies: REQ_PLATFORM_TOOLCHAIN
 :constrained_by: DEC_0023
 `tools/setup.py`, holding the table of Vale's version and, per platform key, the release
@@ -62,7 +62,7 @@ absolute path.
 
 :::{component} Line endings
 :id: COMP_LINE_ENDINGS
-:spec: tools/check.py#def check_line_endings
+:spec: src/trifecta/check.py#def check_line_endings
 :satisfies: REQ_ONE_LINE_ENDING
 :constrained_by: DEC_0024
 A `.gitattributes` holding exactly `* text=auto eol=lf`, and a pipeline stage that
@@ -74,7 +74,7 @@ platform.
 
 :::{component} Portable locations
 :id: COMP_PORTABLE_PATHS
-:spec: tools/findings.py#def relative_location
+:spec: src/trifecta/findings.py#def relative_location
 :satisfies: REQ_PORTABLE_FINDINGS
 One helper in `tools/findings.py`, used for Sphinx's and Vale's locations alike, that
 makes a location relative to the resolved repository root, comparing without case on

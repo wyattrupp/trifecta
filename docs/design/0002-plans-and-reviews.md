@@ -41,7 +41,7 @@ A planning session writes an RFC, MADRs and this kind of design doc, then a plan
 
 :::{component} Plan and review ontology
 :id: COMP_PLAN_TYPES
-:spec: docs/conf.py#needs_types
+:spec: src/trifecta/ext/ontology.py#needs_types
 :satisfies: REQ_PLAN_IMPLEMENTS, REQ_REVIEWED
 :constrained_by: DEC_0008, DEC_0010
 The plan, task and review need types; the `implements` and `builds` links; the derived
@@ -51,7 +51,7 @@ design and for review records.
 
 :::{component} Plan rules
 :id: COMP_PLAN_RULES
-:spec: ext/plans.py#def problems
+:spec: src/trifecta/ext/plans.py#def problems
 :satisfies: REQ_TASK_ORDER, REQ_TASK_SHAPE, REQ_LINEAR_EXECUTION, REQ_AS_BUILT
 :constrained_by: DEC_0009
 :provides: IF_PLAN_SHAPE
@@ -61,7 +61,7 @@ violation with its requirement and line. The document extension calls it for eve
 
 :::{component} Plan coverage checker
 :id: COMP_PLAN_COVERAGE
-:spec: tools/check_graph.py#def check_plans
+:spec: src/trifecta/check_graph.py#def check_plans
 :satisfies: REQ_DESIGN_BUILT
 :constrained_by: DEC_0008
 :consumes: IF_NEEDS_JSON
@@ -71,7 +71,7 @@ and interface no task of those plans builds.
 
 :::{component} Skeleton command
 :id: COMP_NEW_COMMAND
-:spec: tools/new.py#def render
+:spec: src/trifecta/new.py#def render
 :constrained_by: DEC_0008, DEC_0009
 :consumes: IF_PLAN_SHAPE
 Writes a draft RFC, MADR, design doc or plan with the next number, today's date and every
@@ -81,7 +81,7 @@ element of its design.
 
 :::{component} Next-step command
 :id: COMP_NEXT_COMMAND
-:spec: tools/next.py#def main
+:spec: src/trifecta/next.py#def main
 :constrained_by: DEC_0009
 :consumes: IF_PLAN_SHAPE
 Prints an active plan's rules for every task and the whole task holding the first open
@@ -92,7 +92,7 @@ step, with that step marked.
 
 :::{interface} Plan shape
 :id: IF_PLAN_SHAPE
-:spec: ext/plans.py#STEP_RE
+:spec: src/trifecta/ext/plans.py#STEP_RE
 :constrained_by: DEC_0009
 The parsed form of a plan: tasks in document order with their options and steps, the H2
 sections, and the As built entries. A step line MUST match `STEP_RE`, and readers MUST

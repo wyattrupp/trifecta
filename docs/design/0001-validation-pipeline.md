@@ -38,7 +38,7 @@ location stages are described in {need}`DES_0006`.
 
 :::{component} Native graph schemas
 :id: COMP_NEEDS_SCHEMA
-:spec: docs/conf.py#needs_schema_definitions
+:spec: src/trifecta/ext/ontology.py#needs_schema_definitions
 :satisfies: REQ_UNIQUE_IDS, REQ_LINK_TARGETS, REQ_DECISION_OPTIONS, REQ_RFC_ACCEPTANCE, REQ_COVERAGE, REQ_SUPERSESSION
 :constrained_by: DEC_0001, DEC_0006
 :provides: IF_NEEDS_JSON
@@ -49,7 +49,7 @@ the requirements they enforce.
 
 :::{component} Document extension
 :id: COMP_DOC_EXTENSION
-:spec: ext/trifecta.py#DOC_TYPES
+:spec: src/trifecta/ext/__init__.py#DOC_TYPES
 :satisfies: REQ_DOC_IDENTITY, REQ_FRONTMATTER_SCHEMA, REQ_SECTION_SKELETON, REQ_GENERATED_VIEWS, REQ_STATUS_SINGLE_SOURCE, REQ_CHOSEN_SENTENCE
 :constrained_by: DEC_0002, DEC_0003
 A Sphinx extension that validates frontmatter, injects each document's title, ID, status
@@ -59,7 +59,7 @@ document is read. Injection keeps the line number of every line after the direct
 
 :::{component} Graph checker
 :id: COMP_GRAPH_CHECKER
-:spec: tools/check_graph.py#def check
+:spec: src/trifecta/check_graph.py#def check
 :satisfies: REQ_CHOICE_CONSIDERED, REQ_NO_ORPHANS, REQ_SPEC_RESOLVES
 :constrained_by: DEC_0006
 :consumes: IF_NEEDS_JSON
@@ -69,7 +69,7 @@ value comparisons across needs, disjunctions across link types, and filesystem p
 
 :::{component} Prose styles
 :id: COMP_VALE_STYLES
-:spec: styles/Trifecta/REQ_NORMATIVE_SCOPE.yml
+:spec: src/trifecta/styles/Trifecta/REQ_NORMATIVE_SCOPE.yml
 :satisfies: REQ_NORMATIVE_SCOPE, REQ_NO_DECISION_LANGUAGE
 :constrained_by: DEC_0005
 Vale rules named by the requirement they enforce, applied to the rendered HTML through
@@ -81,7 +81,7 @@ not linted.
 
 :::{component} Term rule generator
 :id: COMP_VALE_GENERATOR
-:spec: tools/gen_vale.py#def generate
+:spec: src/trifecta/gen_vale.py#def generate
 :satisfies: REQ_CANONICAL_TERMS
 :constrained_by: DEC_0005
 :consumes: IF_NEEDS_JSON
@@ -91,7 +91,7 @@ is the only list of terms.
 
 :::{component} Lifecycle checker
 :id: COMP_LIFECYCLE
-:spec: tools/check_lifecycle.py#def check
+:spec: src/trifecta/check_lifecycle.py#def check
 :satisfies: REQ_IMMUTABLE_DECISIONS
 :constrained_by: DEC_0002
 Compares each MADR with its version at a base git ref and reports any change other than
@@ -100,7 +100,7 @@ an allowed status transition.
 
 :::{component} Pipeline
 :id: COMP_PIPELINE
-:spec: tools/check.py#def main
+:spec: src/trifecta/check.py#def main
 :satisfies: REQ_WARNINGS_FATAL, REQ_PINNED_TOOLCHAIN
 :constrained_by: DEC_0006
 :provides: IF_FINDING
@@ -110,7 +110,7 @@ violates, verifies the pinned toolchain, and prints sorted findings.
 
 :::{component} Fixture runner
 :id: COMP_FIXTURE_RUNNER
-:spec: tools/run_fixtures.py#def main
+:spec: src/trifecta/run_fixtures.py#def main
 :satisfies: REQ_FIXTURE_PER_INVARIANT
 :constrained_by: DEC_0007
 :consumes: IF_NEEDS_JSON, IF_FINDING
@@ -122,7 +122,7 @@ mutations to a fresh copy and asserts the expected finding appears.
 
 :::{interface} needs.json
 :id: IF_NEEDS_JSON
-:spec: docs/conf.py#needs_build_json
+:spec: src/trifecta/ext/ontology.py#needs_build_json
 :constrained_by: DEC_0001
 The sphinx-needs export of every need and its resolved links. Consumers MUST read only
 the current version's `needs` table and MUST NOT depend on field order.
@@ -130,7 +130,7 @@ the current version's `needs` table and MUST NOT depend on field order.
 
 :::{interface} Finding
 :id: IF_FINDING
-:spec: tools/findings.py#class Finding
+:spec: src/trifecta/findings.py#class Finding
 :constrained_by: DEC_0006
 One violation per line: `REQ_ID`, a tab, a location, a tab, a message. Every finding
 MUST begin with the ID of the requirement it violates, and output MUST be sorted so two

@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from findings import Finding
+from .findings import Finding
 
 
 def load_needs(needs_json: Path) -> dict[str, dict]:
@@ -21,9 +21,7 @@ def _where(need: dict) -> str:
     return f"docs/{need['docname']}{need['doctype']}:{need['lineno']}"
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
-
-from plans import HELD as LIVE_PLANS  # noqa: E402  (an abandoned plan builds nothing)
+from .ext.plans import HELD as LIVE_PLANS  # an abandoned plan builds nothing
 
 
 def check_plans(needs: dict[str, dict]) -> list[Finding]:

@@ -1,0 +1,9 @@
+# The package's lock line names a source archive, not a wheel.
+expect: REQ_ONE_PACKAGE
+only: true
+mutations:
+- file: requirements.lock
+  find: 'flit_core==4.2.0 '
+  replace: 'trifecta @ https://github.com/wyattrupp/trifecta/releases/download/v0.1.0/trifecta-0.1.0.tar.gz --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    flit_core==4.2.0 '

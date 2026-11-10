@@ -8,21 +8,18 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from check_graph import check as check_graph, load_needs  # noqa: E402
-from check_lifecycle import check as check_lifecycle  # noqa: E402
-from findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable  # noqa: E402
-from gen_vale import generate  # noqa: E402
-from toolchain import VALE_SUFFIXES, vale_path  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
-
-from trifecta import DOC_TYPES  # noqa: E402
+from . import PROJECT
+from .check_graph import check as check_graph, load_needs
+from .check_lifecycle import check as check_lifecycle
+from .ext import DOC_TYPES
+from .findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable
+from .gen_vale import generate
+from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, corpus_root, vale_path
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
 LOCK_LINE = re.compile(
@@ -83,9 +80,18 @@ def _vale_table(source: str) -> tuple[dict, list[str]]:
     return values, problems
 
 
+def _package_location(path: Path, root: Path) -> str:
+    """A package file's location: repository-relative when the package is this source tree."""
+    if path.is_relative_to(root):
+        return path.relative_to(root).as_posix()
+    return f"trifecta/{path.relative_to(PACKAGE_DIR).as_posix()}"
+
+
 def check_vale_table(root: Path, files: list[str]) -> list[Finding]:
-    where = "tools/setup.py"
-    values, problems = _vale_table((root / where).read_text(encoding="utf-8"))
+    # The table the running package's setup reads (plan 0003 step 2.3).
+    table_file = PACKAGE_DIR / "setup.py"
+    where = _package_location(table_file, root)
+    values, problems = _vale_table(table_file.read_text(encoding="utf-8"))
     findings = [Finding("REQ_PLATFORM_TOOLCHAIN", where, p) for p in problems]
     version, table = values.get("VALE_VERSION"), values.get("VALE_FILES")
     if values.get("RELEASES") != RELEASES:
@@ -123,14 +129,52 @@ def check_vale_table(root: Path, files: list[str]) -> list[Finding]:
     return findings
 
 
+#: The package's own lock line (REQ_ONE_PACKAGE): a release URL, then its hashes.
+PACKAGE_LINE = re.compile(r"^trifecta @ (?P<url>\S+)(?: --hash=sha256:[0-9a-f]{64})+$")
+#: A release version, as the tag and the wheel's file name both carry it.
+VERSION = r"[0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def package_url_problem(url: str) -> str | None:
+    """Why ``url`` is not one of the package's own release wheels, or None."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https":
+        return "the URL is not https"
+    if parts.netloc != "github.com":
+        return "the URL's host is not github.com"
+    if parts.query or parts.fragment:
+        return "the URL carries a query or a fragment"
+    segments = parts.path.split("/")
+    owner, repo = PROJECT
+    if len(segments) != 7 or segments[:5] != ["", owner, repo, "releases", "download"]:
+        return f"the URL is not under /{owner}/{repo}/releases/download/"
+    tag, wheel = segments[5], segments[6]
+    if not (m := re.fullmatch(f"v({VERSION})", tag)):
+        return f"the release tag {tag!r} is not v<version>"
+    if not re.fullmatch(rf"trifecta-{re.escape(m.group(1))}-[A-Za-z0-9_.]+-[A-Za-z0-9_.]+-[A-Za-z0-9_.]+\.whl", wheel):
+        return f"{wheel!r} is not the release's trifecta wheel"
+    return None
+
+
 def check_toolchain(root: Path) -> list[Finding]:
     findings = []
     lock = root / "requirements.lock"
     for n, line in enumerate(lock.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
-        if line and not line.startswith("#") and not LOCK_LINE.match(line):
+        if not line or line.startswith("#"):
+            continue
+        where = f"requirements.lock:{n}"
+        name = NAME.match(line)
+        if name and re.sub(r"[-_.]+", "-", name.group(0)).lower() == "trifecta":
+            m = PACKAGE_LINE.match(line)
+            problem = (package_url_problem(m.group("url")) if m else
+                       "not the form trifecta @ <release wheel URL> --hash=sha256:<hash>")
+            if problem:
+                findings.append(Finding("REQ_ONE_PACKAGE", where, f"{problem}: {line[:80]}"))
+        elif not LOCK_LINE.match(line):
             findings.append(Finding(
-                "REQ_PINNED_TOOLCHAIN", f"requirements.lock:{n}", f"not an exact pin with --hash: {line[:80]}",
+                "REQ_PINNED_TOOLCHAIN", where, f"not an exact pin with --hash: {line[:80]}",
             ))
     return findings
 
@@ -222,25 +266,53 @@ def build_lint_view(root: Path) -> Path:
     return view
 
 
+def stage_vale(root: Path) -> Path:
+    """The Vale configurations and the package's styles, copied beside the generated ones
+    under the build directory, so the package's own files are only read."""
+    stage = root / "docs" / "_build" / "vale"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(PACKAGE_DIR / "vale", stage / "vale")
+    shutil.copytree(PACKAGE_DIR / "styles", stage / "styles")
+    return stage
+
+
+def check_vale_version(vale: Path) -> list[Finding]:
+    """The Vale the check runs is the version the package's table pins."""
+    values, _ = _vale_table((PACKAGE_DIR / "setup.py").read_text(encoding="utf-8"))
+    version = values.get("VALE_VERSION")
+    try:
+        out = subprocess.run([str(vale), "--version"], capture_output=True, encoding="utf-8",
+                             errors="replace").stdout
+    except OSError as exc:
+        return [Finding("REQ_PLATFORM_TOOLCHAIN", "bin/", f"cannot run {vale.name}: {exc}")]
+    if not (isinstance(version, str)
+            and re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", out)):
+        return [Finding("REQ_PLATFORM_TOOLCHAIN", "bin/",
+                        f"{vale.name} reports {out.strip()[:60]!r}, not the pinned {version}")]
+    return []
+
+
 def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
     html = root / "docs" / "_build" / "lint"
+    where = _package_location(PACKAGE_DIR / "vale" / config, root)
     targets = [str(html / d) for d in TYPED_DIRS if (html / d).is_dir()]
     if not targets:
-        return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", "no typed pages were built to lint")]
+        return [Finding("REQ_WARNINGS_FATAL", where, "no typed pages were built to lint")]
+    config_file = root / "docs" / "_build" / "vale" / "vale" / config
     try:
         proc = subprocess.run(
-            [str(vale), f"--config={root / 'vale' / config}", "--output=line",
+            [str(vale), f"--config={config_file}", "--output=line",
              "--no-exit", *targets],
             capture_output=True, encoding="utf-8", errors="replace", cwd=root,
         )
     except OSError as exc:
-        return [Finding("REQ_WARNINGS_FATAL", f"vale/{config}", f"cannot run {vale}: {exc}")]
+        return [Finding("REQ_WARNINGS_FATAL", where, f"cannot run {vale}: {exc}")]
     findings = []
     if proc.stderr.strip():
-        findings.append(Finding("REQ_WARNINGS_FATAL", f"vale/{config}", proc.stderr.strip()[:500]))
+        findings.append(Finding("REQ_WARNINGS_FATAL", where, proc.stderr.strip()[:500]))
     elif proc.returncode != 0:
         # With --no-exit Vale exits non-zero only when it fails to run, which can be silent.
-        findings.append(Finding("REQ_WARNINGS_FATAL", f"vale/{config}",
+        findings.append(Finding("REQ_WARNINGS_FATAL", where,
                                 f"vale exited {proc.returncode} with no message"))
     for line in proc.stdout.splitlines():
         if not (m := VALE_LINE.match(line)):
@@ -281,12 +353,10 @@ def audit_fixtures(needs: dict[str, dict], fixtures: Path) -> list[Finding]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--base", help="git ref to check MADR immutability against")
-    parser.add_argument("--vale", type=Path, default=None)
     args = parser.parse_args(argv)
-    root = args.root.resolve()
-    vale = (args.vale or vale_path(root)).resolve()
+    root = corpus_root()
+    vale = vale_path(root).resolve()
 
     files, findings = repo_files(root)
     findings += check_toolchain(root)
@@ -297,9 +367,11 @@ def main(argv: list[str] | None = None) -> int:
     if needs_json.is_file():
         needs = load_needs(needs_json)
         findings += check_graph(needs, root)
-        findings += generate(needs, root / "styles" / "TrifectaGenerated")
+        stage = stage_vale(root)
+        findings += generate(needs, stage / "styles" / "TrifectaGenerated")
         findings = [_locate(f, needs) for f in findings]
         build_lint_view(root)
+        findings += check_vale_version(vale)
         findings += run_vale(root, vale, "normative.ini")
         findings += run_vale(root, vale, "prose.ini")
         findings += audit_fixtures(needs, root / "tests" / "fixtures")

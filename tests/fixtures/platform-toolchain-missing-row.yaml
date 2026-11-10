@@ -1,6 +1,6 @@
 # The table loses a platform's row, so setup cannot fetch Vale there.
 expect: REQ_PLATFORM_TOOLCHAIN
 mutations:
-- file: tools/setup.py
+- file: src/trifecta/setup.py
   find: "    \"linux-arm64\": (\"vale_3.13.0_Linux_arm64.tar.gz\", \"2134f23e7afbdf70b44272e6d3b5f26e85972340faa1e2a2b194358cf2892d84\", 9554104),\n"
   replace: ""

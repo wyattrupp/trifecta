@@ -20,8 +20,7 @@ from docutils import nodes
 from sphinx.application import Sphinx
 from sphinx.util import logging
 
-import digest
-import plans
+from . import digest, plans
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ DOC_TYPES: dict[str, dict] = {
             "Review",
         ],
         "derived": ["Requirements", "Constraints"],
-        #: The one needtable each derived section holds. tools/new.py writes these.
+        #: The one needtable each derived section holds. trifecta new writes these.
         "views": {
             "Requirements": [
                 ":::{needtable}",
@@ -285,7 +284,7 @@ def on_env_before_read_docs(app: Sphinx, env, docnames: list[str]) -> None:
             _warn(
                 "REQ_DOC_IDENTITY",
                 f"{docname} is in no typed directory; documents live in "
-                f"{', '.join(d + '/' for d in DOC_TYPES)} (tools/new.py writes them there)",
+                f"{', '.join(d + '/' for d in DOC_TYPES)} (trifecta new writes them there)",
                 docname,
                 1,
             )

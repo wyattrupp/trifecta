@@ -16,12 +16,9 @@ from pathlib import Path
 
 import yaml
 
-from findings import Finding
+from .findings import Finding
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ext"))
-
-import digest  # noqa: E402
-import plans  # noqa: E402
+from .ext import digest, plans
 
 DECISIONS = "docs/decisions"
 PLANS = "docs/plans"

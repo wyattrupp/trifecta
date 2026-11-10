@@ -19,17 +19,14 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from toolchain import vale_path  # noqa: E402
-
-ROOT = Path(__file__).resolve().parent.parent
+from .toolchain import bin_vale, corpus_root
 
 VALE_VERSION = "3.13.0"
 #: Platform key -> (release file, SHA-256, size in bytes), compared with Vale's checksum file.
@@ -143,7 +140,7 @@ def executable(name: str, data: bytes, member: str) -> bytes:
 def install_vale(root: Path) -> Path:
     key = platform_key()
     name, sha256, size = VALE_FILES[key]
-    target = vale_path(root)
+    target = bin_vale(root)
     directory = bin_dir(root)
     stamp = directory / f".vale-stamp-{key}"
     want = f"{VALE_VERSION} {sha256}\n"
@@ -174,15 +171,33 @@ def install_vale(root: Path) -> Path:
     return target
 
 
+def _is_this_project(root: Path) -> bool:
+    """Whether ``root`` is this package's own source tree."""
+    pyproject = root / "pyproject.toml"
+    if not (pyproject.is_file() and (root / "src" / "trifecta" / "__init__.py").is_file()):
+        return False
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return False
+    return project.get("name") == "trifecta"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vale-only", action="store_true", help="skip the Python install")
     args = parser.parse_args(argv)
+    root = corpus_root()
     try:
         if not args.vale_only:
             subprocess.run([sys.executable, "-m", "pip", "install", "--require-hashes",
-                            "-r", str(ROOT / "requirements.lock")], check=True)
-        print(f"vale {VALE_VERSION} at {install_vale(ROOT)}")
+                            "-r", str(root / "requirements.lock")], check=True)
+            if _is_this_project(root):
+                # This repository installs its own package from source, after the build
+                # backend the lock pins (plan 0003 step 2.2).
+                subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps",
+                                "--no-build-isolation", "--editable", str(root)], check=True)
+        print(f"vale {VALE_VERSION} at {install_vale(root)}")
     except (SetupError, OSError, ValueError, subprocess.CalledProcessError,
             http.client.HTTPException, tarfile.TarError, zipfile.BadZipFile) as exc:
         print(f"setup failed: {exc}", file=sys.stderr)
