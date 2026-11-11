@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -21,8 +22,10 @@ from .ext import DOC_TYPES
 from .ext.ontology import DOC_LEVEL
 from .findings import CHILD_ENV, Finding, from_sphinx, relative_location, unportable
 from .gen_vale import generate
+from .profiler import DIRECTORY as PROFILE_DIR, Profiler, target as profile_target
+from .profiler import write as write_profile
 from .proofs import check_proofs
-from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, corpus_root, vale_path
+from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, OutsideRepository, corpus_root, vale_path
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
 LOCK_LINE = re.compile(
@@ -246,12 +249,46 @@ def _locate(finding: Finding, needs: dict[str, dict]) -> Finding:
     return Finding(finding.req, where, finding.message)
 
 
+#: Directories under ``docs/_build`` the clean before the build keeps: no build writes them.
+KEPT = {PROFILE_DIR.name}
+
+
+def _real_dir(path: Path) -> bool:
+    """A directory that is neither a symbolic link nor a Windows junction."""
+    return path.is_dir() and not path.is_symlink() and not os.path.isjunction(path)
+
+
+def clean_build(root: Path) -> None:
+    """Remove ``docs/_build`` but the directories in KEPT."""
+    build = root / "docs" / "_build"
+    if not _real_dir(build):
+        # A link or a junction is removed, never followed; rmtree refuses either.
+        shutil.rmtree(build, ignore_errors=True)
+        for remove in (os.unlink, os.rmdir):
+            try:
+                remove(build)
+            except OSError:
+                pass
+        return
+    for entry in build.iterdir():
+        if entry.name in KEPT and _real_dir(entry):
+            continue
+        if _real_dir(entry):
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            try:
+                entry.unlink()
+            except OSError:
+                pass
+
+
 def run_sphinx(root: Path) -> list[Finding]:
     docs = root / "docs"
     # --no-color: Sphinx forces ANSI colour when CI=true or on Windows, even into a pipe,
     # and the escape codes break the line-anchored patterns in findings.py.
     # A clean output directory: stale pages of deleted documents would otherwise be linted.
-    shutil.rmtree(docs / "_build", ignore_errors=True)
+    # What the build never writes is kept: the profiles beside it (DEC_0029).
+    clean_build(root)
     proc = subprocess.run(
         [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going", "--no-color",
          "-b", "html", str(docs), str(docs / "_build" / "html")],
@@ -392,40 +429,72 @@ def audit_fixtures(needs: dict[str, dict], fixtures: Path, proven: set[str]) -> 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", help="git ref to check MADR immutability against")
+    parser.add_argument("--profile", type=Path, help="where to write the profile "
+                        f"(default {PROFILE_DIR.as_posix()}/check.json)")
     args = parser.parse_args(argv)
     root = corpus_root()
-    vale = vale_path(root).resolve()
+    try:
+        profile_path = profile_target(args.profile, root, "check.json")
+    except OutsideRepository as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    # Each stage is timed in the order it runs (COMP_PROFILER); the profile is a file,
+    # written however the run ends, and touches neither standard output nor the exit status.
+    profiler = Profiler("check")
+    try:
+        return _run(root, args.base, profiler.stage)
+    finally:
+        write_profile(profile_path, profiler.data())
 
-    files, findings = repo_files(root)
-    findings += check_toolchain(root)
-    findings += check_vale_table(root, files)
-    findings += check_line_endings(root, files)
-    proof_findings, proven, unrun = check_proofs(root)
-    findings += proof_findings
-    findings += run_sphinx(root)
+
+def _run(root: Path, base: str | None, stage) -> int:
+    vale = vale_path(root).resolve()
+    with stage("files"):
+        files, findings = repo_files(root)
+    with stage("lock"):
+        findings += check_toolchain(root)
+    with stage("vale table"):
+        findings += check_vale_table(root, files)
+    with stage("line endings"):
+        findings += check_line_endings(root, files)
+    with stage("tests"):
+        proof_findings, proven, unrun = check_proofs(root)
+        findings += proof_findings
+    with stage("sphinx"):
+        findings += run_sphinx(root)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():
-        needs = load_needs(needs_json)
-        findings += check_graph(needs, root)
-        stage = stage_vale(root)
-        findings += generate(needs, stage / "styles" / "TrifectaGenerated")
-        findings = [_locate(f, needs) for f in findings]
+        with stage("graph"):
+            needs = load_needs(needs_json)
+            findings += check_graph(needs, root)
+        with stage("vale rules"):
+            stage_dir = stage_vale(root)
+            findings += generate(needs, stage_dir / "styles" / "TrifectaGenerated")
+        with stage("need locations"):
+            findings = [_locate(f, needs) for f in findings]
         if any(n["type"] in DOC_LEVEL for n in needs.values()):
             # A corpus with no typed document has nothing to lint (plan 0003 step 4.2).
-            build_lint_view(root)
-            findings += check_vale_version(vale)
-            findings += run_vale(root, vale, "normative.ini")
-            findings += run_vale(root, vale, "prose.ini")
-        findings += audit_stage(root, needs, proven)
+            with stage("lint view"):
+                build_lint_view(root)
+            with stage("vale version"):
+                findings += check_vale_version(vale)
+            with stage("vale normative"):
+                findings += run_vale(root, vale, "normative.ini")
+            with stage("vale prose"):
+                findings += run_vale(root, vale, "prose.ini")
+        with stage("fixture audit"):
+            findings += audit_stage(root, needs, proven)
     else:
         findings.append(Finding(
             "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",
             "the build produced no needs.json, so graph, lint and fixture checks did not run",
         ))
-    if args.base:
-        findings += check_lifecycle(root, args.base)
+    if base:
+        with stage("history"):
+            findings += check_lifecycle(root, base)
 
-    findings += check_portable(findings)
+    with stage("locations"):
+        findings += check_portable(findings)
     for line in unrun:
         print(f"counted but not run: {line}", file=sys.stderr)
     for finding in sorted(set(findings)):

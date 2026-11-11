@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -19,8 +20,10 @@ import yaml
 
 from .check import repo_files
 from .findings import Finding, child_env
+from .profiler import DIRECTORY as PROFILE_DIR, Profiler, seconds, target as profile_target
+from .profiler import read as read_profile, write as write_profile
 from .proofs import CACHE_ENV
-from .toolchain import VALE_ENV, corpus_root, vale_path
+from .toolchain import VALE_ENV, OutsideRepository, corpus_root, vale_path
 
 
 class FixtureError(Exception):
@@ -76,28 +79,46 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             raise FixtureError(f"unknown mutation {m!r}")
 
 
-def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding]]:
+def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding], list[dict]]:
+    """The copy's check: its exit status, its findings and the stages its profile lists."""
     # The copy's own package runs, so a fixture that changes the package's code or data
     # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
+    # A profile copied from the control is removed first, so only this run's is read.
+    profile = copy / PROFILE_DIR / "check.json"
+    profile.unlink(missing_ok=True)
     proc = subprocess.run(
         [sys.executable, "-m", "trifecta", "check", "--base", "HEAD"],
         capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
         env={**child_env(copy / "src"), VALE_ENV: str(vale), CACHE_ENV: str(cache)},
     )
     findings = [Finding.parse(l) for l in proc.stdout.splitlines() if l.count("\t") >= 2]
-    return proc.returncode, findings
+    data = read_profile(profile)
+    return proc.returncode, findings, data["stages"] if data else []
 
 
 def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
-                cache: Path) -> tuple[str, bool, str]:
+                cache: Path) -> tuple[str, bool, str, dict]:
+    begin = time.perf_counter()
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     copy = tmp / path.stem
     shutil.copytree(base, copy, symlinks=True)
+    copied = time.perf_counter()
+    record = {"name": path.stem, "copy_seconds": seconds(copied - begin)}
+
+    def done(ok: bool, detail: str) -> tuple[str, bool, str, dict]:
+        record.update(seconds=seconds(time.perf_counter() - begin), ok=ok)
+        record.setdefault("stages", [])
+        return path.stem, ok, detail, record
+
     try:
         apply(copy, spec["mutations"])
     except FixtureError as exc:
-        return path.stem, False, f"fixture error: {exc}"
-    code, findings = run_check(copy, vale, cache)
+        record["mutate_seconds"] = seconds(time.perf_counter() - copied)
+        return done(False, f"fixture error: {exc}")
+    mutated = time.perf_counter()
+    record["mutate_seconds"] = seconds(mutated - copied)
+    code, findings, record["stages"] = run_check(copy, vale, cache)
+    record["check_seconds"] = seconds(time.perf_counter() - mutated)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
     # point is that a mutation is read correctly, not only that its error is caught.
@@ -105,16 +126,23 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
     allowed = {spec["expect"], *spec.get("allow", [])}
     others = spec.get("only") and any(f.req not in allowed for f in findings)
     if code != 0 and hits and not others:
-        return path.stem, True, f"{spec['expect']}: {hits[0].message}"
+        return done(True, f"{spec['expect']}: {hits[0].message}")
     got = sorted({f.req for f in findings}) or ["no findings"]
-    return path.stem, False, f"expected {spec['expect']}, got {', '.join(got)}"
+    return done(False, f"expected {spec['expect']}, got {', '.join(got)}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("names", nargs="*", help="run only these fixtures")
+    parser.add_argument("--profile", type=Path, help="where to write the profile "
+                        f"(default {PROFILE_DIR.as_posix()}/fixtures.json)")
     root = corpus_root()
     args = parser.parse_args(argv)
+    try:
+        profile = profile_target(args.profile, root, "fixtures.json")
+    except OutsideRepository as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
     vale = vale_path(root).resolve()
     fixtures = sorted((root / "tests" / "fixtures").glob("*.yaml"))
     if args.names:
@@ -122,30 +150,51 @@ def main(argv: list[str] | None = None) -> int:
         if unknown:
             parser.error(f"unknown fixture(s): {', '.join(unknown)}")
         fixtures = [f for f in fixtures if f.stem in args.names]
+    # The base copy, the control and every fixture are timed (COMP_PROFILER); the profile
+    # is written whatever the outcome, and changes neither the output nor the exit status.
+    profiler = Profiler("fixtures")
+    extra: dict = {"base": None, "control": None, "fixtures": []}
+    try:
+        return _run(root, vale, fixtures, profiler, extra)
+    finally:
+        write_profile(profile, profiler.data(**extra))
 
+
+def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
+         extra: dict) -> int:
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
-        try:
-            base = make_base(tmp, root)
-        except (OSError, subprocess.CalledProcessError, FixtureError) as exc:
-            print(f"FAIL  control: cannot copy the repository: {exc}")
+        with profiler.stage("base copy") as record:
+            try:
+                base = make_base(tmp, root)
+            except (OSError, subprocess.CalledProcessError, FixtureError) as exc:
+                base = None
+                problem = exc
+        extra["base"] = {"seconds": record["seconds"]}
+        if base is None:
+            print(f"FAIL  control: cannot copy the repository: {problem}")
             return 1
         # The control runs first, so every copy whose tests and package match it reuses
         # its test results.
         cache = tmp / "proof-cache"
         cache.mkdir()
-        code, findings = run_check(base, vale, cache)
+        with profiler.stage("control") as record:
+            code, findings, stages = run_check(base, vale, cache)
+        extra["control"] = {"seconds": record["seconds"], "ok": code == 0, "stages": stages}
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")
             for f in findings:
                 print("      " + f.line())
             return 1
         print("ok    control: the unmutated corpus passes")
-        with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
-            results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache), fixtures))
+        with profiler.stage("fixtures"):
+            with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
+                results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache),
+                                        fixtures))
+        extra["fixtures"] = [r[3] for r in results]
 
     failed = 0
-    for name, ok, detail in results:
+    for name, ok, detail, _ in results:
         failed += not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {name}: {detail}")
     print(f"\n{len(results) - failed}/{len(results)} fixtures rejected as expected")

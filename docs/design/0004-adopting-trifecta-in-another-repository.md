@@ -247,8 +247,9 @@ an empty directory against the wheel built from the workspace.
 :id: IF_CLI
 :spec: src/trifecta/cli.py#COMMANDS
 :constrained_by: DEC_0013
-`trifecta setup`, `trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`,
-`trifecta next`, `trifecta review` and `trifecta init`. Each command MUST read the corpus from the working
+`trifecta setup`, `trifecta check [--base REF] [--profile PATH]`,
+`trifecta fixtures [--profile PATH]`, `trifecta new`, `trifecta next`, `trifecta review`,
+`trifecta init` and `trifecta profile PATH...`. Each command MUST read the corpus from the working
 directory, MUST exit non-zero on any finding or refusal, and MUST refuse a path argument
 that resolves outside the repository.
 :::
@@ -373,4 +374,14 @@ of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 :k: 2
 :date: 2026-11-10
 :digest: f051b332e58f12725ff83ba7dc02f3e73c21f415295da6ac427abc79c0abf88e
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_11
+:k: 2
+:date: 2026-11-10
+:digest: 40e8d16de6dca992dae20d858a93f777fe0d42c7e97abaf4f4583b2586cbf72c
+{need}`PLAN_0007` task 1 adds `--profile PATH` to `trifecta check` and `trifecta fixtures`,
+and the `trifecta profile` command, to IF_CLI; both refuse a path outside the
+repository. One round, one reviewer per lens, with the code that builds it.
 :::
