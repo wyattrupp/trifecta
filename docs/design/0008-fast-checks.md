@@ -121,17 +121,19 @@ Sphinx build, or the directory `TRIFECTA_STORE` names, which replaces
 `TRIFECTA_PROOF_CACHE`. An entry is filed under its identity: the stage; for a test
 module, its name and the tests left out of it; the environment key, made of `os.name`,
 `sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hash of the
-recorder's `.pth` file, and the name, version and `RECORD` hash of every installed
-distribution; and a hash of every file of the package that runs the stage, which an
+recorder's `.pth` file, the entries of the site directories, and the name, version and
+`RECORD` hash of every installed distribution; and a hash of every file of the package that runs the stage, which an
 editable install's `RECORD` does not cover. Under one identity the store keeps the
 manifests stored with their results, newest first, and a lookup takes the first whose
-every file hash, probe, listing and environment value matches the current tree and
-environment; when the store is written for publishing, entries whose identity no longer
+every file hash, probe, listing, import lookup, environment value and file outside the
+repository matches the current tree and environment; when the store is written for publishing, entries whose identity no longer
 matches the running package are dropped. A miss and an unstorable manifest run the
 stage; `--fresh` runs every stage and reuses nothing, and stores what it ran. Entries
 are JSON, written to a temporary file and moved into place, so copies running at once
-never read half an entry, and are checked against their schema when read, since a
-fetched store is data from another run. The store holds results, never verdicts: what a
+never read half an entry, and are checked against their schema and bounded in size and
+number when read, since a fetched store is data from another run; a store reached
+through a link, or one holding a file git tracks, is not used. A result is stored with
+the root's path replaced, and only from a child that reported its end. The store holds results, never verdicts: what a
 stored result means is decided by the running package every time. `TRIFECTA_STORE` is
 removed from the environment of every test child, so a test that runs the check itself
 runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.

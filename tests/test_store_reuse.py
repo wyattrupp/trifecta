@@ -33,6 +33,12 @@ class A(unittest.TestCase):
         self.assertEqual(open("data/a.txt").read(), "a")
         self.assertIsNone(os.environ.get("TRIFECTA_STORE"))
         os.environ.get("TRIFECTA_DEMO")
+        os.listdir("data")
+        os.path.exists("gone")
+        try:
+            import extra  # noqa: F401
+        except ImportError:
+            pass
 '''
 
 MODULE_B = '''
@@ -93,6 +99,14 @@ class Reuse(unittest.TestCase):
         self.assertEqual(self.stage()[2], {"tests.test_a": True, "tests.test_b": True})
         with mock.patch.dict(os.environ, {"TRIFECTA_DEMO": "set"}):
             self.assertEqual(self.stage()[2], {"tests.test_a": False, "tests.test_b": True})
+        # A directory listed gains an entry, a path probed appears, a name looked up
+        # appears: each runs the module again, as the recorder wrote what it saw.
+        for change in (lambda: (self.root / "data" / "new.txt").write_text("", "utf-8"),
+                       lambda: (self.root / "gone").mkdir(),
+                       lambda: (self.root / "extra.py").write_text("", "utf-8")):
+            change()
+            self.assertEqual(self.stage()[2], {"tests.test_a": False, "tests.test_b": True})
+        self.assertEqual(self.stage()[2], {"tests.test_a": True, "tests.test_b": True})
 
     @proves("REQ_REUSE_SCOPED")
     def test_a_new_module_runs_and_the_others_are_reused(self):

@@ -462,6 +462,9 @@ def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) 
     with stage("line endings"):
         findings += check_line_endings(root, files)
     runs: list = []
+    # A stored result that git tracks came with the tree, not from a run: run fresh.
+    store_dir = STORE_DIR.as_posix() + "/"
+    fresh = fresh or any(f.startswith(store_dir) for f in files)
     with stage("tests"):
         proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs)
         findings += proof_findings

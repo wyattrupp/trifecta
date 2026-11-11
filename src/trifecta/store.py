@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import secrets
+import stat
 import sys
 import sysconfig
 import time
@@ -31,6 +32,10 @@ VERSION = 1
 PACKAGE_DIR = Path(__file__).resolve().parent
 #: What a reason for a miss may hold, so a profile stays short.
 MAX_WHY = 300
+#: Bounds on what a lookup reads, since an entry is data from another run: the bytes of
+#: one entry, and the entries kept and tried under one identity, newest first.
+MAX_ENTRY_BYTES = 16 << 20
+MAX_ENTRIES = 16
 
 
 def _sha(data: bytes) -> str:
@@ -54,7 +59,7 @@ def package_hash(package: Path = PACKAGE_DIR) -> str:
     return h.hexdigest()
 
 
-def _placeholder(root: Path):
+def placeholder(root: Path):
     """The recorder's own replacement of the root's path, so values hash as it hashes them."""
     holder = record.Recorder.__new__(record.Recorder)
     holder.root = str(root)
@@ -70,9 +75,13 @@ def environment_key(root: Path) -> dict:
         files = dist.read_text("RECORD") or ""
         dists.append([dist.metadata["Name"] or "", dist.version or "",
                       _sha(files.encode("utf-8", "surrogateescape"))])
-    pth = Path(sysconfig.get_paths()["purelib"]) / record.PTH_NAME
-    return {"os": os.name, "python": sys.version,
-            "executable": _placeholder(root)(sys.executable),
+    paths = sysconfig.get_paths()
+    pth = Path(paths["purelib"]) / record.PTH_NAME
+    # What the site directories hold by name, so a module or .pth file no RECORD lists
+    # changes the key too.
+    site = {name: record.listing(paths[name]) for name in ("purelib", "platlib")}
+    return {"os": os.name, "python": sys.version, "site": site,
+            "executable": placeholder(root)(sys.executable),
             "runner": os.environ.get("RUNNER_OS"),
             "pth": record.file_hash(str(pth)),
             "distributions": sorted(dists)}
@@ -87,8 +96,13 @@ class Hashes:
         self.finders: dict[str, machinery.FileFinder] = {}
 
     def file(self, path: str) -> str | None:
+        """A regular file's hash; None for anything else, so no device or pipe is read."""
         if path not in self.files:
-            self.files[path] = record.file_hash(path) if record.kind(path) == "file" else None
+            try:
+                regular = stat.S_ISREG(os.lstat(path).st_mode)
+            except (OSError, ValueError):
+                regular = False
+            self.files[path] = record.file_hash(path) if regular else None
         return self.files[path]
 
     def lookup(self, directory: str, name: str, root: Path) -> str | None:
@@ -118,6 +132,14 @@ def _get(environ: dict, name: str) -> str | None:
     return environ.get(name)
 
 
+def _linked(path: Path) -> bool:
+    return path.is_symlink() or os.path.isjunction(path)
+
+
+def _printable(text: str) -> str:
+    return "".join(c if c.isprintable() else repr(c)[1:-1] for c in text)
+
+
 def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str | None:
     """The kind and path, or the variable's name, of the first input that differs; None
     when every input the manifest holds is as it was. Never a variable's value."""
@@ -141,11 +163,11 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
         base = directory if os.path.isabs(directory) else at(directory)
         if hashes.lookup(base, name, root) != found:
             return f"import {key}"
-    placeholder = _placeholder(root)
+    hold = placeholder(root)
     for name, digest in manifest["environment"].items():
         value = _get(environ, name)
         now = None if value is None else _sha(
-            placeholder(value).encode("utf-8", "surrogateescape"))
+            hold(value).encode("utf-8", "surrogateescape"))
         if now != digest:
             return f"variable {name}"
     return None
@@ -168,6 +190,17 @@ class Store:
     def _dir(self, ident: str) -> Path:
         return self.path / ident[:2] / ident
 
+    def refused(self) -> str:
+        """Why the store cannot be used, or ``""``: a link or junction at the store or
+        between it and the root would send reads and writes elsewhere."""
+        path = self.path
+        while True:
+            if _linked(path):
+                return f"the store passes through a link: {path}"
+            if path == self.root or path.parent == path or not path.is_relative_to(self.root):
+                return ""
+            path = path.parent
+
     def lookup(self, ident: str, environ: dict, hashes: Hashes,
                result_ok) -> tuple[object | None, str]:
         """The newest stored result whose manifest matches, with ``""``; or None and why
@@ -175,13 +208,17 @@ class Store:
         directory = self._dir(ident)
         try:
             names = sorted((p.name for p in directory.iterdir()
-                            if p.suffix == ".json" and p.is_file()), reverse=True)
+                            if p.suffix == ".json" and p.is_file() and not _linked(p)),
+                           reverse=True)[:MAX_ENTRIES]
         except OSError:
             names = []
         why = "no stored result"
         for name in names:
             try:
-                entry = json.loads((directory / name).read_text(encoding="utf-8"))
+                path = directory / name
+                if path.stat().st_size > MAX_ENTRY_BYTES:
+                    raise ValueError("too large")
+                entry = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError, RecursionError):
                 why = "a malformed entry"
                 continue
@@ -199,7 +236,7 @@ class Store:
             if differs is None:
                 return entry["result"], ""
             why = differs
-        return None, why[:MAX_WHY]
+        return None, _printable(why)[:MAX_WHY]
 
     def put(self, ident: str, manifest: dict, result) -> bool:
         """Store a result; False, storing nothing, when the manifest is not a valid,
@@ -221,4 +258,11 @@ class Store:
             except OSError:
                 pass
             return False
+        # Only the newest are ever tried; a copy reading one removed here misses and runs.
+        try:
+            for old in sorted((p for p in directory.iterdir() if p.suffix == ".json"),
+                              reverse=True)[MAX_ENTRIES:]:
+                old.unlink(missing_ok=True)
+        except OSError:
+            pass
         return True

@@ -451,8 +451,13 @@ def _relative(key) -> bool:
 
 
 def _absolute(key) -> bool:
-    return (isinstance(key, str) and 0 < len(key) <= MAX_TEXT and "\0" not in key
-            and os.path.isabs(key) and ".." not in key.replace("\\", "/").split("/"))
+    """An absolute local path: never a network share or a device namespace, which a
+    lookup would reach out to."""
+    if not (isinstance(key, str) and 0 < len(key) <= MAX_TEXT and "\0" not in key):
+        return False
+    slashed = key.replace("\\", "/")
+    return (os.path.isabs(key) and not slashed.startswith("//")
+            and ".." not in slashed.split("/"))
 
 
 def _path(key) -> bool:

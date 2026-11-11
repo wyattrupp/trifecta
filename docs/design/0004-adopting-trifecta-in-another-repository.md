@@ -105,10 +105,11 @@ and that value alone decides which tests run and which declarations count withou
 running; where `RUNNER_OS` is `Linux` or `Windows`, a value other than `posix` or `nt`
 respectively is reported under REQ_PROVEN_BY_TEST. It imports no test module itself: it
 runs each proof module it chose in a child process of its own, started as
-`sys.executable -E -B -X utf8`, so no `PYTHON` variable such as `PYTHONOPTIMIZE` applies,
-no byte code is read and the child runs in UTF-8 mode, or reuses the records a child
+`sys.executable -E -B -X utf8` with a `pycache_prefix` of its own, so no `PYTHON`
+variable such as `PYTHONOPTIMIZE` applies, no byte code is read and the child runs in
+UTF-8 mode, or reuses the records a child
 stored for that module as {need}`DES_0008`'s COMP_PROOF_REUSE states. It passes each child
-its module's name and the exact tests of that module to leave out, which the child
+its module's name and the exact tests to leave out, which the child
 removes from the suite before the run, so they are not collected. A child loads tests
 from its module and no other, so an import that only one system has belongs inside the
 test. Any exception raised while it imports a proof module becomes

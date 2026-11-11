@@ -517,42 +517,92 @@ class ModuleRun:
     why: str = ""
 
 
+def _portable(lines: list[str], output: str, root: Path) -> dict:
+    """A child's result as stored: the root's path replaced in every string of every
+    record and in the output, so a copy elsewhere reads its own path back."""
+    hold = store.placeholder(root)
+    out = []
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except ValueError:
+            out.append(hold(line))
+            continue
+        if isinstance(data, dict):
+            data = {k: hold(v) if isinstance(v, str) else v for k, v in data.items()}
+        out.append(json.dumps(data))
+    return {"lines": out, "output": hold(output)}
+
+
+def _restored(result: dict, root: Path) -> tuple[list[str], str]:
+    """A stored result with this root's path put back where the placeholder stands."""
+    here = str(root)
+    lines = []
+    for line in result["lines"]:
+        try:
+            data = json.loads(line)
+        except ValueError:
+            lines.append(line.replace(record.ROOT, here))
+            continue
+        if isinstance(data, dict):
+            data = {k: v.replace(record.ROOT, here) if isinstance(v, str) else v
+                    for k, v in data.items()}
+        lines.append(json.dumps(data))
+    return lines, result["output"].replace(record.ROOT, here)
+
+
+def _ended(lines: list[str]) -> bool:
+    """Whether a child reported its end: a run cut short is never stored."""
+    records, _ = _parse(lines)
+    return any(r["kind"] == "end" for r in records)
+
+
 def run_modules(root: Path, modules: list[str], leave_out: list[str],
                 child: list[str] | None, fresh: bool, store_at: Path | None = None,
                 ) -> tuple[dict[str, tuple[list[str], str]], list[ModuleRun]]:
     """Each module's channel lines and output, run or reused (COMP_PROOF_REUSE)."""
     # A run inside a recorded process, as a test of the check is, records nothing of its
     # own and reuses nothing unless its caller names a store: the recorder around it
-    # records its children.
-    if store_at is not None:
+    # records its children. A stub child is never stored.
+    if child is not None:
+        shelf = None
+    elif store_at is not None:
         shelf = store.Store(store_at, root)
-    elif child is None and "_trifecta_record" not in sys.modules:
+    elif "_trifecta_record" not in sys.modules:
         shelf = store.Store(store.location(root), root)
     else:
         shelf = None
-    hashes = store.Hashes()
+    unused = shelf.refused() if shelf is not None else ""
+    if unused:
+        shelf = None
     environ = child_environment()
     out: dict[str, tuple[list[str], str]] = {}
     runs: list[ModuleRun] = []
+    # Every child gets every test to leave out: a test one module inherits from another
+    # is left out by the module that defines it.
     for module in modules:
-        mine = sorted(k for k in leave_out if k.startswith(module + ":"))
         begin = time.perf_counter()
-        ident = shelf.identity("tests", {"module": module, "leave_out": mine}) if shelf else ""
-        why = "fresh" if fresh else ("not recorded" if shelf is None else "")
+        ident = (shelf.identity("tests", {"module": module, "leave_out": leave_out})
+                 if shelf else "")
+        why = "fresh" if fresh else ((unused or "not recorded") if shelf is None else "")
         if shelf is not None and not fresh:
-            found, why = shelf.lookup(ident, environ, hashes, _result_ok)
+            # Hashes are taken afresh for each module: a child before it may have
+            # changed the tree.
+            found, why = shelf.lookup(ident, environ, store.Hashes(), _result_ok)
             if found is not None:
-                out[module] = (found["lines"], found["output"])
+                out[module] = _restored(found, root)
                 runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), True))
                 continue
-        lines, output, manifest = run_child(root, module, mine, child,
+        lines, output, manifest = run_child(root, module, leave_out, child,
                                             recorded=shelf is not None)
         out[module] = (lines, output)
         if manifest is not None:
-            if manifest["storable"]:
-                shelf.put(ident, manifest, {"lines": lines, "output": output})
-            else:
+            if not manifest["storable"]:
                 why = f"{why}; not stored: {manifest.get('why', '')}"
+            elif not _ended(lines):
+                why = f"{why}; not stored: the child ended before it reported every result"
+            else:
+                shelf.put(ident, manifest, _portable(lines, output, root))
         runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), False,
                               why[:store.MAX_WHY]))
     return out, runs
