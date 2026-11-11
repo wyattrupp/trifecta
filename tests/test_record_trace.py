@@ -69,7 +69,10 @@ def traced_paths(log: str, cwd: Path) -> tuple[set[tuple[Path, str]], list[str]]
         raw = p.group("path").encode().decode("unicode_escape")
         base = Path(p.group("dir") or p.group("cwd") or cwd)
         # Opening a directory learns only that it is one; its entries come by getdents.
-        access = "read" if name in READS and "O_DIRECTORY" not in flags else "probe"
+        # A failed open learns only that nothing openable is there.
+        failed = re.search(r"\)\s*=\s*-1\s", line) is not None
+        access = ("read" if name in READS and "O_DIRECTORY" not in flags and not failed
+                  else "probe")
         paths.add((Path(os.path.normpath(base / raw)), access))
     return paths, connects
 
@@ -145,6 +148,7 @@ SAMPLE = r'''101 openat(AT_FDCWD, "docs/a.md", O_RDONLY|O_CLOEXEC) = 3</repo/doc
 102 stat("/repo/pkg/mod.py", {st_mode=S_IFREG|0644, ...}) = 0
 102 access("/elsewhere/x", R_OK) = -1 ENOENT (No such file or directory)
 102 connect(7, {sa_family=AF_INET, sin_port=htons(443)}, 16) = 0
+102 openat(AT_FDCWD, "/repo/docs/none.conf", O_RDONLY) = -1 ENOENT (No such file or directory)
 '''
 
 
@@ -156,9 +160,10 @@ class Parsing(unittest.TestCase):
                           if p.as_posix().startswith("/repo")},
                          {("/repo/docs/a.md", "read"), ("/repo/docs/b.md", "read"),
                           ("/repo/docs/c.md", "probe"), ("/repo/sub", "list"),
-                          ("/repo/pkg/mod.py", "probe")})
+                          ("/repo/pkg/mod.py", "probe"), ("/repo/docs/none.conf", "probe")})
         self.assertEqual(len(connects), 1)
-        manifest = {"files": {"docs/a.md": "x"}, "probes": {"docs/c.md": "file"},
+        manifest = {"files": {"docs/a.md": "x"},
+                    "probes": {"docs/c.md": "file", "docs/none.conf": "absent"},
                     "listings": {"sub": []}, "lookups": {"./pkg/mod": "pkg/mod.py"}}
         self.assertEqual(unheld(paths, Path("/repo"), manifest, []), ["read docs/b.md"])
         # A file the native code opened is held only by its hash, not by a probe.

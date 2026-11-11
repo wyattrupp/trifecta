@@ -48,6 +48,9 @@ if "_trifecta_record" not in sys.modules:
     _d = os.environ["TRIFECTA_RECORD"]
     with open(os.path.join(_d, "config.json"), encoding="utf-8") as _f:
         _c = json.load(_f)
+    # No byte code from the tree, the recorder's own included.
+    sys.dont_write_bytecode = True
+    sys.pycache_prefix = os.path.join(_d, "pycache")
     _s = importlib.util.spec_from_file_location("_trifecta_record", _c["recorder"])
     _m = importlib.util.module_from_spec(_s)
     sys.modules["_trifecta_record"] = _m
@@ -576,6 +579,11 @@ def _symlink(r: Recorder, args) -> None:
         r.wrote(args[1])
 
 
+def _xattr(r: Recorder, args) -> None:
+    if args and not isinstance(args[0], int):
+        r.probe(args[0])
+
+
 def _hardlink(r: Recorder, args) -> None:
     # A hard link is another name for the same content: the run reads its source.
     if not _by_descriptor(r, "os.link", args):
@@ -659,6 +667,8 @@ HANDLERS = {
         "os.chmod", "os.chown", "os.chflags", "os.lchflags", "os.lchmod", "os.lchown",
         "os.utime", "os.truncate", "os.setxattr", "os.removexattr")},
     "os.link": _hardlink, "os.symlink": _symlink,
+    # shutil.copy2 copies extended attributes on Linux: a probe of its source.
+    "os.listxattr": _xattr, "os.getxattr": _xattr,
     "os.listdir": _listing, "os.scandir": _listing,
     "os.chdir": _chdir,
     "subprocess.Popen": _popen,
