@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import secrets
 import stat
@@ -45,7 +46,7 @@ def _sha(data: bytes) -> str:
 def location(root: Path) -> Path:
     """The store ENV names, or DEFAULT under the root."""
     given = os.environ.get(ENV)
-    return Path(given) if given else root / DEFAULT
+    return Path(os.path.abspath(given)) if given else root / DEFAULT
 
 
 def package_hash(package: Path = PACKAGE_DIR) -> str:
@@ -132,6 +133,25 @@ def _get(environ: dict, name: str) -> str | None:
     return environ.get(name)
 
 
+#: The name ``put`` gives an entry: its time in nanoseconds, then a random part.
+NAME = re.compile(r"\d{20}-[0-9a-f]{8}\.json")
+
+
+def _read(path: Path) -> str:
+    """An entry's text, from one open of a regular file that is no link, within bounds."""
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if _linked(path):
+        raise OSError("a link")
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError("not a regular file")
+        data = f.read(MAX_ENTRY_BYTES + 1)
+    if len(data) > MAX_ENTRY_BYTES:
+        raise ValueError("too large")
+    return data.decode("utf-8")
+
+
 def _linked(path: Path) -> bool:
     return path.is_symlink() or os.path.isjunction(path)
 
@@ -190,9 +210,14 @@ class Store:
     def _dir(self, ident: str) -> Path:
         return self.path / ident[:2] / ident
 
-    def refused(self) -> str:
-        """Why the store cannot be used, or ``""``: a link or junction at the store or
-        between it and the root would send reads and writes elsewhere."""
+    def refused(self, ident: str = "") -> str:
+        """Why the store cannot be used, or ``""``: a link or junction at the store, at an
+        identity's directories, or between the store and the root would send reads and
+        writes elsewhere. Checked at every use, since a test may change the tree."""
+        if ident:
+            for path in (self.path / ident[:2], self._dir(ident)):
+                if _linked(path):
+                    return f"the store passes through a link: {path}"
         path = self.path
         while True:
             if _linked(path):
@@ -201,24 +226,27 @@ class Store:
                 return ""
             path = path.parent
 
+    def _names(self, directory: Path) -> list[str]:
+        """The entries' names, newest first: only names ``put`` gives count."""
+        return sorted((p.name for p in directory.iterdir() if NAME.fullmatch(p.name)),
+                      reverse=True)
+
     def lookup(self, ident: str, environ: dict, hashes: Hashes,
                result_ok) -> tuple[object | None, str]:
         """The newest stored result whose manifest matches, with ``""``; or None and why
         none did."""
+        refused = self.refused(ident)
+        if refused:
+            return None, _printable(refused)[:MAX_WHY]
         directory = self._dir(ident)
         try:
-            names = sorted((p.name for p in directory.iterdir()
-                            if p.suffix == ".json" and p.is_file() and not _linked(p)),
-                           reverse=True)[:MAX_ENTRIES]
+            names = self._names(directory)[:MAX_ENTRIES]
         except OSError:
             names = []
         why = "no stored result"
         for name in names:
             try:
-                path = directory / name
-                if path.stat().st_size > MAX_ENTRY_BYTES:
-                    raise ValueError("too large")
-                entry = json.loads(path.read_text(encoding="utf-8"))
+                entry = json.loads(_read(directory / name))
             except (OSError, ValueError, RecursionError):
                 why = "a malformed entry"
                 continue
@@ -240,14 +268,16 @@ class Store:
 
     def put(self, ident: str, manifest: dict, result) -> bool:
         """Store a result; False, storing nothing, when the manifest is not a valid,
-        storable one or the store cannot be written."""
-        if not (record.valid(manifest) and manifest["storable"]):
+        storable one, the store passes through a link or it cannot be written."""
+        if not (record.valid(manifest) and manifest["storable"]) or self.refused(ident):
             return False
         directory = self._dir(ident)
         name = f"{time.time_ns():020d}-{secrets.token_hex(4)}.json"
         tmp = directory / (name + ".tmp")
         try:
             directory.mkdir(parents=True, exist_ok=True)
+            if self.refused(ident):
+                return False
             tmp.write_text(json.dumps({"version": VERSION, "identity": ident,
                                        "manifest": manifest, "result": result}),
                            encoding="utf-8")
@@ -260,9 +290,8 @@ class Store:
             return False
         # Only the newest are ever tried; a copy reading one removed here misses and runs.
         try:
-            for old in sorted((p for p in directory.iterdir() if p.suffix == ".json"),
-                              reverse=True)[MAX_ENTRIES:]:
-                old.unlink(missing_ok=True)
+            for old in self._names(directory)[MAX_ENTRIES:]:
+                (directory / old).unlink(missing_ok=True)
         except OSError:
             pass
         return True

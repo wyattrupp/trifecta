@@ -144,8 +144,13 @@ class Entries(Tree):
             with self.subTest(n=n):
                 for p in directory.iterdir():
                     p.unlink()
-                (directory / "1.json").write_text(text, encoding="utf-8")
+                (directory / f"{'9' * 20}-0123abcd.json").write_text(text, encoding="utf-8")
                 self.assertEqual(self.lookup(ident), (None, "a malformed entry"))
+        # A name put never gives is no entry, so it cannot crowd out the newest.
+        for p in directory.iterdir():
+            p.unlink()
+        (directory / "~.json").write_text(json.dumps(good), encoding="utf-8")
+        self.assertEqual(self.lookup(ident), (None, "no stored result"))
 
     @proves("REQ_REUSE_SOUND")
     def test_the_interpreter_a_distribution_or_the_package_changes_the_identity(self):
@@ -191,3 +196,19 @@ class ChildEnvironment(unittest.TestCase):
         self.assertNotIn(store.ENV, env)
         self.assertNotIn(record.ENV, env)
         self.assertEqual(env["KEEP"], "1")
+
+
+class Portable(unittest.TestCase):
+    @proves("REQ_REUSE_SOUND")
+    def test_a_result_stored_in_one_copy_reads_back_with_another_copys_path(self):
+        from trifecta.proofs import _portable, _restored
+        here, there = Path("/tmp/copy-one").resolve(), Path("/tmp/elsewhere/two").resolve()
+        line = json.dumps({"kind": "result", "detail": f"{here}{os.sep}x.py and "
+                           f"{here.as_posix()}/y.py"})
+        stored = _portable([line, "raw " + str(here)], f"tail {here}", here)
+        self.assertNotIn(str(here), json.dumps(stored))
+        lines, output = _restored(stored, there)
+        self.assertEqual(json.loads(lines[0])["detail"],
+                         f"{there}{os.sep}x.py and {there.as_posix()}/y.py")
+        self.assertEqual(lines[1], "raw " + str(there))
+        self.assertEqual(output, f"tail {there}")

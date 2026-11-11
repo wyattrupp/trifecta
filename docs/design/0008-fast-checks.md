@@ -266,3 +266,15 @@ The review recorded as {need}`REV_RFC_0008_1` covered this document.
 with the root's path replaced, never the value, since a store CI publishes is public.
 Two rounds, one reviewer per lens, with the recorder that builds it.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_3
+:k: 2
+:date: 2026-11-10
+:digest: 28317eef4f52b3be08d821a40b1a3fd1a8260c39924d465df36274a636f9cdec
+{need}`PLAN_0007` task 3: a lookup also matches import lookups and files outside the
+repository; the environment key holds the site directories' entries; entries are bounded,
+a store reached through a link or holding a tracked file is not used, and a result is
+stored with the root replaced, only from a child that reported its end. Two rounds, one
+reviewer per lens, with the code that builds it.
+:::

@@ -12,6 +12,7 @@ import ast
 import json
 import keyword
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -517,38 +518,46 @@ class ModuleRun:
     why: str = ""
 
 
-def _portable(lines: list[str], output: str, root: Path) -> dict:
-    """A child's result as stored: the root's path replaced in every string of every
-    record and in the output, so a copy elsewhere reads its own path back."""
-    hold = store.placeholder(root)
+#: The placeholders a stored result holds for the root's path, in each of its spellings,
+#: so a copy elsewhere reads back its own path as a fresh run would have written it.
+ROOT_POSIX = "<root:posix>"
+
+
+def _swap(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        if old:
+            text = re.sub(re.escape(old), lambda _: new, text,
+                          flags=re.IGNORECASE if os.name == "nt" else 0)
+    return text
+
+
+def _map_lines(lines: list[str], change) -> list[str]:
     out = []
     for line in lines:
         try:
             data = json.loads(line)
         except ValueError:
-            out.append(hold(line))
+            out.append(change(line))
             continue
         if isinstance(data, dict):
-            data = {k: hold(v) if isinstance(v, str) else v for k, v in data.items()}
+            data = {k: change(v) if isinstance(v, str) else v for k, v in data.items()}
         out.append(json.dumps(data))
-    return {"lines": out, "output": hold(output)}
+    return out
+
+
+def _portable(lines: list[str], output: str, root: Path) -> dict:
+    """A child's result as stored: the root's path replaced in every string of every
+    record and in the output."""
+    pairs = [(str(root), record.ROOT), (root.as_posix(), ROOT_POSIX)]
+    change = lambda text: _swap(text, pairs)
+    return {"lines": _map_lines(lines, change), "output": change(output)}
 
 
 def _restored(result: dict, root: Path) -> tuple[list[str], str]:
-    """A stored result with this root's path put back where the placeholder stands."""
-    here = str(root)
-    lines = []
-    for line in result["lines"]:
-        try:
-            data = json.loads(line)
-        except ValueError:
-            lines.append(line.replace(record.ROOT, here))
-            continue
-        if isinstance(data, dict):
-            data = {k: v.replace(record.ROOT, here) if isinstance(v, str) else v
-                    for k, v in data.items()}
-        lines.append(json.dumps(data))
-    return lines, result["output"].replace(record.ROOT, here)
+    """A stored result with this root's path put back, in the spelling it was stored in."""
+    pairs = [(ROOT_POSIX, root.as_posix()), (record.ROOT, str(root))]
+    change = lambda text: _swap(text, pairs)
+    return _map_lines(result["lines"], change), change(result["output"])
 
 
 def _ended(lines: list[str]) -> bool:

@@ -25,7 +25,7 @@ from .gen_vale import generate
 from .profiler import DIRECTORY as PROFILE_DIR, Profiler, target as profile_target
 from .profiler import write as write_profile
 from .proofs import check_proofs
-from .store import DEFAULT as STORE_DIR
+from .store import DEFAULT as STORE_DIR, location as store_location
 from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, OutsideRepository, corpus_root, vale_path
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
@@ -463,8 +463,10 @@ def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) 
         findings += check_line_endings(root, files)
     runs: list = []
     # A stored result that git tracks came with the tree, not from a run: run fresh.
-    store_dir = STORE_DIR.as_posix() + "/"
-    fresh = fresh or any(f.startswith(store_dir) for f in files)
+    store_dir = store_location(root)
+    if store_dir.is_relative_to(root):
+        prefix = store_dir.relative_to(root).as_posix().casefold() + "/"
+        fresh = fresh or any(f.casefold().startswith(prefix) for f in files)
     with stage("tests"):
         proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs)
         findings += proof_findings

@@ -389,3 +389,14 @@ of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 and the `trifecta profile` command, to IF_CLI; both refuse a path outside the
 repository. One round, one reviewer per lens, with the code that builds it.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_12
+:k: 2
+:date: 2026-11-10
+:digest: dfecb9996955b94663e8a21aac3beb44838dca7b969a9449370ad8a2294e8612
+{need}`PLAN_0007` task 3: COMP_TEST_PROOFS runs one child per proof module, or reuses
+its stored records, with the `os.name` and end-record rules holding per child; IF_CLI
+adds `--fresh` to `trifecta check` and `trifecta fixtures`. Two rounds, one reviewer per
+lens, with the code that builds it.
+:::
