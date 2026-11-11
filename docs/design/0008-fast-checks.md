@@ -62,6 +62,7 @@ time it bounds and changes no exit status (wyatt, 2026-11-10: "Report only").
 
 :::{component} Recorder
 :id: COMP_RECORDER
+:spec: src/trifecta/record.py#def start
 :satisfies: REQ_REUSE_SOUND
 :constrained_by: DEC_0028
 :provides: IF_MANIFEST
@@ -80,8 +81,9 @@ the presence or absence of the names it looked for, not as whole listings. Every
 Sphinx build's included, runs with `-B` and with `-X pycache_prefix` set to an empty
 directory the run creates, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
-mappings that record each key asked for, and every key and value when iterated or copied,
-and still set the process environment as before; the recorder's own
+mappings that record each key asked for, and every key when iterated or copied, each with
+a hash of its value, never the value, since a store CI publishes is public, and still set
+the process environment as before; a variable the run set is its own. The recorder's own
 variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
 directory the run or one of its children created is not an input; the run's own control
 files, such as the test child's channel and plan, are not either.
@@ -200,12 +202,14 @@ environment variable. The profile MUST NOT be read by any rule: it is a report.
 
 :::{interface} Manifest
 :id: IF_MANIFEST
+:spec: src/trifecta/record.py#def valid
 :constrained_by: DEC_0028
 A JSON object with `version: 1`, `storable` and, when false, `why`; `files`, mapping each
 path read to its SHA-256; `probes`, mapping each path probed to its kind, `file`,
 `directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
 entries, each with its kind; `lookups`, the import system's names found or not found;
-`environment`, mapping each variable read to its value or null; and `outside`, mapping
+`environment`, mapping each variable read to the SHA-256 of its value, with the root's
+path replaced, or null when it is unset; and `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.

@@ -16,6 +16,7 @@ import re
 import stat
 import subprocess
 import sys
+import sysconfig
 import tarfile
 import tempfile
 import time
@@ -26,6 +27,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from . import record
 from .toolchain import bin_vale, corpus_root
 
 VALE_VERSION = "3.13.0"
@@ -183,6 +185,20 @@ def _is_this_project(root: Path) -> bool:
     return project.get("name") == "trifecta"
 
 
+def install_recorder() -> Path | None:
+    """Install the recorder's .pth file (COMP_RECORDER), in a virtual environment only:
+    outside one it would go into the interpreter every program on the machine shares."""
+    if sys.prefix == sys.base_prefix:
+        print("not in a virtual environment: the recorder's .pth file is not installed, "
+              "so no run is stored for reuse", file=sys.stderr)
+        return None
+    target = Path(sysconfig.get_paths()["purelib"]) / record.PTH_NAME
+    if os.path.lexists(target) and _is_link(target):
+        raise SetupError(f"{target} is a link")
+    target.write_text(record.PTH_LINE, encoding="utf-8", newline="\n")
+    return target
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vale-only", action="store_true", help="skip the Python install")
@@ -199,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
                 # backend the lock pins (plan 0003 step 2.2).
                 subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps",
                                 "--no-build-isolation", "--editable", str(root)], check=True)
+            install_recorder()
         print(f"vale {VALE_VERSION} at {install_vale(root)}")
     except (SetupError, OSError, ValueError, subprocess.CalledProcessError,
             http.client.HTTPException, tarfile.TarError, zipfile.BadZipFile) as exc:
