@@ -247,8 +247,9 @@ an empty directory against the wheel built from the workspace.
 :id: IF_CLI
 :spec: src/trifecta/cli.py#COMMANDS
 :constrained_by: DEC_0013
-`trifecta setup`, `trifecta check [--base REF]`, `trifecta fixtures`, `trifecta new`,
-`trifecta next`, `trifecta review` and `trifecta init`. Each command MUST read the corpus from the working
+`trifecta setup`, `trifecta check [--base REF] [--profile PATH]`,
+`trifecta fixtures [--profile PATH]`, `trifecta new`, `trifecta next`, `trifecta review`,
+`trifecta init` and `trifecta profile PATH...`. Each command MUST read the corpus from the working
 directory, MUST exit non-zero on any finding or refusal, and MUST refuse a path argument
 that resolves outside the repository.
 :::

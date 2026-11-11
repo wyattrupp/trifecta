@@ -39,6 +39,7 @@ store and publish the store they wrote, and pull requests fetch that store from 
 
 :::{component} Profiler
 :id: COMP_PROFILER
+:spec: src/trifecta/profiler.py#class Profiler
 :satisfies: REQ_PROFILED
 :constrained_by: DEC_0029
 :provides: IF_PROFILE
@@ -187,6 +188,7 @@ request run writes is ever read by another run. A last step that always runs upl
 
 :::{interface} Profile
 :id: IF_PROFILE
+:spec: src/trifecta/profiler.py#def data
 :constrained_by: DEC_0029
 A JSON object with `version: 1`, `command` (`check` or `fixtures`), `total` in seconds,
 and `stages`, an array in run order of objects with `name`, `seconds`, and for a reusable
