@@ -496,8 +496,9 @@ def run_child(root: Path, module: str, leave_out: list[str], child: list[str] | 
             except (OSError, ValueError):
                 manifest = None
             if not record.valid(manifest):
+                why = "left no manifest" if manifest is None else "left a malformed manifest"
                 manifest = {"version": record.VERSION, "storable": False,
-                            "why": "the test child left no manifest"}
+                            "why": f"the test child {why}"}
     return text.splitlines(), tail, manifest
 
 

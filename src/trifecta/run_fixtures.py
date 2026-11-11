@@ -166,7 +166,9 @@ def main(argv: list[str] | None = None) -> int:
 def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
          extra: dict, fresh: bool = False) -> int:
     with tempfile.TemporaryDirectory() as raw:
-        tmp = Path(raw)
+        # Spelled in full: where 8.3 short names are on, the temporary directory may come
+        # back short, and a copy's path in a variable would then differ from its root's.
+        tmp = Path(raw).resolve()
         with profiler.stage("base copy") as record:
             try:
                 base = make_base(tmp, root)

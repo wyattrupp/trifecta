@@ -247,6 +247,8 @@ class Store:
         for name in names:
             try:
                 entry = json.loads(_read(directory / name))
+            except FileNotFoundError:
+                continue  # pruned by another copy since it was listed
             except (OSError, ValueError, RecursionError):
                 why = "a malformed entry"
                 continue
