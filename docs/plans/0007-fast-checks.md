@@ -49,10 +49,10 @@ Measure before changing anything.
 :gate: The tests show the recorder lists a file read, a file copied with `shutil.copy2`, a file the run wrote and then read as no input, a directory listed with the kinds of its entries, a path probed through each wrapped function, on Windows too, as a file, a directory or absent, an environment variable read and one iterated, the source of every imported module, and a Python child's reads, under `-E` and `-I`; that a child started with `-S`, a child leaving no manifest, a `socket.connect`, a change of working directory, an audit event the recorder does not list, and a run of git or of any other program make the manifest unstorable; that the same run in two copies at different paths gives the same manifest; and, on Linux, that `strace -f` of the test stage and of the build opens, probes and lists no path inside the repository that the manifests do not hold, and makes no connection.
 The record every reuse rests on, built and proven before anything reads it.
 
-- [ ] **2.1** Write `trifecta.record` as COMP_RECORDER states, with the manifest as IF_MANIFEST states.
-- [ ] **2.2** Have setup install the `.pth` file, in a virtual environment only, that starts the recorder once in a Python child when `TRIFECTA_RECORD` is set, and test that it imports nothing when the variable is unset and that setup outside a virtual environment writes none; run both CI jobs' setup in a virtual environment.
-- [ ] **2.3** Add the tests, declared for REQ_REUSE_SOUND, the `strace` one with the system value `posix`.
-- [ ] **2.4** Record in the As built entry what the recorder costs on the test stage, from the profile.
+- [x] **2.1** Write `trifecta.record` as COMP_RECORDER states, with the manifest as IF_MANIFEST states.
+- [x] **2.2** Have setup install the `.pth` file, in a virtual environment only, that starts the recorder once in a Python child when `TRIFECTA_RECORD` is set, and test that it imports nothing when the variable is unset and that setup outside a virtual environment writes none; run both CI jobs' setup in a virtual environment.
+- [x] **2.3** Add the tests, declared for REQ_REUSE_SOUND, the `strace` one with the system value `posix`.
+- [x] **2.4** Record in the As built entry what the recorder costs on the test stage, from the profile.
 :::
 
 :::{task} Result store and test reuse
@@ -152,3 +152,88 @@ percent of the summed fixture time locally, 9639 s, the slowest the `proven-by-t
 fixtures at 215 to 241 s each under contention; the 73 that change only `docs/` take
 their test results from the cache and spend their time in the build and the stages
 after it.
+
+### Task 2 (2026-11-10)
+
+The recorder is `trifecta.record`. The `.pth` file, `00-trifecta-record.pth` so that no
+other `.pth` file runs first, executes the `start.py` that the parent writes into each
+record directory, and that file loads the recorder named in the directory's
+`config.json` under a module name no run imports. A copy's run therefore records with
+the copy's own recorder, and the copy's package is never imported early. The recorder
+removes `TRIFECTA_RECORD` from its own process, so only a child it starts through
+`subprocess` gets a directory, and each child writes `made.json` beside its manifest,
+listing what it created and wrote. The parent drops anything it first saw after the
+child started that falls under those paths. Environment values are recorded as SHA-256
+hashes of the value with the root replaced, never the value: DES_0008's COMP_RECORDER and
+IF_MANIFEST now say so, reviewed k=2 and stamped. RFC_0008's term still says "with its
+value", and a hash keys the same match.
+
+What the recorder takes as input beyond the design's text:
+- `os.stat`, `os.lstat` and `DirEntry.stat()` report a file's size, so each counts as a
+  read of the file.
+- A read, probe or listing that follows a link the run made goes to the target. One that
+  follows a link the run did not make is refused.
+- The `PYTHON*`, `LANG` and `LC_*` variables are recorded when the recorder starts,
+  since the interpreter read them before it.
+- A variable the run passes to a child through `env=` is the run's own.
+
+Also refused: a path relative to a directory descriptor outside `shutil.rmtree`, a
+directory renamed that the run did not make, a listing of a directory that holds the
+repository, and a process started other than through `subprocess`, as `multiprocessing`
+does. Known events, from sampling the build and the tests:
+- The system's time zone, out of scope as the clock is: its key in the Windows registry,
+  and on Linux `/etc/localtime`, `/etc/timezone` and the zone database, which babel
+  follows through the `/etc/localtime` link. A refusal for a link names the link.
+- The console functions colorama binds from `kernel32`.
+- `socket.bind`, which urllib3 uses to test for IPv6.
+- A `chdir` to the working directory, which Sphinx makes when it reads `conf.py`. The
+  build therefore runs from `docs/`.
+
+A Sphinx build of this repository, recorded, is storable: 65 files, 87 probes, 6 listings
+and 166 lookups. Of the test modules, run one per child under the recorder:
+- Storable: `test_profile`, `test_proofs` and `test_release`.
+- Not storable: `test_init`, `test_planning` and `test_adoption`, which run git;
+  `test_package`, whose build reads the host name; `test_record`, which records children
+  of its own.
+
+`test_record_trace` traces this repository's build and a small test child. It counts a
+file read natively only when the manifest holds its hash, a listing only when the
+manifest lists it, and a lookup's candidates only as the import system names them. It
+reads `docs/`, which today's cache key leaves out until task 3 replaces it. CI's Ubuntu
+runner has `strace`.
+
+Review, two rounds. Applied:
+- Correctness: the gaps above, a regression in the first fix that dropped a read made
+  before the run rewrote the file, and a strict schema for manifests read from a store.
+- Security: `prepare` refuses a linked or non-empty directory, and setup replaces the
+  `.pth` file rather than writing through a link.
+
+Dropped:
+- A manifest is reported by the code it describes, so a store is trusted only from
+  main's push runs, as the Risks state and task 5 builds.
+- The `.pth` line runs under `-I`, as the design requires.
+- An environment hash of a weak secret can be guessed, and the check's job holds no
+  secret; task 5 keeps it that way.
+
+Cost, from the profile, locally on Windows with every Python child of the check recorded:
+the test stage 74 to 84 s against 55 to 64 s without, the build 8 to 12 s either way. The
+test child records until its first refusal, so this is a floor. Task 3 measures each
+module.
+
+Profiles before and after, in seconds:
+
+| Run | Check | Tests | Sphinx | Fixture step | Fixtures summed |
+|---|---:|---:|---:|---:|---:|
+| Linux CI, before (task 1) | 26.0 | 19.3 | 5.6 | 787.7 | 2998 |
+| Linux CI, after | 39.0 | 34.3 | 4.0 | 806.0 | 3199 |
+| Windows CI, before (task 1) | 18.3 | 12.1 | 4.0 | 733.6 | 2668 |
+| Windows CI, after | 42.1 | 32.6 | 6.3 | 1305.9 | 4984 |
+| Local, before (task 1) | 97.8 | 72.0 | 16.9 | 765.5 | 14106 |
+| Local, after | 70.3 | 59.1 | 6.9 | 736.6 | 13495 |
+
+The new tests add to every copy that misses today's cache: on Linux,
+`test_record_trace` builds the documents again under `strace`.
+
+On Windows the fixture step grew from 734 to 1306 s: each copy runs `test_record`, whose
+recorded children cost most where a process is slow to start. CI run 42950770650 gave
+the after rows; task 3's reuse of test modules is meant to take this back.
