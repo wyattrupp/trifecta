@@ -1,5 +1,7 @@
 # trifecta
 
+[![check](https://github.com/wyattrupp/trifecta/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/wyattrupp/trifecta/actions/workflows/check.yml)
+[![release](https://img.shields.io/github/v/release/wyattrupp/trifecta)](https://github.com/wyattrupp/trifecta/releases/latest)
 RFCs, MADRs, design docs and plans as one deterministically validated graph, built on
 sphinx-needs, MyST and Vale. `trifecta check` builds the documents, validates the links
 between them, and lints their prose; every finding begins with the ID of the requirement

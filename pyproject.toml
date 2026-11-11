@@ -7,6 +7,8 @@ name = "trifecta"
 version = "0.1.2"
 description = "A docs-as-code checker for RFCs, decisions, designs and plans."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "Sphinx",
