@@ -64,7 +64,7 @@ def run_main(root: Path, argv: list[str], finding: bool,
 
 
 def corpus(tmp: str) -> Path:
-    root = Path(tmp)
+    root = Path(tmp).resolve()
     html = root / "docs" / "_build" / "html"
     html.mkdir(parents=True)
     (html / "needs.json").write_text("{}", encoding="utf-8")
@@ -186,7 +186,7 @@ def run_runner(root: Path, argv: list[str], fail: str = "") -> tuple[str, str, i
 
 class FixturesProfile(unittest.TestCase):
     def corpus(self, tmp: str) -> Path:
-        root = Path(tmp)
+        root = Path(tmp).resolve()
         (root / "tests" / "fixtures").mkdir(parents=True)
         for name in ("one", "two"):
             (root / "tests" / "fixtures" / f"{name}.yaml").write_text(FIXTURE, encoding="utf-8")
@@ -278,7 +278,8 @@ class ProfileTable(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "x.json"
             path.write_text("[]", encoding="utf-8")
-            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err,                     mock.patch.object(profiler, "corpus_root", return_value=Path(tmp).resolve()):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err, \
+                    mock.patch.object(profiler, "corpus_root", return_value=Path(tmp).resolve()):
                 code = profiler.main([str(path)])
         self.assertEqual(code, 1)
         self.assertIn("not a profile", err.getvalue())
@@ -289,7 +290,8 @@ class ProfileTable(unittest.TestCase):
             path = Path(other) / "c.json"
             path.write_text(json.dumps({"version": 1, "command": "check", "total": 0,
                                         "stages": []}), encoding="utf-8")
-            with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err,                     mock.patch.object(profiler, "corpus_root", return_value=Path(tmp).resolve()):
+            with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err, \
+                    mock.patch.object(profiler, "corpus_root", return_value=Path(tmp).resolve()):
                 code = profiler.main([str(path)])
         self.assertEqual((code, out.getvalue()), (1, ""))
         self.assertIn("refused", err.getvalue())
