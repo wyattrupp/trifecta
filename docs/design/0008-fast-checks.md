@@ -83,9 +83,12 @@ directory the run creates, so no `.pyc` in the tree is read or written; at the e
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set
-the process environment as before; a variable the run set is its own. The recorder's own
+the process environment as before; a variable the run set is its own. The locale's
+variables, which the C library reads where the mapping cannot see, are recorded whether
+set or not. The recorder's own
 variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
-directory the run or one of its children created is not an input; the run's own control
+directory the run or one of its children created is not an input, and neither is that
+directory as an entry of a listing; the run's own control
 files, such as the test child's channel and plan, are not either.
 
 Children: a Python child the run starts with `sys.executable` records itself. The
@@ -157,16 +160,24 @@ module, with its rules on the child's `os.name` and its end record holding per c
 
 :::{component} Build reuse
 :id: COMP_BUILD_REUSE
+:spec: src/trifecta/build.py#def run_build
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
-The Sphinx stage runs `python -m trifecta.record sphinx` with the same arguments, which
-starts the recorder and then Sphinx in the same process, after the clean of `docs/_build`,
-so nothing under the build directory is an input. It stores the build's standard error
-and exit status, with the root replaced by a placeholder, and the output directory
-`docs/_build/html` as one archive, without `.doctrees`. A match restores the directory,
-refusing any member that is absolute, holds `..` or is a link, and puts the root back
-into the stored error stream before `from_sphinx` reads it, so the findings and their
-locations are those a fresh build gives. A fixture that changes no file the build read,
+The Sphinx stage runs `python -m trifecta.record sphinx` with the same options, which
+runs Sphinx in the process the recorder already watches, from `docs/`, since Sphinx
+changes into the configuration's directory to read `conf.py`. It runs after the clean,
+which empties `docs/_build` of all but the profiles and the store and leaves the
+directory in place, so the build sees the same tree whether a run before it left one or
+not, and nothing under the build directory is an input. It stores the build's standard
+error and exit status, with the root replaced by a placeholder, and the output directory
+`docs/_build/html` as one archive, without `.doctrees`, within the store's bound on an
+entry. A match restores the directory, refusing the whole archive, before writing any of
+it, when any member is absolute, holds `..`, is a link, names a Windows device or
+repeats another's name but for case, or it would unpack past a bound, and then builds
+instead; it unpacks beside the output directory and moves it into place whole. A build
+whose error stream already holds a placeholder is not stored. The build runs with `-P`,
+so nothing in `docs/` shadows a module; it puts the root back into the stored error stream before
+`from_sphinx` reads it, so the findings and their locations are those a fresh build gives. A fixture that changes no file the build read,
 such as one that edits the root `requirements.lock` or a test, restores the control's
 build; a change to any file of the package, its setup script and lock included, changes
 the identity and builds again.
@@ -277,4 +288,16 @@ repository; the environment key holds the site directories' entries; entries are
 a store reached through a link or holding a tracked file is not used, and a result is
 stored with the root replaced, only from a child that reported its end. Two rounds, one
 reviewer per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_4
+:k: 2
+:date: 2026-11-11
+:digest: 63f7d7ba6d9f3cd6ebe19260ecbff7a5c83ac9a2a72d801e944d6a4594891ab3
+{need}`PLAN_0007` task 4: the build runs from `docs/` with `-P` after a clean that leaves
+`docs/_build` in place; a restore refuses device names and names repeated but for case,
+unpacks beside the output and moves it into place; a directory the run made is no entry
+of a listing, and the locale's variables are recorded set or not. One round, one reviewer
+per lens, with the code that builds it.
 :::

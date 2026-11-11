@@ -122,6 +122,28 @@ class Inputs(unittest.TestCase):
         self.assertNotIn("b-copy.txt", m["files"])
 
     @proves("REQ_REUSE_SOUND")
+    def test_the_locales_variables_are_recorded_set_or_not(self):
+        env = {k: v for k, v in os.environ.items() if k not in record.LOCALE_VARIABLES}
+        m = run(self.root, "pass", env=env)
+        for name in record.LOCALE_VARIABLES:
+            self.assertIn(name, m["environment"])
+            self.assertIsNone(m["environment"][name])
+
+    @proves("REQ_REUSE_SOUND")
+    def test_a_directory_the_run_made_is_no_entry_of_a_listing(self):
+        (self.root / "sub" / "there").mkdir()
+        m = run(self.root, """
+            import os
+            os.mkdir("sub/made")
+            os.mkdir("sub/there") if not os.path.isdir("sub/there") else None
+            os.listdir("sub")
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        names = [e[0] for e in m["listings"]["sub"]]
+        self.assertNotIn("made", names)
+        self.assertIn("there", names, "a directory there before the run is an entry")
+
+    @proves("REQ_REUSE_SOUND")
     def test_listings_carry_their_kinds(self):
         m = run(self.root, "import os; os.listdir('sub'); list(os.scandir('.'))")
         self.assertEqual(m["listings"]["sub"], [["deeper", "directory"], ["x.txt", "file"]])

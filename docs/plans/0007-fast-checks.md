@@ -74,8 +74,8 @@ Replaces today's cache, keyed on every file but `docs/`, with one keyed on what 
 :gate: The tests show that a change to a document, to `docs/conf.py`, or to a module the build imported runs the build again, that a change to the root `requirements.lock` or to a test restores the stored build and a change to a package file builds again, that the check's findings and their locations are the same either way, including a failed build's, in a copy at another path, and that an archive member that is absolute, holds `..` or is a link is refused; the fixture runner gives the same findings for every fixture with `--fresh` and without.
 The second stage the profile measured.
 
-- [ ] **4.1** Run the Sphinx build under the recorder through `python -m trifecta.record sphinx`, and store and restore its warnings and output directory as COMP_BUILD_REUSE states.
-- [ ] **4.2** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED.
+- [x] **4.1** Run the Sphinx build under the recorder through `python -m trifecta.record sphinx`, and store and restore its warnings and output directory as COMP_BUILD_REUSE states.
+- [x] **4.2** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED.
 - [ ] **4.3** Record in the As built entry the profiles before and after.
 :::
 

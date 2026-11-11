@@ -519,19 +519,6 @@ class ModuleRun:
     why: str = ""
 
 
-#: The placeholders a stored result holds for the root's path, in each of its spellings,
-#: so a copy elsewhere reads back its own path as a fresh run would have written it.
-ROOT_POSIX = "<root:posix>"
-
-
-def _swap(text: str, pairs: list[tuple[str, str]]) -> str:
-    for old, new in pairs:
-        if old:
-            text = re.sub(re.escape(old), lambda _: new, text,
-                          flags=re.IGNORECASE if os.name == "nt" else 0)
-    return text
-
-
 def _map_lines(lines: list[str], change) -> list[str]:
     out = []
     for line in lines:
@@ -549,15 +536,13 @@ def _map_lines(lines: list[str], change) -> list[str]:
 def _portable(lines: list[str], output: str, root: Path) -> dict:
     """A child's result as stored: the root's path replaced in every string of every
     record and in the output."""
-    pairs = [(str(root), record.ROOT), (root.as_posix(), ROOT_POSIX)]
-    change = lambda text: _swap(text, pairs)
+    change = lambda text: store.portable(text, root)
     return {"lines": _map_lines(lines, change), "output": change(output)}
 
 
 def _restored(result: dict, root: Path) -> tuple[list[str], str]:
     """A stored result with this root's path put back, in the spelling it was stored in."""
-    pairs = [(ROOT_POSIX, root.as_posix()), (record.ROOT, str(root))]
-    change = lambda text: _swap(text, pairs)
+    change = lambda text: store.restored(text, root)
     return _map_lines(result["lines"], change), change(result["output"])
 
 
@@ -609,6 +594,8 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
         if manifest is not None:
             if not manifest["storable"]:
                 why = f"{why}; not stored: {manifest.get('why', '')}"
+            elif any(store.holds_placeholder(t) for t in (*lines, output)):
+                why = f"{why}; not stored: its output holds the store's placeholder"
             elif not _ended(lines):
                 why = f"{why}; not stored: the child ended before it reported every result"
             else:
