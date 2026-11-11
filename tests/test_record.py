@@ -123,11 +123,15 @@ class Inputs(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     def test_the_locales_variables_are_recorded_set_or_not(self):
+        # PEP 538: with none set, Python sets LC_CTYPE itself in a C locale unless told not to.
         env = {k: v for k, v in os.environ.items() if k not in record.LOCALE_VARIABLES}
+        env["PYTHONCOERCECLOCALE"] = "0"
         m = run(self.root, "pass", env=env)
         for name in record.LOCALE_VARIABLES:
             self.assertIn(name, m["environment"])
-            self.assertIsNone(m["environment"][name])
+            self.assertIsNone(m["environment"][name], name)
+        m = run(self.root, "pass", env={**env, "LANGUAGE": "fr"})
+        self.assertIsNotNone(m["environment"]["LANGUAGE"])
 
     @proves("REQ_REUSE_SOUND")
     def test_a_directory_the_run_made_is_no_entry_of_a_listing(self):
