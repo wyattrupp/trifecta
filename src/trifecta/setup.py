@@ -193,9 +193,14 @@ def install_recorder() -> Path | None:
               "so no run is stored for reuse", file=sys.stderr)
         return None
     target = Path(sysconfig.get_paths()["purelib"]) / record.PTH_NAME
-    if os.path.lexists(target) and _is_link(target):
-        raise SetupError(f"{target} is a link")
-    target.write_text(record.PTH_LINE, encoding="utf-8", newline="\n")
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".trifecta-record-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as out:
+            out.write(record.PTH_LINE)
+        os.replace(tmp, target)  # replaces a link, never writes through one
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return target
 
 

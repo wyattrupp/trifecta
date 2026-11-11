@@ -18,26 +18,31 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from importlib.machinery import all_suffixes
 from pathlib import Path
 
 from trifecta import record
 from trifecta.testing import only_on, proves
 
 REPO = Path(__file__).resolve().parent.parent
+SUFFIXES = tuple(all_suffixes())
 #: A traced call: ``pid name(args`` with its first path, absolute, relative to the working
 #: directory, or relative to a descriptor strace names with ``-y``.
 CALL = re.compile(r'^(?:\[pid\s+)?\d+\]?\s+(?P<name>\w+)\((?P<args>.*)$')
 PATH_ARG = re.compile(r'^(?:(?:AT_FDCWD|-100)(?:<(?P<cwd>[^>]*)>)?|\d+<(?P<dir>[^>]*)>)?,?\s*'
                       r'"(?P<path>(?:[^"\\]|\\.)*)"')
-#: The calls that read, probe or list a path; a write is no input.
-READS = {"open", "openat", "openat2", "stat", "lstat", "newfstatat", "fstatat64", "statx",
-         "access", "faccessat", "faccessat2", "readlink", "readlinkat", "getdents64",
-         "getdents", "execve", "chdir", "listxattr", "getxattr", "lgetxattr", "llistxattr"}
+#: The calls that read, probe or list a path, by what they learn; a write is no input.
+READS = {"open", "openat", "openat2"}
+PROBES = {"stat", "lstat", "newfstatat", "fstatat64", "statx", "access", "faccessat",
+          "faccessat2", "readlink", "readlinkat", "execve", "chdir", "listxattr", "getxattr",
+          "lgetxattr", "llistxattr"}
+LISTS = {"getdents64", "getdents"}
 WRITE_FLAGS = ("O_WRONLY", "O_CREAT", "O_TRUNC")
 
 
-def traced_paths(log: str, cwd: Path) -> tuple[set[Path], list[str]]:
-    """Every path the traced calls read, probed or listed, and every connect call."""
+def traced_paths(log: str, cwd: Path) -> tuple[set[tuple[Path, str]], list[str]]:
+    """Every ``(path, access)`` the traced calls made, ``read``, ``probe`` or ``list``, and
+    every connect call."""
     paths, connects = set(), []
     for line in log.splitlines():
         m = CALL.match(line)
@@ -48,43 +53,57 @@ def traced_paths(log: str, cwd: Path) -> tuple[set[Path], list[str]]:
             if "AF_UNIX" not in args or "/var/run/nscd" in args:
                 connects.append(line)
             continue
-        if name not in READS:
-            continue
-        if name.startswith("open") and any(f in args.split(")")[0] for f in WRITE_FLAGS) \
-                and "O_RDWR" not in args:
-            continue
-        if name.startswith("getdents"):
+        if name in LISTS:
             d = re.match(r"\d+<(?P<dir>[^>]*)>", args)
             if d:
-                paths.add(Path(d.group("dir")))
+                paths.add((Path(d.group("dir")), "list"))
+            continue
+        if name not in READS | PROBES:
+            continue
+        flags = args.split(", ")[2] if name in READS and args.count(", ") >= 2 else ""
+        if name in READS and any(f in flags for f in WRITE_FLAGS) and "O_RDWR" not in flags:
             continue
         p = PATH_ARG.match(args)
         if not p:
             continue
         raw = p.group("path").encode().decode("unicode_escape")
         base = Path(p.group("dir") or p.group("cwd") or cwd)
-        paths.add(Path(os.path.normpath(base / raw)))
+        # Opening a directory learns only that it is one; its entries come by getdents.
+        access = "read" if name in READS and "O_DIRECTORY" not in flags else "probe"
+        paths.add((Path(os.path.normpath(base / raw)), access))
     return paths, connects
 
 
-def unheld(paths: set[Path], root: Path, manifest: dict, allowed: list[Path]) -> list[str]:
-    """Paths inside ``root`` that the manifest does not hold."""
-    held = set(manifest["files"]) | set(manifest["probes"]) | set(manifest["listings"])
-    # A lookup is keyed "<directory>/<name>"; the import system lists the directory and
-    # probes the name's candidates: name.py, name/, name/__init__.py and the like.
+def unheld(paths: set[tuple[Path, str]], root: Path, manifest: dict,
+           allowed: list[Path]) -> list[str]:
+    """``access path`` for each path inside ``root`` the manifest does not hold as that
+    access: a read is a file the manifest hashed, a listing a directory it listed, a
+    probe anything it holds."""
+    files, listings = set(manifest["files"]), set(manifest["listings"])
+    held = files | set(manifest["probes"]) | listings
+    # A lookup is keyed "<directory>/<name>": the import system lists the directory and
+    # probes the name's candidates, a module file, a package directory or its __init__.
     lookups = [k.removeprefix("./") for k in manifest["lookups"]]
-    directories = {k.rpartition("/")[0] or "." for k in lookups}
+    lookup_dirs = {k.rpartition("/")[0] or "." for k in lookups}
+    candidates = set()
+    for k in lookups:
+        candidates.add(k)
+        candidates.update(k + s for s in SUFFIXES)
+        candidates.update(f"{k}/__init__{s}" for s in SUFFIXES)
     out = []
-    for path in sorted(paths):
+    for path, access in sorted(paths):
         if not path.is_relative_to(root) or any(path.is_relative_to(a) for a in allowed):
             continue
         rel = path.relative_to(root).as_posix()
         rel = "." if rel in ("", ".") else rel
-        if rel in held or rel in directories or rel == ".":
-            continue
-        if any(rel == k or rel.startswith(k + ".") or rel.startswith(k + "/") for k in lookups):
-            continue
-        out.append(rel)
+        if access == "read":
+            ok = rel in files
+        elif access == "list":
+            ok = rel in listings or rel in lookup_dirs
+        else:
+            ok = rel in held or rel in lookup_dirs or rel in candidates or rel == "."
+        if not ok:
+            out.append(f"{access} {rel}")
     return out
 
 
@@ -93,9 +112,12 @@ def trace(command: list[str], cwd: Path, directory: Path, root: Path) -> tuple[d
     env = {k: v for k, v in os.environ.items() if k not in record.OWN}
     env[record.ENV] = str(directory)
     log = directory.parent / f"{directory.name}.strace"
-    subprocess.run(["strace", "-f", "-y", "-s", "4096", "-qq", "-o", str(log),
-                    "-e", "trace=%file,%network,getdents64,getdents", *command],
-                   cwd=cwd, env=env, capture_output=True)
+    proc = subprocess.run(["strace", "-f", "-y", "-s", "4096", "-qq", "-o", str(log),
+                           "-e", "trace=%file,%network,getdents64,getdents", *command],
+                          cwd=cwd, env=env, capture_output=True, encoding="utf-8",
+                          errors="replace")
+    if proc.returncode != 0:
+        raise AssertionError(f"the traced run exited {proc.returncode}: {proc.stderr[-500:]}")
     manifest = json.loads((directory / record.MANIFEST).read_text(encoding="utf-8"))
     return manifest, log.read_text(encoding="utf-8", errors="replace")
 
@@ -130,13 +152,21 @@ class Parsing(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     def test_strace_lines_give_the_paths_read_probed_and_listed(self):
         paths, connects = traced_paths(SAMPLE, Path("/repo"))
-        self.assertEqual({p.as_posix() for p in paths if p.as_posix().startswith("/repo")},
-                         {"/repo/docs/a.md", "/repo/docs/b.md", "/repo/docs/c.md",
-                          "/repo/sub", "/repo/pkg/mod.py"})
+        self.assertEqual({(p.as_posix(), a) for p, a in paths
+                          if p.as_posix().startswith("/repo")},
+                         {("/repo/docs/a.md", "read"), ("/repo/docs/b.md", "read"),
+                          ("/repo/docs/c.md", "probe"), ("/repo/sub", "list"),
+                          ("/repo/pkg/mod.py", "probe")})
         self.assertEqual(len(connects), 1)
         manifest = {"files": {"docs/a.md": "x"}, "probes": {"docs/c.md": "file"},
                     "listings": {"sub": []}, "lookups": {"./pkg/mod": "pkg/mod.py"}}
-        self.assertEqual(unheld(paths, Path("/repo"), manifest, []), ["docs/b.md"])
+        self.assertEqual(unheld(paths, Path("/repo"), manifest, []), ["read docs/b.md"])
+        # A file the native code opened is held only by its hash, not by a probe.
+        probed = {**manifest, "files": {}, "probes": {"docs/a.md": "file", "docs/c.md": "file"}}
+        self.assertIn("read docs/a.md", unheld(paths, Path("/repo"), probed, []))
+        # A lookup excuses its candidates, not the rest of the package's tree.
+        deeper = {(Path("/repo/pkg/mod/data.txt"), "probe")}
+        self.assertEqual(unheld(deeper, Path("/repo"), manifest, []), ["probe pkg/mod/data.txt"])
 
 
 class Traced(unittest.TestCase):
@@ -150,8 +180,10 @@ class Traced(unittest.TestCase):
         self.assertTrue(manifest["storable"], manifest.get("why"))
         paths, connects = traced_paths(log, cwd)
         self.assertGreater(len(paths), 0, "strace reported no call")
-        prefixes = [Path(p) for p in (sys.prefix, sys.base_prefix)]
-        self.assertEqual(unheld(paths, root, manifest, allowed + prefixes), [])
+        # The interpreter's own files are the environment's; the recorder's own file is
+        # loaded before it starts and belongs to the package's identity.
+        own = [Path(p) for p in (sys.prefix, sys.base_prefix, record.__file__)]
+        self.assertEqual(unheld(paths, root, manifest, allowed + own), [])
         self.assertEqual(connects, [])
 
     @proves("REQ_REUSE_SOUND")

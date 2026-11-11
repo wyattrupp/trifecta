@@ -33,6 +33,8 @@ ENV = "TRIFECTA_RECORD"
 STORE_ENV = "TRIFECTA_STORE"
 OWN = frozenset({ENV, STORE_ENV})
 MANIFEST = "manifest.json"
+#: What a process made and wrote, which its parent leaves out of its own inputs.
+MADE = "made.json"
 CONFIG = "config.json"
 START = "start.py"
 VERSION = 1
@@ -61,11 +63,16 @@ KINDS = ("file", "directory", "link", "absent")
 
 #: The functions the recorder itself calls, taken before any is wrapped.
 _lstat, _scandir, _getcwd, _open = os.lstat, os.scandir, os.getcwd, io.open
+_realpath = os.path.realpath
 
 
 def prepare(directory: str, root: str, ignore=(), recorder: str | None = None) -> None:
     """Make ``directory`` one a process records into: the repository root, the recorder
-    file to load, and the run's own control files, which are not inputs."""
+    file to load, and the run's own control files, which are not inputs. The directory is
+    a new one, or an empty one the caller made, such as by ``tempfile.mkdtemp``: what it
+    holds is run by the processes that record into it."""
+    if os.path.islink(directory) or os.path.isdir(directory) and os.listdir(directory):
+        raise ValueError(f"{directory} is a link or is not empty")
     os.makedirs(directory, exist_ok=True)
     config = {"root": os.path.abspath(root),
               "recorder": os.path.abspath(recorder or __file__),
@@ -161,7 +168,10 @@ class Recorder:
         self.written: set[str] = set()   # files the run wrote, moved or removed
         self.children: list[str] = []
         self.registry: set[int] = set()
-        self.in_rmtree = 0
+
+    def in_rmtree(self) -> bool:
+        """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
+        return getattr(self.local, "rmtree", 0) > 0
 
     # -- state ------------------------------------------------------------------
 
@@ -210,7 +220,17 @@ class Recorder:
     # -- inputs -------------------------------------------------------------------
 
     def read(self, raw) -> None:
-        found = self.where(raw)
+        path = _text(raw)
+        if path is None:
+            return
+        absolute = os.path.abspath(os.path.join(_getcwd(), path))
+        if kind(absolute) == "link":
+            if self.where(absolute) is not None:
+                # What a link the run did not make points to could change unseen.
+                self.refuse("reads through a link")
+                return
+            absolute = _realpath(absolute)  # a link the run made: its target is read
+        found = self.where(absolute)
         if found is None:
             return
         section, key, absolute = found
@@ -219,7 +239,7 @@ class Recorder:
             return
         digest = file_hash(absolute) if kind(absolute) == "file" else None
         if digest is None:
-            self.probe(raw)
+            self.probe(absolute)
         else:
             target[key] = digest
 
@@ -230,10 +250,15 @@ class Recorder:
 
     def list(self, raw) -> None:
         if isinstance(raw, int):
-            if not self.in_rmtree:
-                self.refuse("lists a directory by descriptor")
+            self.refuse("lists a directory by descriptor")
             return
-        found = self.where("." if raw is None else raw)
+        path = "." if raw is None else _text(raw)
+        n = _norm(os.path.abspath(os.path.join(_getcwd(), path or ".")))
+        if n != self.nroot and _under(self.nroot, n):
+            # The root's ancestors hold its siblings, which differ wherever it is copied.
+            self.refuse("lists a directory that holds the repository")
+            return
+        found = self.where(path)
         if found is None:
             return
         _, key, absolute = found
@@ -257,8 +282,8 @@ class Recorder:
     # -- the audit hook -----------------------------------------------------------
 
     def hook(self, event: str, args: tuple) -> None:
-        if self.quiet():
-            return
+        if self.quiet() or self.in_rmtree():
+            return  # rmtree's calls name entries by descriptor; its tree is written
         self.local.busy = True
         try:
             with self.lock:
@@ -301,6 +326,7 @@ class Recorder:
                         self.read(origin)
             for child in self.children:
                 self._merge(child)
+            self._drop_made()
             data = {"version": VERSION, "storable": self.why is None}
             if self.why is not None:
                 data["why"] = self.why
@@ -320,36 +346,111 @@ class Recorder:
             return
         if not data["storable"]:
             self.refuse(data.get("why") or "a Python child was not storable")
+        try:
+            with _open(os.path.join(child, MADE), encoding="utf-8") as f:
+                made = json.load(f)
+            self.created.update(str(p) for p in made["created"])
+            self.written.update(str(p) for p in made["written"])
+        except (OSError, ValueError, KeyError, TypeError):
+            self.refuse("a Python child left no record of what it made")
         for name in SECTIONS:
             mine = getattr(self, name)
             for key, value in data[name].items():
+                if name == "environment" and key in self.env_set:
+                    continue  # a variable the run set is its own, in its children too
                 if mine.setdefault(key, value) != value:
                     self.refuse(f"a Python child and its parent saw {key} differently")
+
+    def _drop_made(self) -> None:
+        """Leave out what the run or any of its children made, now that all is known: a
+        file a child wrote and the parent then read is no input."""
+        def made(key: str) -> bool:
+            n = _norm(key if os.path.isabs(key) else os.path.join(self.root, key))
+            return n in self.written or any(_under(n, c) for c in self.created)
+        for name in ("files", "outside", "probes", "listings"):
+            section = getattr(self, name)
+            # That a path was absent before the run made it is still an input.
+            for key in [k for k, v in section.items() if made(k) and v != "absent"]:
+                del section[key]
 
     def finish(self) -> None:
         data = self.manifest()
         target = os.path.join(self.directory, MANIFEST)
+        if os.path.exists(target):  # another process wrote here: whose reads is unknown
+            data = {**data, "storable": False, "why": "two processes recorded into one place"}
+        _write(os.path.join(self.directory, MADE),
+               json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
         os.replace(target + ".tmp", target)
 
 
+#: Bounds on what a manifest read from a store may hold, which is data from another run.
+MAX_ENTRIES, MAX_TEXT = 200_000, 4096
+_HEX = frozenset("0123456789abcdef")
+_SPECIAL = ("(namespace)", "(elsewhere)")
+
+
+def _digest(v) -> bool:
+    return isinstance(v, str) and len(v) == 64 and set(v) <= _HEX
+
+
+def _relative(key) -> bool:
+    """A repository-relative path as IF_MANIFEST writes it: forward slashes, no root, no
+    drive, no ``..``, no empty part."""
+    if not isinstance(key, str) or not key or len(key) > MAX_TEXT or "\\" in key \
+            or "\0" in key:
+        return False
+    if key == ".":
+        return True
+    parts = key.split("/")
+    return not (key.startswith("/") or (len(key) > 1 and key[1] == ":")
+                or any(p in ("", ".", "..") for p in parts))
+
+
+def _absolute(key) -> bool:
+    return (isinstance(key, str) and 0 < len(key) <= MAX_TEXT and "\0" not in key
+            and os.path.isabs(key) and ".." not in key.replace("\\", "/").split("/"))
+
+
+def _path(key) -> bool:
+    return _relative(key) or _absolute(key)
+
+
+def _lookup_key(key) -> bool:
+    if not isinstance(key, str):
+        return False
+    directory, _, name = key.rpartition("/")
+    return name.isidentifier() and _path(directory)
+
+
 def valid(data) -> bool:
-    """Whether ``data`` has the shape IF_MANIFEST states."""
-    if not (isinstance(data, dict) and data.get("version") == VERSION
-            and isinstance(data.get("storable"), bool)
+    """Whether ``data`` has exactly the shape IF_MANIFEST states, within bounds: what a
+    store holds came from another run, so it is checked before anything reads it."""
+    if not (isinstance(data, dict) and type(data.get("version")) is int
+            and data["version"] == VERSION and type(data.get("storable")) is bool
             and set(data) <= {"version", "storable", "why", *SECTIONS}
             and all(isinstance(data.get(s), dict) for s in SECTIONS)):
         return False
-    str_or_none = lambda v: v is None or isinstance(v, str)
-    return (all(isinstance(v, str) for v in data["files"].values())
-            and all(isinstance(v, str) for v in data["outside"].values())
-            and all(v in KINDS for v in data["probes"].values())
-            and all(isinstance(v, list) and all(isinstance(e, list) and len(e) == 2
-                                                and isinstance(e[0], str) and e[1] in KINDS
-                                                for e in v)
-                    for v in data["listings"].values())
-            and all(str_or_none(v) for v in data["lookups"].values())
-            and all(str_or_none(v) for v in data["environment"].values()))
+    if "why" in data and (data["storable"] or not isinstance(data["why"], str)
+                          or len(data["why"]) > MAX_TEXT):
+        return False
+    if sum(len(data[s]) for s in SECTIONS) + sum(
+            len(v) if isinstance(v, list) else 0 for v in data["listings"].values()) \
+            > MAX_ENTRIES:
+        return False
+    entry = lambda e: (isinstance(e, list) and len(e) == 2 and isinstance(e[0], str)
+                       and 0 < len(e[0]) <= MAX_TEXT and "/" not in e[0] and e[1] in KINDS)
+    found = lambda v: v is None or v in _SPECIAL or _relative(v)
+    name = lambda k: (isinstance(k, str) and 0 < len(k) <= MAX_TEXT and "=" not in k
+                      and "\0" not in k)
+    return (all(_relative(k) and _digest(v) for k, v in data["files"].items())
+            and all(_absolute(k) and _digest(v) for k, v in data["outside"].items())
+            and all(_path(k) and v in KINDS for k, v in data["probes"].items())
+            and all(_path(k) and isinstance(v, list) and all(map(entry, v))
+                    for k, v in data["listings"].items())
+            and all(_lookup_key(k) and found(v) for k, v in data["lookups"].items())
+            and all(name(k) and (v is None or _digest(v))
+                    for k, v in data["environment"].items()))
 
 
 # --- the events -----------------------------------------------------------------------
@@ -375,15 +476,39 @@ def _open_event(r: Recorder, args) -> None:
         r.wrote(path)
 
 
+#: Where each event carries its directory descriptors: a path relative to a descriptor
+#: names a file the recorder cannot place.
+DIR_FD_AT = {"os.remove": (1,), "os.rmdir": (1,), "os.rename": (2, 3), "os.replace": (2, 3),
+             "os.mkdir": (2,), "os.chmod": (2,), "os.chown": (3,), "os.utime": (3,),
+             "os.link": (2, 3), "os.symlink": (2,)}
+
+
+def _by_descriptor(r: Recorder, event: str, args) -> bool:
+    if any(i < len(args) and args[i] not in (None, -1) for i in DIR_FD_AT.get(event, ())):
+        r.refuse("names a path relative to a directory descriptor")
+        return True
+    return False
+
+
 def _rename(r: Recorder, args) -> None:
+    if _by_descriptor(r, "os.rename", args):
+        return
     src, dst = args[0], args[1]
-    src_kind = kind(_text(src) or "")
+    if kind(os.path.join(_getcwd(), _text(src) or "")) == "directory":
+        if r.where(src) is not None:
+            # What is under it would be read under a name the run made.
+            r.refuse("moves a directory it did not make")
+            return
+        r.wrote(dst, directory=True)
+        return
     r.read(src)
-    r.wrote(src, directory=src_kind == "directory")
-    r.wrote(dst, directory=src_kind == "directory")
+    r.wrote(src)
+    r.wrote(dst)
 
 
 def _remove(r: Recorder, args) -> None:
+    if _by_descriptor(r, "os.remove", args):
+        return
     r.probe(args[0])
     r.wrote(args[0])
 
@@ -404,14 +529,25 @@ def _copy(r: Recorder, args) -> None:
     r.wrote(args[1])
 
 
-def _modify(r: Recorder, args) -> None:
-    r.probe(args[0])
-    r.wrote(args[0])
+def _modifying(event: str):
+    def handler(r: Recorder, args) -> None:
+        if not _by_descriptor(r, event, args):
+            r.probe(args[0])
+            r.wrote(args[0])
+    return handler
 
 
-def _link(r: Recorder, args) -> None:
-    r.probe(args[0])
-    r.wrote(args[1])
+def _symlink(r: Recorder, args) -> None:
+    # Reading the link later reads its target, which the read records then.
+    if not _by_descriptor(r, "os.symlink", args):
+        r.wrote(args[1])
+
+
+def _hardlink(r: Recorder, args) -> None:
+    # A hard link is another name for the same content: the run reads its source.
+    if not _by_descriptor(r, "os.link", args):
+        r.read(args[0])
+        r.wrote(args[1])
 
 
 def _listing(r: Recorder, args) -> None:
@@ -442,6 +578,11 @@ def _popen(r: Recorder, args) -> None:
         name = os.path.basename(_text(program) or "")
         name = name[:-4] if name.lower().endswith(".exe") else name
         r.refuse(f"runs {name or 'a program'}")
+
+
+def _in_popen(r: Recorder, args) -> None:
+    if getattr(r.local, "popen", False) is False:
+        r.refuse("starts a process other than through subprocess")
 
 
 def _registry_open(r: Recorder, args) -> None:
@@ -481,14 +622,16 @@ HANDLERS = {
     "os.mkdir": _mkdir,
     "shutil.copyfile": _copy, "_winapi.CopyFile2": _copy,
     "shutil.copymode": _copy, "shutil.copystat": _copy,
-    "os.chmod": _modify, "os.chown": _modify, "os.chflags": _modify, "os.lchflags": _modify,
-    "os.lchmod": _modify, "os.lchown": _modify, "os.utime": _modify, "os.truncate": _modify,
-    "os.setxattr": _modify, "os.removexattr": _modify, "os.mkfifo": _modify,
-    "os.mknod": _modify,
-    "os.link": _link, "os.symlink": _link,
+    **{event: _modifying(event) for event in (
+        "os.chmod", "os.chown", "os.chflags", "os.lchflags", "os.lchmod", "os.lchown",
+        "os.utime", "os.truncate", "os.setxattr", "os.removexattr")},
+    "os.link": _hardlink, "os.symlink": _symlink,
     "os.listdir": _listing, "os.scandir": _listing,
     "os.chdir": _chdir,
     "subprocess.Popen": _popen,
+    # The calls subprocess makes for a child it starts: elsewhere, a process the recorder
+    # does not follow, as multiprocessing starts.
+    "_winapi.CreateProcess": _in_popen, "os.posix_spawn": _in_popen,
     "winreg.OpenKey": _registry_open, "winreg.OpenKeyEx": _registry_open,
     "winreg.OpenKey/result": _registry_opened,
     "winreg.EnumValue": _registry_read, "winreg.QueryInfoKey": _registry_read,
@@ -526,8 +669,7 @@ HARMLESS = frozenset({
     "pathlib.Path.glob", "pathlib.Path.rglob", "pathlib.Path.walk", "shutil.copytree",
     "shutil.move", "shutil.make_archive", "shutil.unpack_archive", "shutil.rmtree",
     "shutil.chown", "tempfile.mkstemp", "tempfile.mkdtemp", "os.add_dll_directory",
-    "os.kill", "os.killpg", "signal.pthread_kill", "_winapi.CreateProcess",
-    "_winapi.CreatePipe", "_winapi.CreateNamedPipe", "_winapi.OpenProcess",
+    "os.kill", "os.killpg", "signal.pthread_kill", "_winapi.CreatePipe", "_winapi.CreateNamedPipe", "_winapi.OpenProcess",
     "_winapi.TerminateProcess", "msvcrt.get_osfhandle", "msvcrt.open_osfhandle",
     "msvcrt.locking", "fcntl.fcntl", "fcntl.ioctl", "fcntl.flock", "fcntl.lockf",
     "mmap.__new__", "socket.__new__", "socket.bind", "builtins.breakpoint",
@@ -541,7 +683,8 @@ REFUSED = {
     "socket.sendmsg": "makes a network connection",
     "urllib.Request": "makes a network request", "os.system": "runs a shell",
     "os.exec": "replaces the process", "os.spawn": "runs a program",
-    "os.posix_spawn": "runs a program", "os.fork": "forks", "os.forkpty": "forks",
+    "os.fork": "forks", "os.forkpty": "forks", "os.mkfifo": "makes a special file",
+    "os.mknod": "makes a special file",
     "os.startfile": "starts a program", "os.fchdir": "changes the working directory",
 }
 
@@ -553,7 +696,9 @@ def _probing(r: Recorder, function, hashes: bool):
     ``os.stat`` or ``os.lstat`` returns, size included, is recorded as read."""
 
     def wrapped(path, *args, **kwargs):
-        if not isinstance(path, int) and kwargs.get("dir_fd") is None:
+        if kwargs.get("dir_fd") is not None and not r.in_rmtree():
+            r.guarded(lambda: r.refuse("names a path relative to a directory descriptor"))
+        elif not isinstance(path, int) and not r.in_rmtree():
             def note():
                 r.probe(path)
                 if hashes:
@@ -594,7 +739,7 @@ def _watch_imports(r: Recorder) -> None:
                 result = "(namespace)"
             else:
                 hit = r.where(spec.origin)
-                result = hit[1] if hit else "(elsewhere)"
+                result = hit[1] if hit and hit[0] == "repo" else "(elsewhere)"
             r.lookups.setdefault(f"{found[1]}/{fullname.rpartition('.')[2]}", result)
         r.guarded(note)
         return spec
@@ -604,9 +749,13 @@ def _watch_imports(r: Recorder) -> None:
 
 def _python_child(argv: list[str]) -> str | None:
     """Why a child started with ``sys.executable`` cannot record itself, or None."""
-    for a in argv[1:]:
+    options = iter(argv[1:])
+    for a in options:
         if a in ("-c", "-m", "-") or not a.startswith("-"):
             return None
+        if a in ("-X", "-W", "--check-hash-based-pycs"):
+            next(options, None)  # the option's value, in the next argument
+            continue
         if a.startswith("--"):
             continue
         for c in a[1:]:
@@ -637,9 +786,9 @@ def _watch_children(r: Recorder) -> None:
             python = _norm(os.path.abspath(os.fsdecode(program))) == executable
         if python and not r.quiet():
             env = args[env_at]
-            given = None if env is None else env.get(ENV)
             why = _python_child([os.fsdecode(a) for a in argv])
-            if given is not None and _norm(os.path.abspath(given)) != _norm(r.directory):
+            if env is not None and ENV in env:
+                # The recorder took ENV out of the process: the run named one itself.
                 why = "starts a Python child that records into a directory of its own"
             if why:
                 r.refuse(why)
@@ -663,13 +812,27 @@ def _watch_children(r: Recorder) -> None:
                         r.children.append(child)
                 finally:
                     r.local.busy = False
-        r.local.child = python
+        r.local.child, r.local.popen = python, True
         try:
             return original(self, *args)
         finally:
-            r.local.child = False
+            r.local.child, r.local.popen = False, False
 
     subprocess.Popen._execute_child = execute_child
+    try:
+        import _posixsubprocess
+    except ImportError:
+        return
+    fork_exec = _posixsubprocess.fork_exec
+
+    def guarded_fork_exec(*args, **kwargs):
+        # subprocess binds fork_exec when it is imported; any other caller, such as
+        # multiprocessing, starts a process that leaves no manifest the run can find.
+        if not getattr(r.local, "popen", False):
+            r.guarded(lambda: r.refuse("starts a process other than through subprocess"))
+        return fork_exec(*args, **kwargs)
+
+    _posixsubprocess.fork_exec = guarded_fork_exec
 
 
 def _watch_rmtree(r: Recorder) -> None:
@@ -684,16 +847,90 @@ def _watch_rmtree(r: Recorder) -> None:
             r.probe(path)
             r.wrote(path, directory=True)
         r.guarded(note)
-        with r.lock:
-            r.in_rmtree += 1
+        r.local.rmtree = getattr(r.local, "rmtree", 0) + 1  # this thread's calls only
         try:
             return original(path, *args, **kwargs)
         finally:
-            with r.lock:
-                r.in_rmtree -= 1
+            r.local.rmtree -= 1
 
     rmtree.avoids_symlink_attacks = getattr(original, "avoids_symlink_attacks", False)
     shutil.rmtree = rmtree
+
+
+def _watch_open(r: Recorder) -> None:
+    """os.open's audit event leaves out ``dir_fd``: a path relative to a descriptor is
+    refused here, where the argument is seen."""
+    original = os.open
+
+    def open_(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None and not r.in_rmtree():
+            r.guarded(lambda: r.refuse("names a path relative to a directory descriptor"))
+        return original(path, flags, mode, dir_fd=dir_fd)
+
+    open_.__wrapped__ = original
+    os.open = open_
+
+
+class _Entry:
+    """A DirEntry whose ``stat()``, which reports a file's size, is recorded as a read."""
+
+    __slots__ = ("_entry", "_recorder")
+
+    def __init__(self, entry, recorder: Recorder):
+        self._entry, self._recorder = entry, recorder
+
+    def __getattr__(self, name):
+        return getattr(self._entry, name)
+
+    def __fspath__(self):
+        return self._entry.__fspath__()
+
+    def __repr__(self):
+        return repr(self._entry)
+
+    def stat(self, *, follow_symlinks=True):
+        r, path = self._recorder, os.fsdecode(self._entry.path)
+        if not r.in_rmtree():
+            def note():
+                r.probe(path)
+                if kind(os.path.abspath(os.path.join(_getcwd(), path))) == "file":
+                    r.read(path)
+            r.guarded(note)
+        return self._entry.stat(follow_symlinks=follow_symlinks)
+
+
+class _Scandir:
+    """os.scandir's iterator, handing out recorded entries."""
+
+    def __init__(self, it, recorder: Recorder):
+        self._it, self._recorder = it, recorder
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return _Entry(next(self._it), self._recorder)
+
+    def __enter__(self):
+        self._it.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._it.__exit__(*exc)
+
+    def close(self):
+        self._it.close()
+
+
+def _watch_scandir(r: Recorder) -> None:
+    original = os.scandir
+
+    def scandir(path="."):
+        it = original(path)
+        return it if isinstance(path, int) else _Scandir(it, r)
+
+    scandir.__wrapped__ = original
+    os.scandir = scandir
 
 
 def _name(key) -> str:
@@ -781,12 +1018,23 @@ def start(directory: str, config: dict) -> Recorder:
     for name in ("exists", "lexists", "isfile", "isdir", "islink", "isjunction", "realpath"):
         if hasattr(os.path, name):
             setattr(os.path, name, _probing(r, getattr(os.path, name), False))
+    # Only a child the recorder starts gets a directory: one that inherits this one, as a
+    # process started some other way would, would write over this manifest.
+    os.environ.pop(ENV, None)
+    # The interpreter read these before the recorder started: the module search path, its
+    # warnings, hash seed, encodings and locale. Named before the mapping records.
+    startup = [n for n in os.environ
+               if n.upper().startswith(("PYTHON", "LC_")) or n.upper() in ("LANG", "LANGUAGE")]
     os.environ.__class__ = _recording_environ(r, type(os.environ))
     if hasattr(os, "environb"):
         os.environb.__class__ = _recording_environ(r, type(os.environb))
+    for name in startup:
+        os.environ.get(name)
     _watch_imports(r)
     _watch_children(r)
     _watch_rmtree(r)
+    _watch_open(r)
+    _watch_scandir(r)
     sys.addaudithook(r.hook)
     atexit.register(r.finish)
     return r

@@ -25,7 +25,7 @@ from unittest import mock
 
 from trifecta import record
 from trifecta import setup as setup_module
-from trifecta.testing import proves
+from trifecta.testing import only_on, proves
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -129,8 +129,9 @@ class Inputs(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     def test_every_wrapped_probe_records_its_kind(self):
-        probes = ["os.stat", "os.lstat", "os.access", "os.path.exists", "os.path.isfile",
-                  "os.path.isdir", "os.path.islink", "os.path.lexists"]
+        probes = ["os.stat", "os.lstat", "os.access", "os.readlink", "os.path.exists",
+                  "os.path.isfile", "os.path.isdir", "os.path.islink", "os.path.lexists",
+                  "os.path.isjunction", "os.path.realpath"]
         for probe in probes:
             for path, kind in (("a.txt", "file"), ("sub", "directory"), ("gone", "absent")):
                 with self.subTest(probe=probe, path=path):
@@ -144,6 +145,35 @@ class Inputs(unittest.TestCase):
                         """)
                     self.assertTrue(m["storable"], m.get("why"))
                     self.assertEqual(m["probes"].get(path), kind)
+
+    @proves("REQ_REUSE_SOUND")
+    def test_a_directory_entrys_status_is_a_read(self):
+        m = run(self.root, "import os; [e.stat().st_size for e in os.scandir('sub')]")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("sub/x.txt", m["files"])
+
+    @proves("REQ_REUSE_SOUND")
+    def test_what_a_child_wrote_is_no_input_to_its_parent(self):
+        m = run(self.root, """
+            import subprocess, sys
+            subprocess.run([sys.executable, "-c", "open('by-child.txt', 'w').write('x')"],
+                           check=True)
+            open("by-child.txt").read()
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertNotIn("by-child.txt", m["files"])
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_through_a_link_the_run_made_reads_its_target(self):
+        m = run(self.root, """
+            import os, tempfile
+            link = os.path.join(tempfile.mkdtemp(), "link")
+            os.symlink(os.path.abspath("b.txt"), link)
+            open(link).read()
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("b.txt", m["files"])
 
     @proves("REQ_REUSE_SOUND")
     def test_environment_reads_and_iteration(self):
@@ -201,6 +231,40 @@ class Unstorable(unittest.TestCase):
         self.assertIn("-S", why)
 
     @proves("REQ_REUSE_SOUND")
+    def test_child_with_dash_s_after_an_option_value(self):
+        why = self.refused("import subprocess, sys; subprocess.run([sys.executable, '-X', "
+                           "'utf8', '-S', '-c', 'pass'], check=True)")
+        self.assertIn("-S", why)
+
+    @proves("REQ_REUSE_SOUND")
+    def test_a_process_started_other_than_through_subprocess(self):
+        why = self.refused("""
+            import multiprocessing, os
+            if __name__ == "__main__":
+                p = multiprocessing.get_context("spawn").Process(target=os.getpid)
+                p.start(); p.join()
+            """)
+        self.assertIn("other than through subprocess", why)
+
+    @proves("REQ_REUSE_SOUND")
+    def test_moving_a_directory_it_did_not_make(self):
+        self.assertIn("moves a directory", self.refused("import os; os.rename('sub', 'moved')"))
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_path_relative_to_a_descriptor(self):
+        why = self.refused("""
+            import os
+            fd = os.open(".", os.O_RDONLY)
+            os.close(os.open("a.txt", os.O_RDONLY, dir_fd=fd))
+            """)
+        self.assertIn("descriptor", why)
+
+    @proves("REQ_REUSE_SOUND")
+    def test_listing_a_directory_that_holds_the_repository(self):
+        self.assertIn("holds the repository", self.refused("import os; os.listdir('..')"))
+
+    @proves("REQ_REUSE_SOUND")
     def test_child_leaving_no_manifest(self):
         why = self.refused("import subprocess, sys; subprocess.run([sys.executable, '-c', "
                            "'import os; os._exit(0)'])")
@@ -234,6 +298,32 @@ class Unstorable(unittest.TestCase):
         self.assertIn("runs ", why)
 
 
+GOOD = {"version": 1, "storable": True,
+        "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
+        "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
+        "environment": {"HOME": None}, "outside": {}}
+
+
+class Shape(unittest.TestCase):
+    @proves("REQ_REUSE_SOUND")
+    def test_a_manifest_from_elsewhere_is_held_to_its_shape(self):
+        self.assertTrue(record.valid(GOOD))
+        bad = [
+            {"version": True}, {"storable": 1}, {"why": "no"}, {"extra": {}},
+            {"files": {"../outside": "0" * 64}}, {"files": {"/abs": "0" * 64}},
+            {"files": {"C:/x": "0" * 64}}, {"files": {"a\\b": "0" * 64}},
+            {"files": {"a": "not a hash"}}, {"outside": {"relative": "0" * 64}},
+            {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
+            {"lookups": {"./not-a-name": None}}, {"lookups": {"./m": "/abs/m.py"}},
+            {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
+        ]
+        for change in bad:
+            with self.subTest(change=change):
+                self.assertFalse(record.valid({**GOOD, **change}))
+        self.assertFalse(record.valid({**GOOD, "storable": False, "why": 3}))
+        self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git"}))
+
+
 class Portable(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     def test_same_run_in_two_copies_gives_the_same_manifest(self):
@@ -250,3 +340,5 @@ class Portable(unittest.TestCase):
                 manifests.append(run(root, code, env=env))
         self.assertTrue(manifests[0]["storable"], manifests[0].get("why"))
         self.assertEqual(manifests[0], manifests[1])
+        # Read by the interpreter as it started, before any code of the run.
+        self.assertIn("PYTHONPATH", manifests[0]["environment"])
