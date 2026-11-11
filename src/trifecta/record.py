@@ -130,6 +130,12 @@ def _norm(path: str) -> str:
     return os.path.normcase(os.path.normpath(path))
 
 
+#: The system's time zone, which belongs with the clock that RFC_0008 leaves out of scope,
+#: as the Windows registry's time-zone key does.
+_ZONES = () if os.name == "nt" else tuple(
+    os.path.normpath(p) for p in ("/etc/localtime", "/etc/timezone", "/usr/share/zoneinfo",
+                                  "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo"))
+
 #: The null device, which holds nothing to read, in the spellings subprocess uses.
 _DEVNULL = {_norm(os.devnull), _norm("\\\\.\\nul"), _norm("nul")} if os.name == "nt" \
     else {_norm(os.devnull)}
@@ -218,7 +224,8 @@ class Recorder:
         n = _norm(absolute)
         if n in self.written or any(_under(n, c) for c in self.created) \
                 or any(_under(n, i) for i in self.ignore) \
-                or any(_under(n, p) for p in self.prefixes):
+                or any(_under(n, p) for p in self.prefixes) \
+                or any(_under(n, z) for z in _ZONES):
             return None
         if _under(n, self.nroot):
             rel = absolute[len(self.root):].lstrip("\\/").replace(os.sep, "/")
@@ -256,7 +263,7 @@ class Recorder:
         if kind(absolute) != "link":
             return absolute
         if self.where(absolute) is not None:
-            self.refuse(f"{what} through a link")
+            self.refuse(f"{what} through a link: {self.where(absolute)[1]}")
             return None
         return _realpath(absolute)
 
