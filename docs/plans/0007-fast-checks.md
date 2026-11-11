@@ -40,7 +40,7 @@ Measure before changing anything.
 - [x] **1.2** Time the fixture runner's base copy, control and each fixture's copy, mutation and check, and merge each copy's own check profile into `fixtures.json`.
 - [x] **1.3** Add `trifecta profile PATH` to the command line, and the tests, declared for REQ_PROFILED.
 - [x] **1.4** Add to both CI jobs a last step that always runs, uploads `docs/_build/profile/` and appends the tables to the job summary.
-- [ ] **1.5** Record in the As built entry the profiles of both CI jobs and of a local run, and which stages and fixtures hold the time.
+- [x] **1.5** Record in the As built entry the profiles of both CI jobs and of a local run, and which stages and fixtures hold the time.
 :::
 
 :::{task} Recorder
@@ -114,3 +114,41 @@ key; print stage names and times in the job summary, never environment values.
 :::
 
 ## As built
+
+### Task 1 (2026-11-11)
+
+The profiler is `trifecta.profiler`. The check times sixteen stages in run order, writes
+the profile in a `finally`, so a stage that raises still leaves one, and keeps
+`docs/_build/profile/` out of the clean before the build; the clean removes a link or
+junction rather than following it. `--profile`, on the check and the fixture runner, and
+`trifecta profile` refuse a path outside the repository, as IF_CLI requires, so the
+fixture runner reads each copy's own `docs/_build/profile/check.json` after removing the
+one copied from the control, rather than naming a path outside the copy. Each fixture
+record also holds `mutate_seconds` and `check_seconds`, which IF_PROFILE does not list.
+IF_CLI in {need}`DES_0004` now names both, reviewed k=2 and stamped. Table cells escape
+Markdown, since a fixture's name reaches the job summary. Review findings dropped: an
+exception other than a fixture error, which ends the fixture runner as it did before,
+leaves the fixtures it had run out of the profile; a `--profile` path that git does not
+ignore is the caller's choice; a copy's own check writes the stages the fixture runner
+merges, at the trust of the pull request that runs it.
+
+Before (main at e1d92cd, push run 42933435772): the Linux job 703 s, its fixture step
+657 s; the Windows job 909 s, its fixture step 847 s. After, in this task's last run
+(run 42938992814): the Linux job 829 s, its fixture step 788 s; the Windows job 791 s,
+its fixture step 734 s; the spread between runs of one commit is wider than the change.
+Its profiles, in seconds:
+
+| Run | Check | Tests | Sphinx | History | Fixture step | Control | Fixtures summed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Linux CI | 26.0 | 19.3 | 5.6 | 0.2 | 787.7 | 26.0 | 2998 |
+| Windows CI | 18.3 | 12.1 | 4.0 | 1.4 | 733.6 | 17.7 | 2668 |
+| Local Windows, 24 workers | 97.8 | 72.0 | 16.9 | 4.8 | 765.5 | 79.9 | 14106 |
+
+Summed over the fixtures, the tests and the Sphinx build hold most of the time: locally
+6504 s and 3496 s of 14106, on Linux CI 1476 s and 1156 s of 2998, on Windows CI 969 s
+and 966 s of 2668. Next come the history check, 276 s on Windows CI, the lint view and
+the two Vale runs. The 50 fixtures that miss today's cache run every test and hold 68
+percent of the summed fixture time locally, 9639 s, the slowest the `proven-by-test`
+fixtures at 215 to 241 s each under contention; the 73 that change only `docs/` take
+their test results from the cache and spend their time in the build and the stages
+after it.
