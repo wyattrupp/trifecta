@@ -129,25 +129,31 @@ def listing(path: str) -> list[list[str]] | None:
 _long_path_name = None
 
 
-def _long(path: str) -> str:
-    """``path`` with any 8.3 short name in it spelled in full, on Windows: one directory
-    has two spellings where short names are on, and a run may make it under one and read
-    it under the other. The longest part that exists is expanded; the rest is kept."""
+def _bind_long() -> None:
+    """Bind GetLongPathNameW once, on Windows: before the audit hook, whose ctypes events
+    would otherwise refuse the recorder's own call."""
     global _long_path_name
-    if os.name != "nt" or "~" not in path:
-        return path
-    if _long_path_name is None:
+    if os.name == "nt" and _long_path_name is None:
         import ctypes
         from ctypes import wintypes
         function = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
         function.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
         function.restype = wintypes.DWORD
-        _long_path_name = (function, ctypes.c_wchar)
-    function, wchar = _long_path_name
+        _long_path_name = (function, ctypes.c_wchar * 32768)
+
+
+def _long(path: str) -> str:
+    """``path`` with any 8.3 short name in it spelled in full, on Windows: one directory
+    has two spellings where short names are on, and a run may make it under one and read
+    it under the other. The longest part that exists is expanded; the rest is kept."""
+    if os.name != "nt" or "~" not in path:
+        return path
+    _bind_long()
+    function, buffer_type = _long_path_name
+    buffer = buffer_type()
     head, tail = path, []
     while "~" in head:
-        buffer = (wchar * 32768)()
-        if 0 < function(head, buffer, 32768) < 32768:
+        if 0 < function(head, buffer, len(buffer)) < len(buffer):
             return os.path.join(buffer.value, *reversed(tail))
         parent, name = os.path.split(head)
         if parent == head or not name:
@@ -1117,6 +1123,7 @@ def start(directory: str, config: dict) -> Recorder:
     global _recorder
     if _recorder is not None:
         return _recorder
+    _bind_long()
     r = _recorder = Recorder(directory, config)
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.
