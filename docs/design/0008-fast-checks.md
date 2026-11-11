@@ -113,6 +113,7 @@ connection.
 
 :::{component} Result store
 :id: COMP_RESULT_STORE
+:spec: src/trifecta/store.py#class Store
 :satisfies: REQ_REUSE_SOUND, REQ_REUSE_SCOPED
 :constrained_by: DEC_0028, DEC_0030
 A directory of entries, `docs/_build/cache/` by default, kept out of the clean before the
@@ -120,17 +121,19 @@ Sphinx build, or the directory `TRIFECTA_STORE` names, which replaces
 `TRIFECTA_PROOF_CACHE`. An entry is filed under its identity: the stage; for a test
 module, its name and the tests left out of it; the environment key, made of `os.name`,
 `sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hash of the
-recorder's `.pth` file, and the name, version and `RECORD` hash of every installed
-distribution; and a hash of every file of the package that runs the stage, which an
+recorder's `.pth` file, the entries of the site directories, and the name, version and
+`RECORD` hash of every installed distribution; and a hash of every file of the package that runs the stage, which an
 editable install's `RECORD` does not cover. Under one identity the store keeps the
 manifests stored with their results, newest first, and a lookup takes the first whose
-every file hash, probe, listing and environment value matches the current tree and
-environment; when the store is written for publishing, entries whose identity no longer
+every file hash, probe, listing, import lookup, environment value and file outside the
+repository matches the current tree and environment; when the store is written for publishing, entries whose identity no longer
 matches the running package are dropped. A miss and an unstorable manifest run the
 stage; `--fresh` runs every stage and reuses nothing, and stores what it ran. Entries
 are JSON, written to a temporary file and moved into place, so copies running at once
-never read half an entry, and are checked against their schema when read, since a
-fetched store is data from another run. The store holds results, never verdicts: what a
+never read half an entry, and are checked against their schema and bounded in size and
+number when read, since a fetched store is data from another run; a store reached
+through a link, or one holding a file git tracks, is not used. A result is stored with
+the root's path replaced, and only from a child that reported its end. The store holds results, never verdicts: what a
 stored result means is decided by the running package every time. `TRIFECTA_STORE` is
 removed from the environment of every test child, so a test that runs the check itself
 runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
@@ -138,6 +141,7 @@ runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
 
 :::{component} Proof reuse
 :id: COMP_PROOF_REUSE
+:spec: src/trifecta/proofs.py#def run_modules
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
 The test stage runs each proof module it chose in a child of its own, under the recorder,
@@ -261,4 +265,16 @@ The review recorded as {need}`REV_RFC_0008_1` covered this document.
 {need}`PLAN_0007` task 2: the environment a manifest records is a SHA-256 of each value,
 with the root's path replaced, never the value, since a store CI publishes is public.
 Two rounds, one reviewer per lens, with the recorder that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_3
+:k: 2
+:date: 2026-11-10
+:digest: 28317eef4f52b3be08d821a40b1a3fd1a8260c39924d465df36274a636f9cdec
+{need}`PLAN_0007` task 3: a lookup also matches import lookups and files outside the
+repository; the environment key holds the site directories' entries; entries are bounded,
+a store reached through a link or holding a tracked file is not used, and a result is
+stored with the root replaced, only from a child that reported its end. Two rounds, one
+reviewer per lens, with the code that builds it.
 :::

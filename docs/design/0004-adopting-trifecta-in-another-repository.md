@@ -104,15 +104,19 @@ When a proof module exists, the check reads `os.name` once, before it starts the
 and that value alone decides which tests run and which declarations count without
 running; where `RUNNER_OS` is `Linux` or `Windows`, a value other than `posix` or `nt`
 respectively is reported under REQ_PROVEN_BY_TEST. It imports no test module itself: it
-runs the proof modules it chose in a child process started as `sys.executable -E -X
-utf8`, so no `PYTHON` variable such as `PYTHONOPTIMIZE` applies and the child runs in
-UTF-8 mode, and passes the child that list by module name and the exact tests to leave
-out, which the child removes from the suite before the run, so they are not collected.
-The child loads tests from those modules and no other, so an import that only one system
-has belongs inside the test. Any exception raised while it imports a proof module becomes
+runs each proof module it chose in a child process of its own, started as
+`sys.executable -E -B -X utf8` with a `pycache_prefix` of its own, so no `PYTHON`
+variable such as `PYTHONOPTIMIZE` applies, no byte code is read and the child runs in
+UTF-8 mode, or reuses the records a child
+stored for that module as {need}`DES_0008`'s COMP_PROOF_REUSE states. It passes each child
+its module's name and the exact tests to leave out, which the child
+removes from the suite before the run, so they are not collected. A child loads tests
+from its module and no other, so an import that only one system has belongs inside the
+test. Any exception raised while it imports a proof module becomes
 a result for that module, which is reported whatever system its tests name. The child
 reports its `os.name` before it imports any test module and again after the run, and its
-results, on a channel the tests do not write to, written and read as UTF-8. A child
+results, on a channel the tests do not write to, written and read as UTF-8; these rules
+hold for each child, and stored records are judged as fresh ones are. A child
 `os.name` that differs from the check's at either point, a malformed or unrecognised
 record, a result for a class the check did not read, and a child that ends without a
 result for every test it collected, whatever its exit status, are reported under
@@ -247,8 +251,8 @@ an empty directory against the wheel built from the workspace.
 :id: IF_CLI
 :spec: src/trifecta/cli.py#COMMANDS
 :constrained_by: DEC_0013
-`trifecta setup`, `trifecta check [--base REF] [--profile PATH]`,
-`trifecta fixtures [--profile PATH]`, `trifecta new`, `trifecta next`, `trifecta review`,
+`trifecta setup`, `trifecta check [--base REF] [--profile PATH] [--fresh]`,
+`trifecta fixtures [--profile PATH] [--fresh]`, `trifecta new`, `trifecta next`, `trifecta review`,
 `trifecta init` and `trifecta profile PATH...`. Each command MUST read the corpus from the working
 directory, MUST exit non-zero on any finding or refusal, and MUST refuse a path argument
 that resolves outside the repository.
@@ -384,4 +388,15 @@ of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 {need}`PLAN_0007` task 1 adds `--profile PATH` to `trifecta check` and `trifecta fixtures`,
 and the `trifecta profile` command, to IF_CLI; both refuse a path outside the
 repository. One round, one reviewer per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_12
+:k: 2
+:date: 2026-11-10
+:digest: dfecb9996955b94663e8a21aac3beb44838dca7b969a9449370ad8a2294e8612
+{need}`PLAN_0007` task 3: COMP_TEST_PROOFS runs one child per proof module, or reuses
+its stored records, with the `os.name` and end-record rules holding per child; IF_CLI
+adds `--fresh` to `trifecta check` and `trifecta fixtures`. Two rounds, one reviewer per
+lens, with the code that builds it.
 :::

@@ -25,6 +25,7 @@ from .gen_vale import generate
 from .profiler import DIRECTORY as PROFILE_DIR, Profiler, target as profile_target
 from .profiler import write as write_profile
 from .proofs import check_proofs
+from .store import DEFAULT as STORE_DIR, location as store_location
 from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, OutsideRepository, corpus_root, vale_path
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
@@ -250,7 +251,7 @@ def _locate(finding: Finding, needs: dict[str, dict]) -> Finding:
 
 
 #: Directories under ``docs/_build`` the clean before the build keeps: no build writes them.
-KEPT = {PROFILE_DIR.name}
+KEPT = {PROFILE_DIR.name, STORE_DIR.name}
 
 
 def _real_dir(path: Path) -> bool:
@@ -431,6 +432,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", help="git ref to check MADR immutability against")
     parser.add_argument("--profile", type=Path, help="where to write the profile "
                         f"(default {PROFILE_DIR.as_posix()}/check.json)")
+    parser.add_argument("--fresh", action="store_true",
+                        help="run every stage and reuse no stored result")
     args = parser.parse_args(argv)
     root = corpus_root()
     try:
@@ -442,12 +445,13 @@ def main(argv: list[str] | None = None) -> int:
     # written however the run ends, and touches neither standard output nor the exit status.
     profiler = Profiler("check")
     try:
-        return _run(root, args.base, profiler.stage)
+        return _run(root, args.base, profiler, args.fresh)
     finally:
         write_profile(profile_path, profiler.data())
 
 
-def _run(root: Path, base: str | None, stage) -> int:
+def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) -> int:
+    stage = profiler.stage
     vale = vale_path(root).resolve()
     with stage("files"):
         files, findings = repo_files(root)
@@ -457,9 +461,19 @@ def _run(root: Path, base: str | None, stage) -> int:
         findings += check_vale_table(root, files)
     with stage("line endings"):
         findings += check_line_endings(root, files)
+    runs: list = []
+    # A stored result that git tracks came with the tree, not from a run: run fresh.
+    store_dir = store_location(root)
+    if store_dir.is_relative_to(root):
+        prefix = store_dir.relative_to(root).as_posix().casefold() + "/"
+        fresh = fresh or any(f.casefold().startswith(prefix) for f in files)
     with stage("tests"):
-        proof_findings, proven, unrun = check_proofs(root)
+        proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs)
         findings += proof_findings
+    # Each proof module, within the test stage: whether its stored records were reused.
+    for r in runs:
+        profiler.stages.append({"name": f"tests: {r.module}", "seconds": r.seconds,
+                                "reused": r.reused, "why": r.why})
     with stage("sphinx"):
         findings += run_sphinx(root)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"

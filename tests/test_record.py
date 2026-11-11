@@ -359,7 +359,7 @@ class Shape(unittest.TestCase):
             {"files": {"C:/x": "0" * 64}}, {"files": {"a\\b": "0" * 64}},
             {"files": {"a": "not a hash"}}, {"outside": {"relative": "0" * 64}},
             {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
-            {"lookups": {"./not-a-name": None}}, {"lookups": {"./m": "/abs/m.py"}},
+            {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
         ]
         for change in bad:
@@ -367,6 +367,49 @@ class Shape(unittest.TestCase):
                 self.assertFalse(record.valid({**GOOD, **change}))
         self.assertFalse(record.valid({**GOOD, "storable": False, "why": 3}))
         self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git"}))
+        # The interpreter's own _sysconfigdata module on Linux has dashes in its name.
+        self.assertTrue(record.valid(
+            {**GOOD, "lookups": {"./_sysconfigdata__linux_x86_64-linux-gnu": None}}))
+
+
+def short_name(path: Path) -> str | None:
+    """``path``'s 8.3 short spelling, or None where the volume makes none."""
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(32768)
+    n = ctypes.windll.kernel32.GetShortPathNameW(str(path), buffer, 32768)
+    return buffer.value if 0 < n < 32768 and buffer.value != str(path) else None
+
+
+class ShortNames(unittest.TestCase):
+    """Where 8.3 short names are on, as on the Windows runner, one directory has two
+    spellings: a run's own output is no input under either."""
+
+    def setUp(self):
+        if os.name != "nt":
+            self.skipTest("8.3 short names are Windows's")
+        self.tmp = Path(tempfile.mkdtemp()).resolve() / "a long directory name"
+        self.tmp.mkdir()
+        self.addCleanup(shutil.rmtree, self.tmp.parent, True)
+        self.root = repository(self.tmp)
+        self.short = short_name(self.tmp)
+        if self.short is None:
+            self.skipTest("this volume makes no short names")
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("nt")
+    def test_what_the_run_made_under_a_short_name_is_no_input_under_the_long(self):
+        m = run(self.root, f"""
+            import os
+            made = os.path.join({self.short!r}, "made")
+            os.mkdir(made)
+            with open(os.path.join(made, "x.json"), "w") as f:
+                f.write("mine")
+            open(os.path.join({str(self.tmp)!r}, "made", "x.json")).read()
+            open("a.txt").read()
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertEqual(m["outside"], {})
+        self.assertIn("a.txt", m["files"])
 
 
 class Portable(unittest.TestCase):

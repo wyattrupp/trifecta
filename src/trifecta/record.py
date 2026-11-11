@@ -126,8 +126,50 @@ def listing(path: str) -> list[list[str]] | None:
     return sorted([n, kind(os.path.join(path, n))] for n in names)
 
 
+_long_path_name = None
+
+
+def _bind_long() -> None:
+    """Bind GetLongPathNameW once, on Windows: before the audit hook, whose ctypes events
+    would otherwise refuse the recorder's own call."""
+    global _long_path_name
+    if os.name == "nt" and _long_path_name is None:
+        import ctypes
+        from ctypes import wintypes
+        function = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
+        function.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+        function.restype = wintypes.DWORD
+        _long_path_name = (function, ctypes.c_wchar * 32768)
+
+
+def _long(path: str) -> str:
+    """``path`` with any 8.3 short name in it spelled in full, on Windows: one directory
+    has two spellings where short names are on, and a run may make it under one and read
+    it under the other. The longest part that exists is expanded; the rest is kept."""
+    if os.name != "nt" or "~" not in path:
+        return path
+    _bind_long()
+    function, buffer_type = _long_path_name
+    buffer = buffer_type()
+    head, tail = path, []
+    while "~" in head:
+        if 0 < function(head, buffer, len(buffer)) < len(buffer):
+            return os.path.join(buffer.value, *reversed(tail))
+        parent, name = os.path.split(head)
+        if parent == head or not name:
+            break
+        tail.append(name)
+        head = parent
+    return path
+
+
 def _norm(path: str) -> str:
-    return os.path.normcase(os.path.normpath(path))
+    return os.path.normcase(os.path.normpath(_long(path)))
+
+
+def _root_forms(root: str) -> tuple[str, ...]:
+    """The spellings of the root a value may hold: as given, and with forward slashes."""
+    return tuple(dict.fromkeys((root, root.replace("\\", "/"))))
 
 
 #: The system's time zone, which belongs with the clock that RFC_0008 leaves out of scope,
@@ -159,7 +201,7 @@ def _text(raw) -> str | None:
 class Recorder:
     def __init__(self, directory: str, config: dict):
         self.directory = os.path.abspath(directory)
-        self.root = config["root"]
+        self.root = _long(config["root"])
         self.nroot = _norm(self.root)
         self.ignore = [_norm(p) for p in config.get("ignore", ())] + [_norm(self.directory)]
         self.prefixes = sorted({_norm(p) for p in (sys.prefix, sys.base_prefix,
@@ -202,7 +244,7 @@ class Recorder:
     def placeholder(self, text: str) -> str:
         """``text`` with the root's absolute path replaced, ignoring case where the system
         does, in either slash form."""
-        for form in dict.fromkeys((self.root, self.root.replace("\\", "/"))):
+        for form in _root_forms(self.root):
             if os.name == "nt":
                 low, needle, out, i = text.lower(), form.lower(), [], 0
                 while (j := low.find(needle, i)) >= 0:
@@ -220,7 +262,7 @@ class Recorder:
         path = _text(raw)
         if path is None or _norm(path) in _DEVNULL:
             return None
-        absolute = os.path.abspath(os.path.join(_getcwd(), path))
+        absolute = _long(os.path.abspath(os.path.join(_getcwd(), path)))
         n = _norm(absolute)
         if n in self.written or any(_under(n, c) for c in self.created) \
                 or any(_under(n, i) for i in self.ignore) \
@@ -451,8 +493,13 @@ def _relative(key) -> bool:
 
 
 def _absolute(key) -> bool:
-    return (isinstance(key, str) and 0 < len(key) <= MAX_TEXT and "\0" not in key
-            and os.path.isabs(key) and ".." not in key.replace("\\", "/").split("/"))
+    """An absolute local path: never a network share or a device namespace, which a
+    lookup would reach out to."""
+    if not (isinstance(key, str) and 0 < len(key) <= MAX_TEXT and "\0" not in key):
+        return False
+    slashed = key.replace("\\", "/")
+    return (os.path.isabs(key) and not slashed.startswith("//")
+            and ".." not in slashed.split("/"))
 
 
 def _path(key) -> bool:
@@ -460,10 +507,12 @@ def _path(key) -> bool:
 
 
 def _lookup_key(key) -> bool:
+    """A directory and the name looked up in it: an identifier, or one with dashes, as
+    the interpreter's own ``_sysconfigdata`` module on Linux has."""
     if not isinstance(key, str):
         return False
     directory, _, name = key.rpartition("/")
-    return name.isidentifier() and _path(directory)
+    return name.replace("-", "_").isidentifier() and _path(directory)
 
 
 def valid(data) -> bool:
@@ -1074,6 +1123,7 @@ def start(directory: str, config: dict) -> Recorder:
     global _recorder
     if _recorder is not None:
         return _recorder
+    _bind_long()
     r = _recorder = Recorder(directory, config)
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.

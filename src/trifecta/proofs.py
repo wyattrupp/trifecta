@@ -1,5 +1,6 @@
 """Test proofs (COMP_TEST_PROOFS): read every declaration under ``tests/`` from the source,
-run the proof modules in a child process, and judge each declaration by its test's result.
+run each proof module in a child process of its own, or reuse its stored records
+(COMP_PROOF_REUSE), and judge each declaration by its test's result.
 
 ``check_proofs`` returns the findings, the requirements a counted declaration proves, and
 the declarations counted without running, which the check lists on standard error.
@@ -8,19 +9,22 @@ the declarations counted without running, which the check lists on standard erro
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import keyword
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 import warnings
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 
+from . import record, store
 from .findings import Finding
+from .profiler import seconds
 
 REQ = "REQ_PROVEN_BY_TEST"
 DECORATORS = ("proves", "only_on")
@@ -449,21 +453,35 @@ def _parse(lines: list[str]) -> tuple[list[dict], list[str]]:
     return records, problems
 
 
-def run_child(root: Path, modules: list[str], leave_out: list[str],
-              child: list[str] | None = None) -> tuple[list[str], str]:
-    """Run the proof modules; return the channel's lines and the child's own output."""
+def child_environment() -> dict[str, str]:
+    """The environment every test child runs with: the process's, less the recorder's and
+    the store's own variables, so a test that runs the check itself runs it fresh."""
+    return {k: v for k, v in os.environ.items() if k.upper() not in record.OWN}
+
+
+def run_child(root: Path, module: str, leave_out: list[str], child: list[str] | None = None,
+              recorded: bool = False) -> tuple[list[str], str, dict | None]:
+    """Run one proof module in a child of its own; return the channel's lines, the tail of
+    the child's own output, and, when ``recorded``, its manifest."""
     package_parent = str(Path(__file__).resolve().parent.parent)
     # A test may leave a process running that still holds a file here on Windows.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        channel, plan, log = (Path(tmp) / n for n in ("records.jsonl", "plan.json", "output.log"))
-        plan.write_text(json.dumps({"modules": modules, "leave_out": leave_out}),
+        tmp_path = Path(tmp)
+        channel, plan, log = (tmp_path / n for n in ("records.jsonl", "plan.json", "output.log"))
+        plan.write_text(json.dumps({"modules": [module], "leave_out": leave_out}),
                         encoding="utf-8")
-        command = child or [sys.executable, "-E", "-X", "utf8", "-c", BOOT, package_parent]
+        # -B and an empty pycache_prefix: no byte code in the tree is read or written, so
+        # every module compiles from the source the recorder hashes.
+        command = child or [sys.executable, "-E", "-B", "-X", "utf8",
+                            "-X", f"pycache_prefix={tmp_path / 'pycache'}",
+                            "-c", BOOT, package_parent]
+        env = child_environment()
+        directory = tmp_path / "record"
+        if recorded:
+            record.prepare(str(directory), str(root), ignore=[str(tmp_path)])
+            env[record.ENV] = str(directory)
         # Output goes to a file, not a pipe, so a process a test leaves running cannot hold
         # the check open, and a test that prints much is not held in memory.
-        # The tests run without the shared cache, so a test that runs the stage itself
-        # checks the package it runs, not a copy's cached result.
-        env = {k: v for k, v in os.environ.items() if k != CACHE_ENV}
         with open(log, "wb") as out:
             subprocess.run([*command, str(channel), str(plan)], cwd=root, stdout=out,
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
@@ -471,61 +489,142 @@ def run_child(root: Path, modules: list[str], leave_out: list[str],
         with open(log, "rb") as out:
             out.seek(max(0, log.stat().st_size - 500))
             tail = out.read().decode("utf-8", errors="replace")
-    return text.splitlines(), tail
+        manifest = None
+        if recorded:
+            try:
+                manifest = json.loads((directory / record.MANIFEST).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                manifest = None
+            if not record.valid(manifest):
+                why = "left no manifest" if manifest is None else "left a malformed manifest"
+                manifest = {"version": record.VERSION, "storable": False,
+                            "why": f"the test child {why}"}
+    return text.splitlines(), tail, manifest
 
 
-#: A directory the fixture runner shares between the repository copies it checks: a copy
-#: whose tests and package are byte for byte the control's reuses the control's results.
-CACHE_ENV = "TRIFECTA_PROOF_CACHE"
+def _result_ok(result) -> bool:
+    """Whether a stored result has the shape run_child gives: data from another run."""
+    return (isinstance(result, dict) and set(result) == {"lines", "output"}
+            and isinstance(result["lines"], list) and len(result["lines"]) <= 100_000
+            and all(isinstance(line, str) for line in result["lines"])
+            and isinstance(result["output"], str))
 
 
-#: What the key leaves out: what the check and setup write, git's own store, and the
-#: corpus under ``docs/``, which no test here reads; most fixtures change only the corpus,
-#: so their copies reuse the control's results. A test that read ``docs/`` would make a
-#: copy reuse a stale result; the check outside the fixture runner never uses the cache.
-_UNKEYED = {".git", "_build", "bin", "__pycache__"}
+@dataclass
+class ModuleRun:
+    """What the test stage did with one proof module, for the profile."""
+    module: str
+    seconds: float
+    reused: bool
+    why: str = ""
 
 
-def _content_key(root: Path) -> str:
-    """A digest of what the stage's result depends on: every file in the repository but
-    the corpus, every file in the package that runs the stage, the system and the
-    interpreter."""
-    h = hashlib.sha256(f"{os.name}\0{sys.version}\0{sys.executable}\0"
-                       f"{os.environ.get('RUNNER_OS', '')}".encode())
-    package = Path(__file__).resolve().parent
-    for label, base in (("repo", root), ("package", package)):
-        for path in sorted(p for p in base.rglob("*") if p.is_file()
-                           and not _UNKEYED & set(p.relative_to(base).parts)
-                           and not (label == "repo" and p.relative_to(base).parts[0] == "docs")):
-            h.update(f"\0{label}\0{path.relative_to(base).as_posix()}\0".encode())
-            h.update(hashlib.sha256(path.read_bytes()).digest())
-    return h.hexdigest()
+#: The placeholders a stored result holds for the root's path, in each of its spellings,
+#: so a copy elsewhere reads back its own path as a fresh run would have written it.
+ROOT_POSIX = "<root:posix>"
 
 
-def check_proofs(root: Path, child: list[str] | None = None,
-                 ) -> tuple[list[Finding], set[str], list[str]]:
-    """Findings, the requirements proven, and the declarations counted without running."""
-    cache = os.environ.get(CACHE_ENV)
-    if cache and child is None:
-        entry = Path(cache) / f"{_content_key(root)}.json"
+def _swap(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        if old:
+            text = re.sub(re.escape(old), lambda _: new, text,
+                          flags=re.IGNORECASE if os.name == "nt" else 0)
+    return text
+
+
+def _map_lines(lines: list[str], change) -> list[str]:
+    out = []
+    for line in lines:
         try:
-            data = json.loads(entry.read_text(encoding="utf-8"))
-            return ([Finding(*f) for f in data["findings"]], set(data["proven"]),
-                    data["unrun"])
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        result = _check_proofs(root, None)
-        tmp = entry.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(json.dumps({"findings": [[f.req, f.location, f.message] for f in result[0]],
-                                   "proven": sorted(result[1]), "unrun": result[2]}),
-                       encoding="utf-8")
-        os.replace(tmp, entry)
-        return result
-    return _check_proofs(root, child)
+            data = json.loads(line)
+        except ValueError:
+            out.append(change(line))
+            continue
+        if isinstance(data, dict):
+            data = {k: change(v) if isinstance(v, str) else v for k, v in data.items()}
+        out.append(json.dumps(data))
+    return out
 
 
-def _check_proofs(root: Path, child: list[str] | None,
-                  ) -> tuple[list[Finding], set[str], list[str]]:
+def _portable(lines: list[str], output: str, root: Path) -> dict:
+    """A child's result as stored: the root's path replaced in every string of every
+    record and in the output."""
+    pairs = [(str(root), record.ROOT), (root.as_posix(), ROOT_POSIX)]
+    change = lambda text: _swap(text, pairs)
+    return {"lines": _map_lines(lines, change), "output": change(output)}
+
+
+def _restored(result: dict, root: Path) -> tuple[list[str], str]:
+    """A stored result with this root's path put back, in the spelling it was stored in."""
+    pairs = [(ROOT_POSIX, root.as_posix()), (record.ROOT, str(root))]
+    change = lambda text: _swap(text, pairs)
+    return _map_lines(result["lines"], change), change(result["output"])
+
+
+def _ended(lines: list[str]) -> bool:
+    """Whether a child reported its end: a run cut short is never stored."""
+    records, _ = _parse(lines)
+    return any(r["kind"] == "end" for r in records)
+
+
+def run_modules(root: Path, modules: list[str], leave_out: list[str],
+                child: list[str] | None, fresh: bool, store_at: Path | None = None,
+                ) -> tuple[dict[str, tuple[list[str], str]], list[ModuleRun]]:
+    """Each module's channel lines and output, run or reused (COMP_PROOF_REUSE)."""
+    # A run inside a recorded process, as a test of the check is, records nothing of its
+    # own and reuses nothing unless its caller names a store: the recorder around it
+    # records its children. A stub child is never stored.
+    if child is not None:
+        shelf = None
+    elif store_at is not None:
+        shelf = store.Store(store_at, root)
+    elif "_trifecta_record" not in sys.modules:
+        shelf = store.Store(store.location(root), root)
+    else:
+        shelf = None
+    unused = shelf.refused() if shelf is not None else ""
+    if unused:
+        shelf = None
+    environ = child_environment()
+    out: dict[str, tuple[list[str], str]] = {}
+    runs: list[ModuleRun] = []
+    # Every child gets every test to leave out: a test one module inherits from another
+    # is left out by the module that defines it.
+    for module in modules:
+        begin = time.perf_counter()
+        ident = (shelf.identity("tests", {"module": module, "leave_out": leave_out})
+                 if shelf else "")
+        why = "fresh" if fresh else ((unused or "not recorded") if shelf is None else "")
+        if shelf is not None and not fresh:
+            # Hashes are taken afresh for each module: a child before it may have
+            # changed the tree.
+            found, why = shelf.lookup(ident, environ, store.Hashes(), _result_ok)
+            if found is not None:
+                out[module] = _restored(found, root)
+                runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), True))
+                continue
+        lines, output, manifest = run_child(root, module, leave_out, child,
+                                            recorded=shelf is not None)
+        out[module] = (lines, output)
+        if manifest is not None:
+            if not manifest["storable"]:
+                why = f"{why}; not stored: {manifest.get('why', '')}"
+            elif not _ended(lines):
+                why = f"{why}; not stored: the child ended before it reported every result"
+            else:
+                shelf.put(ident, manifest, _portable(lines, output, root))
+        runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), False,
+                              why[:store.MAX_WHY]))
+    return out, runs
+
+
+def check_proofs(root: Path, child: list[str] | None = None, fresh: bool = False,
+                 runs: list | None = None, store_at: Path | None = None,
+                 ) -> tuple[list[Finding], set[str], list[str]]:
+    """Findings, the requirements proven, and the declarations counted without running.
+    ``fresh`` reuses no stored result; ``runs``, when given, receives a ModuleRun for each
+    proof module; ``store_at`` names the store, which a run with ``child`` or inside a
+    recorded process otherwise does without."""
     reading = read_tests(root)
     findings = list(reading.findings)
     if not reading.modules and not reading.methods:
@@ -554,27 +653,42 @@ def _check_proofs(root: Path, child: list[str] | None,
         return sorted(set(findings)), proven, unrun
 
     leave_out = sorted(m.key for m in reading.methods.values() if m.runs and other(m))
-    lines, output = run_child(root, reading.modules, leave_out, child)
-    records, problems = _parse(lines)
-    findings += [Finding(REQ, "tests/", p) for p in problems]
-    findings += _judge(reading, records, os_name, output, other, proven)
+    # Stored records and fresh ones are judged alike, by the running package.
+    results, module_runs = run_modules(root, reading.modules, leave_out, child, fresh,
+                                       store_at)
+    if runs is not None:
+        runs.extend(module_runs)
+    records: list[dict] = []
+    for module in reading.modules:
+        lines, output = results[module]
+        parsed, problems = _parse(lines)
+        findings += [Finding(REQ, "tests/", f"{module}: {p}") for p in problems]
+        findings += _child_findings(parsed, os_name, output, module)
+        records += [r for r in parsed if r["kind"] not in ("os", "end")]
+    findings += _judge(reading, records, other, proven)
     return sorted(set(findings)), proven, unrun
 
 
-def _judge(reading: Reading, records: list[dict], os_name: str, output: str,
-           other, proven: set[str]) -> list[Finding]:
-    findings: list[Finding] = []
+def _child_findings(records: list[dict], os_name: str, output: str,
+                    module: str) -> list[Finding]:
+    """What one child reported of itself: its os.name before and after, and its end."""
+    findings = []
     seen_os = {r["when"]: r["os_name"] for r in records if r["kind"] == "os"}
     for when in ("before", "after"):
         if when not in seen_os:
-            findings.append(Finding(REQ, "tests/", f"the child reported no os.name {when} the "
-                                    "run"))
+            findings.append(Finding(REQ, "tests/", f"{module}: the child reported no os.name "
+                                    f"{when} the run"))
         elif seen_os[when] != os_name:
-            findings.append(Finding(REQ, "tests/", f"the child's os.name {when} the run is "
-                                    f"{seen_os[when]!r}, not {os_name!r}"))
+            findings.append(Finding(REQ, "tests/", f"{module}: the child's os.name {when} the "
+                                    f"run is {seen_os[when]!r}, not {os_name!r}"))
     if not any(r["kind"] == "end" for r in records):
-        findings.append(Finding(REQ, "tests/", "the child ended before it reported every "
-                                f"result: {' '.join(output.split())[-300:]}"))
+        findings.append(Finding(REQ, "tests/", f"{module}: the child ended before it reported "
+                                f"every result: {' '.join(output.split())[-300:]}"))
+    return findings
+
+
+def _judge(reading: Reading, records: list[dict], other, proven: set[str]) -> list[Finding]:
+    findings: list[Finding] = []
     for r in records:
         if r["kind"] == "module_error":
             what = ("the run stopped" if r["module"] == "(run)"

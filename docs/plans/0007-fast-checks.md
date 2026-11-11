@@ -61,11 +61,11 @@ The record every reuse rests on, built and proven before anything reads it.
 :gate: The tests show that a test module is run again when a file it read changes, a path it probed changes kind, a directory it listed gains an entry, a name its imports looked up appears, a variable it read changes, or the interpreter, an installed distribution or the running package changes, and is reused otherwise; that adding a test module runs that module and reuses the others; that a test child's environment holds no `TRIFECTA_STORE`; that a malformed entry is refused; that a manifest marked unstorable is never stored; that `--fresh` reuses nothing; that a stage the design does not name is never reused; and that the fixture runner gives the same findings for every fixture with `--fresh` and without.
 Replaces today's cache, keyed on every file but `docs/`, with one keyed on what each module read.
 
-- [ ] **3.1** Write the result store as COMP_RESULT_STORE states, with `TRIFECTA_STORE` in place of `TRIFECTA_PROOF_CACHE`, and `--fresh` for `trifecta check` and `trifecta fixtures`.
-- [ ] **3.2** Run each proof module in a child of its own under the recorder, with `-B` and an empty `pycache_prefix`, store its records with its manifest, and judge stored and fresh records alike; remove `_content_key`, and remove `TRIFECTA_STORE` from every test child's environment.
-- [ ] **3.3** Amend DES_0004's COMP_TEST_PROOFS to one child per proof module, with its `os.name` and end-record rules holding per child, reviewed k=2 and stamped.
-- [ ] **3.4** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED, including the comparison of every fixture's findings with `--fresh` and without.
-- [ ] **3.5** Record in the As built entry the profiles before and after, and which test modules are never stored and why.
+- [x] **3.1** Write the result store as COMP_RESULT_STORE states, with `TRIFECTA_STORE` in place of `TRIFECTA_PROOF_CACHE`, and `--fresh` for `trifecta check` and `trifecta fixtures`.
+- [x] **3.2** Run each proof module in a child of its own under the recorder, with `-B` and an empty `pycache_prefix`, store its records with its manifest, and judge stored and fresh records alike; remove `_content_key`, and remove `TRIFECTA_STORE` from every test child's environment.
+- [x] **3.3** Amend DES_0004's COMP_TEST_PROOFS to one child per proof module, with its `os.name` and end-record rules holding per child, reviewed k=2 and stamped.
+- [x] **3.4** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED, including the comparison of every fixture's findings with `--fresh` and without.
+- [x] **3.5** Record in the As built entry the profiles before and after, and which test modules are never stored and why.
 :::
 
 :::{task} Build reuse
@@ -237,3 +237,127 @@ The new tests add to every copy that misses today's cache: on Linux,
 On Windows the fixture step grew from 734 to 1306 s: each copy runs `test_record`, whose
 recorded children cost most where a process is slow to start. CI run 42950770650 gave
 the after rows; task 3's reuse of test modules is meant to take this back.
+
+### Task 3 (2026-11-10)
+
+The store is `trifecta.store`, `docs/_build/cache/` or the directory `TRIFECTA_STORE`
+names, kept out of the clean. The test stage runs each proof module in a recorded child
+of its own, looks it up first by its identity, and judges stored and fresh records alike.
+Each child gets the whole list of tests to leave out, since a test one module inherits is
+left out by the module that defines it, and that list is part of the identity. A result
+is stored only from a child that reported its end, with the root's path replaced in each
+of its spellings, and is read back with the running copy's path. Hashes are taken afresh
+for each module, since a child before it may have changed the tree. A run inside a
+recorded process uses no store unless its caller names one, and a stub child is never
+stored. The profile lists each module after the `tests` stage, which holds them, as
+`tests: <module>` with `reused` and `why`; no other stage carries `reused`.
+
+The store also refuses:
+- an entry over 16 MB;
+- more than 16 entries tried or kept under one identity;
+- a name `put` does not give;
+- a file that is not regular;
+- a network or device path in a manifest;
+- a store reached through a link or junction, checked at every use.
+
+When git tracks a file in the store, the check runs fresh. DES_0008's COMP_RESULT_STORE
+says so, and its environment key holds the entries of the site directories, so a module
+or `.pth` file no `RECORD` lists changes it. DES_0004's COMP_TEST_PROOFS and IF_CLI are
+amended. Both were reviewed k=2 and stamped.
+
+Never stored, in every copy:
+
+| Module | Why |
+|---|---|
+| `test_init`, `test_planning` | They run git. |
+| `test_adoption` | It runs git, on Linux only. |
+| `test_package` | Its build reads the host name, or on Linux probes `/etc/os-release` through a link. |
+| `test_record`, `test_store_reuse` | They start Python children that record into directories of their own. |
+| `test_record_trace` | It runs strace, on Linux only. |
+
+On Linux CI these modules hold 9,540 of the 10,860 seconds the copies spent on tests;
+locally the five that run here hold 21,000 of 21,500. Reuse takes the other modules to a
+few hundredths of a second each, but those were already the cheap ones.
+
+`trifecta fixtures` and `trifecta fixtures --fresh` both pass 123/123 locally. Their
+standard output is identical line for line, so every fixture gives the same result both
+ways. That comparison is a run of both commands, not a test: a test that ran the fixture
+runner would run again in every copy. The stored run reused 706 of 1,386 module runs and
+the fresh run none.
+
+Review, two rounds. Applied:
+- Correctness:
+  - the inherited leave-out;
+  - stale hashes between children;
+  - storing a run cut short;
+  - the root's path in stored text;
+  - the site directories;
+  - stub children;
+  - the per-identity link check.
+- Security:
+  - a tracked store runs fresh;
+  - only regular files are hashed;
+  - network and device paths are refused;
+  - bounds on entries and their names;
+  - each entry is read through a single open;
+  - links;
+  - printable reasons.
+
+Dropped:
+- **A test module that writes forged entries for another.** Test code runs with the
+  check's full power, as DES_0004's Risks state. CI's check step runs `--fresh` from
+  task 5.
+- **A forged result for another module.** Placed beside the real one, it gives "has 2
+  results".
+- **Unsalted environment hashes.** Already settled in task 2.
+- **A file edited in place under the site directories.** Setup installs only from the
+  hash-checked lock.
+- **A root that is a prefix of a sibling's path.** The placeholder may then replace too
+  much, which costs a miss or a rewritten sibling path in a message, never a reuse.
+- **The order of module records after `tests`.** As stated above.
+- **Pruning in a shared fixture store.** A matter of speed, left to task 5.
+
+The first CI run (42976895318) reused 236 of 1,386 module runs on Linux and none on
+Windows, against 706 locally. Three causes, each a miss, never a false match, fixed and
+reviewed k=2 again (correctness; security):
+- `sysconfig` on Linux imports `_sysconfigdata__linux_x86_64-linux-gnu`, whose dashes
+  failed the manifest's lookup-name rule, so six modules' manifests were refused. A name
+  that is an identifier once its dashes are underscores now passes.
+- The Windows runner has 8.3 short names on, so its temporary directory comes back as
+  `RUNNER~1`: a directory a test made under the short spelling and read under the long
+  one was an input, and a copy's `PYTHONPATH` held a spelling of its root the placeholder
+  did not replace. The recorder compares paths by their long names, through
+  `GetLongPathNameW` bound before its audit hook, and the fixture runner spells its
+  temporary directory in full.
+- An entry another copy pruned between the listing and the read was called malformed;
+  it is skipped.
+
+Applied from that review: binding `GetLongPathNameW` before the hook, since a first
+binding with the hook live refused the run and one under the recorder's lock could
+deadlock with a thread importing ctypes, and one buffer per call. Dropped: keeping the
+binding out of a module global, since the recorder loads under its own name and no code
+under test reaches it.
+
+Profiles before and after, in seconds, after from CI run 42995781425:
+
+| Run | Check | Tests | Sphinx | Fixture step | Fixtures summed |
+|---|---:|---:|---:|---:|---:|
+| Linux CI, before (task 2) | 39.0 | 34.3 | 4.0 | 806.0 | 3199 |
+| Linux CI, after | 66.2 | 60.4 | 4.9 | 2825.6 | 10908 |
+| Windows CI, before (task 2) | 42.1 | 32.6 | 6.3 | 1305.9 | 4984 |
+| Windows CI, after | 63.4 | 56.0 | 4.7 | 2672.4 | 10229 |
+| Local, before (task 2) | 70.3 | 59.1 | 6.9 | 736.6 | 13495 |
+| Local, after, nothing stored | 134.1 | 114.1 | | | |
+| Local, after, reused | 122.3 | 99.4 | 15.0 | 1161.5 | 25519 |
+| Local, after, `--fresh` | | | | 1262.4 | 28003 |
+
+The local fixture times are from before the CI fixes, which change nothing locally (no
+short names here; 706 runs reused both times). The run after them took 1996 s with two
+reviews and two checks running beside it, so it is not a measure.
+
+The fixture step is slower than before, 3.5 times on Linux and twice on Windows, and the
+check itself half again: each copy starts thirteen recorded children instead of one, and
+the modules never stored are most of the time. CI reused 470 of 1,386 module runs on
+Linux and 706 on Windows. This is the measured baseline the later tasks are compared
+with; it was merged on wyatt's ruling (2026-11-11): "we're establishing a measured
+baseline here. keep going".
