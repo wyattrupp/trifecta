@@ -113,6 +113,7 @@ connection.
 
 :::{component} Result store
 :id: COMP_RESULT_STORE
+:spec: src/trifecta/store.py#class Store
 :satisfies: REQ_REUSE_SOUND, REQ_REUSE_SCOPED
 :constrained_by: DEC_0028, DEC_0030
 A directory of entries, `docs/_build/cache/` by default, kept out of the clean before the
@@ -138,6 +139,7 @@ runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
 
 :::{component} Proof reuse
 :id: COMP_PROOF_REUSE
+:spec: src/trifecta/proofs.py#def run_modules
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
 The test stage runs each proof module it chose in a child of its own, under the recorder,

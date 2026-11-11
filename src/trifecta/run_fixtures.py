@@ -22,7 +22,7 @@ from .check import repo_files
 from .findings import Finding, child_env
 from .profiler import DIRECTORY as PROFILE_DIR, Profiler, seconds, target as profile_target
 from .profiler import read as read_profile, write as write_profile
-from .proofs import CACHE_ENV
+from .store import ENV as STORE_ENV
 from .toolchain import VALE_ENV, OutsideRepository, corpus_root, vale_path
 
 
@@ -79,7 +79,8 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             raise FixtureError(f"unknown mutation {m!r}")
 
 
-def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding], list[dict]]:
+def run_check(copy: Path, vale: Path, cache: Path,
+              fresh: bool = False) -> tuple[int, list[Finding], list[dict]]:
     """The copy's check: its exit status, its findings and the stages its profile lists."""
     # The copy's own package runs, so a fixture that changes the package's code or data
     # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
@@ -87,9 +88,9 @@ def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding], 
     profile = copy / PROFILE_DIR / "check.json"
     profile.unlink(missing_ok=True)
     proc = subprocess.run(
-        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD"],
+        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD", *(["--fresh"] if fresh else [])],
         capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
-        env={**child_env(copy / "src"), VALE_ENV: str(vale), CACHE_ENV: str(cache)},
+        env={**child_env(copy / "src"), VALE_ENV: str(vale), STORE_ENV: str(cache)},
     )
     findings = [Finding.parse(l) for l in proc.stdout.splitlines() if l.count("\t") >= 2]
     data = read_profile(profile)
@@ -97,7 +98,7 @@ def run_check(copy: Path, vale: Path, cache: Path) -> tuple[int, list[Finding], 
 
 
 def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
-                cache: Path) -> tuple[str, bool, str, dict]:
+                cache: Path, fresh: bool = False) -> tuple[str, bool, str, dict]:
     begin = time.perf_counter()
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     copy = tmp / path.stem
@@ -117,7 +118,7 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
         return done(False, f"fixture error: {exc}")
     mutated = time.perf_counter()
     record["mutate_seconds"] = seconds(mutated - copied)
-    code, findings, record["stages"] = run_check(copy, vale, cache)
+    code, findings, record["stages"] = run_check(copy, vale, cache, fresh)
     record["check_seconds"] = seconds(time.perf_counter() - mutated)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
@@ -136,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("names", nargs="*", help="run only these fixtures")
     parser.add_argument("--profile", type=Path, help="where to write the profile "
                         f"(default {PROFILE_DIR.as_posix()}/fixtures.json)")
+    parser.add_argument("--fresh", action="store_true",
+                        help="run every copy's check with --fresh, reusing no stored result")
     root = corpus_root()
     args = parser.parse_args(argv)
     try:
@@ -155,13 +158,13 @@ def main(argv: list[str] | None = None) -> int:
     profiler = Profiler("fixtures")
     extra: dict = {"base": None, "control": None, "fixtures": []}
     try:
-        return _run(root, vale, fixtures, profiler, extra)
+        return _run(root, vale, fixtures, profiler, extra, args.fresh)
     finally:
         write_profile(profile, profiler.data(**extra))
 
 
 def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
-         extra: dict) -> int:
+         extra: dict, fresh: bool = False) -> int:
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         with profiler.stage("base copy") as record:
@@ -174,12 +177,12 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
         if base is None:
             print(f"FAIL  control: cannot copy the repository: {problem}")
             return 1
-        # The control runs first, so every copy whose tests and package match it reuses
-        # its test results.
-        cache = tmp / "proof-cache"
+        # The control runs first, into a store every copy shares, so a copy reuses each
+        # result whose recorded inputs it left as they were (COMP_RESULT_STORE).
+        cache = tmp / "store"
         cache.mkdir()
         with profiler.stage("control") as record:
-            code, findings, stages = run_check(base, vale, cache)
+            code, findings, stages = run_check(base, vale, cache, fresh)
         extra["control"] = {"seconds": record["seconds"], "ok": code == 0, "stages": stages}
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")
@@ -189,7 +192,7 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
         print("ok    control: the unmutated corpus passes")
         with profiler.stage("fixtures"):
             with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
-                results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache),
+                results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache, fresh),
                                         fixtures))
         extra["fixtures"] = [r[3] for r in results]
 

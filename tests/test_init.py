@@ -27,7 +27,7 @@ ARGS = ["--codeowner", "@someone", "--wheel-url", URL, "--wheel-sha256", SHA]
 def trifecta(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     env = {**child_env(Path(init_module.__file__).resolve().parent.parent),
            VALE_ENV: str(vale_path(REPO))}
-    env.pop("TRIFECTA_PROOF_CACHE", None)
+    env.pop("TRIFECTA_STORE", None)
     return subprocess.run([sys.executable, "-m", "trifecta", *args], cwd=cwd, env=env,
                           capture_output=True, encoding="utf-8", errors="replace")
 
