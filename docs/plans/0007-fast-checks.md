@@ -36,10 +36,10 @@ relied-on document is reviewed k=2 and stamped in the same task.
 :gate: The tests that run the check with and without `--profile` on the same tree give byte-identical standard output and the same exit status, with a finding and without; the check's profile lists every stage of `check.main` in run order; the fixture runner's profile lists the base copy, the control and every fixture with its stages; a profile that cannot be written leaves the output and exit status unchanged; `trifecta profile` prints both kinds as a table; both CI jobs upload the profile and write the tables to the job summary.
 Measure before changing anything.
 
-- [ ] **1.1** Time each stage in `check.main` and write `docs/_build/profile/check.json`, or the `--profile` path, keeping the profile directory out of the clean before the build.
-- [ ] **1.2** Time the fixture runner's base copy, control and each fixture's copy, mutation and check, and merge each copy's own check profile into `fixtures.json`.
-- [ ] **1.3** Add `trifecta profile PATH` to the command line, and the tests, declared for REQ_PROFILED.
-- [ ] **1.4** Add to both CI jobs a last step that always runs, uploads `docs/_build/profile/` and appends the tables to the job summary.
+- [x] **1.1** Time each stage in `check.main` and write `docs/_build/profile/check.json`, or the `--profile` path, keeping the profile directory out of the clean before the build.
+- [x] **1.2** Time the fixture runner's base copy, control and each fixture's copy, mutation and check, and merge each copy's own check profile into `fixtures.json`.
+- [x] **1.3** Add `trifecta profile PATH` to the command line, and the tests, declared for REQ_PROFILED.
+- [x] **1.4** Add to both CI jobs a last step that always runs, uploads `docs/_build/profile/` and appends the tables to the job summary.
 - [ ] **1.5** Record in the As built entry the profiles of both CI jobs and of a local run, and which stages and fixtures hold the time.
 :::
 

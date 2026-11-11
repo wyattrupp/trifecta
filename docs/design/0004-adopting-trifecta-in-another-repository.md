@@ -375,3 +375,13 @@ of this repository, so REQ_SELF_TESTS_SCOPED is unchanged.
 :date: 2026-11-10
 :digest: f051b332e58f12725ff83ba7dc02f3e73c21f415295da6ac427abc79c0abf88e
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0004_11
+:k: 2
+:date: 2026-11-10
+:digest: 40e8d16de6dca992dae20d858a93f777fe0d42c7e97abaf4f4583b2586cbf72c
+{need}`PLAN_0007` task 1 adds `--profile PATH` to `trifecta check` and `trifecta fixtures`,
+and the `trifecta profile` command, to IF_CLI; both refuse a path outside the
+repository. One round, one reviewer per lens, with the code that builds it.
+:::

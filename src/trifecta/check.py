@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -252,16 +253,27 @@ def _locate(finding: Finding, needs: dict[str, dict]) -> Finding:
 KEPT = {PROFILE_DIR.name}
 
 
+def _real_dir(path: Path) -> bool:
+    """A directory that is neither a symbolic link nor a Windows junction."""
+    return path.is_dir() and not path.is_symlink() and not os.path.isjunction(path)
+
+
 def clean_build(root: Path) -> None:
     """Remove ``docs/_build`` but the directories in KEPT."""
     build = root / "docs" / "_build"
-    if not build.is_dir() or build.is_symlink():
+    if not _real_dir(build):
+        # A link or a junction is removed, never followed; rmtree refuses either.
         shutil.rmtree(build, ignore_errors=True)
+        for remove in (os.unlink, os.rmdir):
+            try:
+                remove(build)
+            except OSError:
+                pass
         return
     for entry in build.iterdir():
-        if entry.name in KEPT and entry.is_dir() and not entry.is_symlink():
+        if entry.name in KEPT and _real_dir(entry):
             continue
-        if entry.is_dir() and not entry.is_symlink():
+        if _real_dir(entry):
             shutil.rmtree(entry, ignore_errors=True)
         else:
             try:
@@ -426,12 +438,17 @@ def main(argv: list[str] | None = None) -> int:
     except OutsideRepository as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
-    vale = vale_path(root).resolve()
-    # Each stage is timed in the order it runs (COMP_PROFILER); the profile is a file and
-    # touches neither standard output nor the exit status.
+    # Each stage is timed in the order it runs (COMP_PROFILER); the profile is a file,
+    # written however the run ends, and touches neither standard output nor the exit status.
     profiler = Profiler("check")
-    stage = profiler.stage
+    try:
+        return _run(root, args.base, profiler.stage)
+    finally:
+        write_profile(profile_path, profiler.data())
 
+
+def _run(root: Path, base: str | None, stage) -> int:
+    vale = vale_path(root).resolve()
     with stage("files"):
         files, findings = repo_files(root)
     with stage("lock"):
@@ -453,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
         with stage("vale rules"):
             stage_dir = stage_vale(root)
             findings += generate(needs, stage_dir / "styles" / "TrifectaGenerated")
+        with stage("need locations"):
             findings = [_locate(f, needs) for f in findings]
         if any(n["type"] in DOC_LEVEL for n in needs.values()):
             # A corpus with no typed document has nothing to lint (plan 0003 step 4.2).
@@ -471,9 +489,9 @@ def main(argv: list[str] | None = None) -> int:
             "REQ_WARNINGS_FATAL", "docs/_build/html/needs.json",
             "the build produced no needs.json, so graph, lint and fixture checks did not run",
         ))
-    if args.base:
+    if base:
         with stage("history"):
-            findings += check_lifecycle(root, args.base)
+            findings += check_lifecycle(root, base)
 
     with stage("locations"):
         findings += check_portable(findings)
@@ -481,8 +499,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"counted but not run: {line}", file=sys.stderr)
     for finding in sorted(set(findings)):
         print(finding.line())
-    sys.stdout.flush()
-    write_profile(profile_path, profiler.data())
     return 1 if findings else 0
 
 

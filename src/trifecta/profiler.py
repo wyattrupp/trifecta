@@ -87,14 +87,21 @@ def read(path: Path) -> dict | None:
     return data
 
 
+#: Characters a table cell escapes, so a name prints as text and never as markup.
+_MARKUP = {c: "\\" + c for c in "\\`*_[]<>|#!"}
+
+
 def _cell(value) -> str:
-    return str(value).replace("|", "\\|").replace("\n", " ")
+    text = " ".join(str(value).split())
+    return "".join(_MARKUP.get(c, c) for c in text)
 
 
 def _reuse(stage: dict) -> str:
     if "reused" not in stage:
         return ""
-    return "yes" if stage["reused"] else f"no: {stage.get('why') or ''}".rstrip(": ")
+    if stage["reused"]:
+        return "yes"
+    return f"no: {stage['why']}" if stage.get("why") else "no"
 
 
 def _stage_table(stages: list[dict]) -> list[str]:
@@ -108,7 +115,7 @@ def _stage_table(stages: list[dict]) -> list[str]:
 def table(data: dict) -> str:
     """A profile as Markdown: the stages by time, and for the fixture runner each fixture
     and each check stage summed over every fixture, by time."""
-    out = [f"### `trifecta {_cell(data.get('command', ''))}`: {data.get('total', 0):.3f} s", ""]
+    out = [f"### trifecta {_cell(data.get('command', ''))}: {data.get('total', 0):.3f} s", ""]
     out += _stage_table(data.get("stages", []))
     if data.get("command") != "fixtures":
         return "\n".join(out) + "\n"

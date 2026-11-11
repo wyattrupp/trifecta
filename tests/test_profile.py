@@ -22,12 +22,14 @@ from trifecta.testing import proves
 #: Every stage of check.main, in the order it runs, when the build gives needs.json, the
 #: corpus has a typed document and a base is given.
 STAGES = ["files", "lock", "vale table", "line endings", "tests", "sphinx", "graph",
-          "vale rules", "lint view", "vale version", "vale normative", "vale prose",
+          "vale rules", "need locations", "lint view", "vale version", "vale normative", "vale prose",
           "fixture audit", "history", "locations"]
 
 
-def run_main(root: Path, argv: list[str], finding: bool) -> tuple[str, str, int]:
-    """check.main on ``root`` with every stage stubbed; its stdout, stderr and status."""
+def run_main(root: Path, argv: list[str], finding: bool,
+             profiled: bool = True, **override) -> tuple[str, str, int]:
+    """check.main on ``root`` with every stage stubbed, or replaced by ``override``; its
+    stdout, stderr and status."""
     found = [Finding("REQ_X", "docs/a.md:1", "a finding")] if finding else []
     stubs = {
         "corpus_root": mock.Mock(return_value=root),
@@ -47,11 +49,14 @@ def run_main(root: Path, argv: list[str], finding: bool) -> tuple[str, str, int]
         "run_vale": mock.Mock(return_value=[]),
         "audit_stage": mock.Mock(return_value=[]),
         "check_lifecycle": mock.Mock(return_value=[]),
+        **override,
     }
     out, err = io.StringIO(), io.StringIO()
     with ExitStack() as stack:
         for name, stub in stubs.items():
             stack.enter_context(mock.patch.object(check, name, stub))
+        if not profiled:
+            stack.enter_context(mock.patch.object(check, "write_profile", mock.Mock()))
         stack.enter_context(redirect_stdout(out))
         stack.enter_context(redirect_stderr(err))
         code = check.main(argv)
@@ -80,6 +85,19 @@ class CheckProfile(unittest.TestCase):
                 self.assertEqual(plain[2], 1 if finding else 0)
                 self.assertTrue((root / "docs/_build/profile/check.json").is_file())
                 self.assertTrue((root / "elsewhere" / "p.json").is_file())
+                unprofiled = run_main(root, ["--base", "main"], finding, profiled=False)
+                self.assertEqual(plain[0].encode("utf-8"), unprofiled[0].encode("utf-8"))
+                self.assertEqual(plain[2], unprofiled[2])
+
+    @proves("REQ_PROFILED")
+    def test_a_stage_that_raises_still_writes_the_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = corpus(tmp)
+            with self.assertRaises(OSError):
+                run_main(root, [], False, run_vale=mock.Mock(side_effect=OSError("boom")))
+            data = json.loads((root / "docs/_build/profile/check.json")
+                              .read_text(encoding="utf-8"))
+        self.assertEqual(data["stages"][-1]["name"], "vale normative")
 
     @proves("REQ_PROFILED")
     def test_profile_lists_every_stage_in_run_order(self):
@@ -140,27 +158,30 @@ mutations:
 """
 
 
-def run_runner(root: Path, argv: list[str]) -> tuple[str, int]:
-    """run_fixtures.main with the copy and each copy's check stubbed."""
+def run_runner(root: Path, argv: list[str], fail: str = "") -> tuple[str, str, int]:
+    """run_fixtures.main with the copy and each copy's check stubbed; ``fail`` names the
+    step that fails, ``base`` or ``control``."""
 
     def make_base(tmp: Path, _root: Path) -> Path:
+        if fail == "base":
+            raise OSError("no copy")
         (tmp / "base").mkdir()
         return tmp / "base"
 
     def fake_check(copy: Path, vale: Path, cache: Path):
         stages = [{"name": "tests", "seconds": 0.5}, {"name": "sphinx", "seconds": 0.25}]
         if copy.name == "base":
-            return 0, [], stages
+            return (1, [Finding("REQ_Y", "x", "y")], stages) if fail == "control" else (0, [], stages)
         return 1, [Finding("REQ_X", "docs/new.md", "found")], stages
 
-    out = io.StringIO()
+    out, err = io.StringIO(), io.StringIO()
     with mock.patch.object(run_fixtures, "corpus_root", return_value=root), \
             mock.patch.object(run_fixtures, "vale_path", return_value=root / "vale"), \
             mock.patch.object(run_fixtures, "make_base", make_base), \
             mock.patch.object(run_fixtures, "run_check", fake_check), \
-            redirect_stdout(out), redirect_stderr(io.StringIO()):
+            redirect_stdout(out), redirect_stderr(err):
         code = run_fixtures.main(argv)
-    return out.getvalue(), code
+    return out.getvalue(), err.getvalue(), code
 
 
 class FixturesProfile(unittest.TestCase):
@@ -175,7 +196,7 @@ class FixturesProfile(unittest.TestCase):
     def test_profile_lists_base_control_and_every_fixture_with_its_stages(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.corpus(tmp)
-            _, code = run_runner(root, [])
+            _, _, code = run_runner(root, [])
             data = json.loads((root / "docs/_build/profile/fixtures.json")
                               .read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
@@ -195,9 +216,30 @@ class FixturesProfile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.corpus(tmp)
             (root / "blocked").mkdir()
-            plain = run_runner(root, [])
-            failed = run_runner(root, ["--profile", str(root / "blocked")])
-        self.assertEqual(plain, failed)
+            for fail in ("", "base", "control"):
+                plain = run_runner(root, [], fail)
+                failed = run_runner(root, ["--profile", str(root / "blocked")], fail)
+                self.assertEqual((plain[0], plain[2]), (failed[0], failed[2]))
+                self.assertEqual(plain[1], "")
+                self.assertEqual(failed[1].count("\n"), 1)
+                self.assertIn("cannot write the profile", failed[1])
+
+    @proves("REQ_PROFILED")
+    def test_a_failed_base_copy_or_control_still_writes_the_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.corpus(tmp)
+            profile = root / "docs/_build/profile/fixtures.json"
+            _, _, code = run_runner(root, [], "base")
+            data = json.loads(profile.read_text(encoding="utf-8"))
+            self.assertEqual(code, 1)
+            self.assertIn("seconds", data["base"])
+            self.assertIsNone(data["control"])
+            _, _, code = run_runner(root, [], "control")
+            data = json.loads(profile.read_text(encoding="utf-8"))
+        self.assertEqual(code, 1)
+        self.assertFalse(data["control"]["ok"])
+        self.assertEqual([s["name"] for s in data["control"]["stages"]], ["tests", "sphinx"])
+        self.assertEqual(data["fixtures"], [])
 
 
 class ProfileTable(unittest.TestCase):
