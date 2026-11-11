@@ -252,3 +252,13 @@ init writes, gets no store or download cache until a later change offers one.
 :digest: 71ca9dff4ba9be98ffca9d08d9b74a0ba97103bd02bab781619e5e8f54565546
 The review recorded as {need}`REV_RFC_0008_1` covered this document.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_2
+:k: 2
+:date: 2026-11-10
+:digest: 9c7ef46b3795c904e9c6317c67fdc071081fa9f792fe248f14aa6205a3c3b93a
+{need}`PLAN_0007` task 2: the environment a manifest records is a SHA-256 of each value,
+with the root's path replaced, never the value, since a store CI publishes is public.
+Two rounds, one reviewer per lens, with the recorder that builds it.
+:::

@@ -164,6 +164,51 @@ class Inputs(unittest.TestCase):
         self.assertNotIn("by-child.txt", m["files"])
 
     @proves("REQ_REUSE_SOUND")
+    def test_a_file_read_before_the_run_replaced_it_is_an_input(self):
+        m = run(self.root, """
+            import os
+            open("a.txt").read()
+            with open("a.tmp", "w") as f:
+                f.write("new")
+            os.replace("a.tmp", "a.txt")
+            open("b.txt").read()
+            os.rename("b.txt", "b-moved.txt")
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("a.txt", m["files"])
+        self.assertIn("b.txt", m["files"])
+
+    @proves("REQ_REUSE_SOUND")
+    def test_a_variable_the_run_gives_a_child_is_its_own(self):
+        m = run(self.root, """
+            import os, subprocess, sys
+            env = {**os.environ, "TRIFECTA_TEST_GIVEN": "1"}
+            subprocess.run([sys.executable, "-c",
+                            "import os; os.environ['TRIFECTA_TEST_GIVEN']"], env=env, check=True)
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertNotIn("TRIFECTA_TEST_GIVEN", m["environment"])
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_listing_through_a_link_it_did_not_make(self):
+        os.symlink(self.tmp, self.root / "elsewhere")
+        why = self.refused_in(self.root, "import os; os.listdir('elsewhere')")
+        self.assertIn("through a link", why)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_rmtree_keeps_its_link_safe_path(self):
+        m = run(self.root, "import shutil, sys; "
+                           "sys.exit(0 if shutil.rmtree.avoids_symlink_attacks else 3)")
+        self.assertTrue(m["storable"], m.get("why"))
+
+    def refused_in(self, root: Path, code: str) -> str:
+        m = run(root, code)
+        self.assertFalse(m["storable"])
+        return m["why"]
+
+    @proves("REQ_REUSE_SOUND")
     @only_on("posix")
     def test_a_read_through_a_link_the_run_made_reads_its_target(self):
         m = run(self.root, """
