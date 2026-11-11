@@ -95,8 +95,9 @@ class AdoptionGuide(unittest.TestCase):
             done = subprocess.run(["bash", "-e", "-c", script], cwd=repo, env=env,
                                   capture_output=True, encoding="utf-8", errors="replace")
             # The tail: the check reports only the start of a failure's message.
-            self.assertEqual(done.returncode, 0,
-                             " ".join((done.stdout + done.stderr).split())[-260:])
+            findings = [l for l in done.stdout.splitlines() if l.count("\t") >= 2]
+            self.assertEqual(done.returncode, 0, " | ".join(findings)[-300:]
+                             or " ".join(done.stderr.split())[-260:])
             self.assertFalse((repo / wheel.name).exists())
             lock = (repo / "requirements.lock").read_text(encoding="utf-8").splitlines()[0]
             self.assertIn(f"/releases/download/v{version}/{wheel.name}", lock)
