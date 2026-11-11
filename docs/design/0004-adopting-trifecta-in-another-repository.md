@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Adopting trifecta in another repository
@@ -207,6 +207,7 @@ contributors, private vulnerability reporting, and Dependabot alerts.
 
 :::{component} Release workflow
 :id: COMP_RELEASE
+:spec: .github/workflows/release-publish.yml#guard
 :satisfies: REQ_RELEASE_TRUST
 :constrained_by: DEC_0013
 Two workflows. `release-build` builds the wheel and its SHA-256 on a version tag, with
@@ -223,6 +224,7 @@ release.
 
 :::{component} Template repository
 :id: COMP_TEMPLATE_REPO
+:spec: src/trifecta/init.py#def files
 :constrained_by: DEC_0013, DEC_0014
 A GitHub template repository whose content is the output of `trifecta init` and nothing
 else, pinned to the latest release.
@@ -230,6 +232,7 @@ else, pinned to the latest release.
 
 :::{component} Adoption guide
 :id: COMP_ADOPTION_GUIDE
+:spec: README.md#Run this in your repo
 :satisfies: REQ_ADOPTION_GUIDE
 :constrained_by: DEC_0013, DEC_0014
 The README, leading with "Run this in your repo": from the template, or with
