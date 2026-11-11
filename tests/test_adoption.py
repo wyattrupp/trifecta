@@ -87,8 +87,11 @@ class AdoptionGuide(unittest.TestCase):
             # init refuses the placeholder a reader replaces with their own name.
             steps = [c.replace("@<you>", "@someone") for c in steps]
             script = "\n".join([steps[0], steps[1], f'version="{version}"', *steps[2:]])
+            # Nothing of the run this test is inside: not its Python, its Vale, or the make
+            # variables (BASE=...) a `make check` hands down through MAKEFLAGS.
             env = {k: v for k, v in os.environ.items()
-                   if not k.startswith(("PYTHON", "VIRTUAL_ENV", "TRIFECTA_"))}
+                   if not k.startswith(("PYTHON", "VIRTUAL_ENV", "TRIFECTA_"))
+                   and k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES", "BASE")}
             # The test's own pip cache, so copies that run it again do not download again.
             env["PIP_CACHE_DIR"] = os.environ.get("PIP_CACHE_DIR") or str(Path.home() / ".cache" / "pip")
             env["HOME"] = str(home)
