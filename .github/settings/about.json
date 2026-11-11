@@ -1,0 +1,19 @@
+{
+  "description": "RFCs, MADRs, design docs and plans as one deterministically validated graph, built on sphinx-needs, MyST and Vale.",
+  "homepage": null,
+  "topics": [
+    "adr",
+    "claude-code",
+    "design-docs",
+    "docs-as-code",
+    "linter",
+    "madr",
+    "myst",
+    "python",
+    "requirements-traceability",
+    "rfc",
+    "sphinx",
+    "sphinx-needs",
+    "vale"
+  ]
+}
