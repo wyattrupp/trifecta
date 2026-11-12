@@ -10,68 +10,65 @@ created: 2026-11-11
 
 ## Summary
 
-{need}`DES_0008`'s result store never stores seven proof modules, so every fixture copy
+{need}`DES_0008`'s result store never stores seven proof modules on `main`, and an
+eighth on PR #32, so every fixture copy
 runs them again, and they hold most of the fixture step's test time. This RFC asks which
 of them can become storable without weakening {need}`REQ_REUSE_SOUND`: a changed input is
 never reused unchecked, and a run that reads what the recorder cannot see is never
-stored. It names what each module does that the recorder refuses, what each way of
-lifting a refusal would trust, and how each could fail. The choices are wyatt's and stay
-open as questions. Building any of this waits until {need}`PLAN_0007` is done.
+stored. It names every reason the recorder raises in the Python code it follows in each module,
+measured on Linux and Windows, what each way of lifting a refusal would trust, and how each could fail. Where
+a question had a measurable answer, the measurement is recorded with it; what is left is
+wyatt's to rule. Building any of this waits until {need}`PLAN_0007` is done.
 
 ## Motivation
 
 wyatt, 2026-11-11, asked whether the never-stored modules should "go into a new RFC once
 PLAN_0007 is done, or should they stay as the design's accepted cost": "yes", a new RFC.
 On when, wyatt, 2026-11-11: waiting for PLAN_0007 "means the execution of it, not the
-planning", so this RFC is written now and built after PLAN_0007.
+planning", so this RFC is written now and built after PLAN_0007. On the questions, wyatt,
+2026-11-11: "all of those questions seem to be empirically answerable", so each was
+measured where it could be.
 
 {need}`DES_0008`'s Risks accept that "a test that starts git, Vale or any program other
 than the interpreter is never stored". PLAN_0007 task 3 measured that cost. In CI run
 42995781425, the baseline wyatt ruled on 2026-11-11 ("we're establishing a measured
 baseline here. keep going"), the Linux fixture step took 2826 seconds and the Windows one
 2672, against 806 and 1306 before task 3. On Linux the 123 fixture copies spent 10,860
-seconds on tests, and these modules held 9,540 of them, summed over the copies:
+seconds on tests, and seven modules held about 9,540 of them, summed over the copies. Task 4
+added an eighth: in CI run 43120488764, on PR #32's head, `test_build_reuse` took 4852
+seconds on Linux and 8903 on Windows, and the fixture step 3593 and 5266.
 
-| Module | Linux seconds | The refusal the profile gives |
+The recorder keeps only the first reason it refuses a run, and stops looking after it.
+To find every reason, a copy of the recorder that logs each refusal with its stack and
+keeps recording was run on each module, on Windows 11 and on Debian 12 under WSL, on
+2026-11-11; the scripts and logs are not kept in the repository. The runner did not
+apply `only_on`, so a reason is counted below only from a test on its own platform. The
+probe sees what the recorder raises in Python code it follows, nothing inside git, bash,
+Vale or another program, and Linux was Debian 12, not CI's Ubuntu 24.04, whose pip and
+system paths can differ. Seconds are CI's, summed over the copies; the reasons are the
+probe's:
+
+| Module | Linux seconds | Every reason the probe found |
 |---|---:|---|
-| `test_record_trace` | 2344 | runs strace; its tests run only where `os.name` is `posix` |
-| `test_adoption` | 2148 | runs git; its test runs only where `os.name` is `posix` |
-| `test_record` | 1822 | starts Python children that record into directories of their own |
-| `test_store_reuse` | 1289 | as `test_record` |
-| `test_init` | 987 | runs git |
-| `test_package` | 490 | its wheel build reads the host name, or on Linux probes `/etc/os-release` through a link |
-| `test_planning` | 462 | runs git |
+| `test_build_reuse` | 4852 | a Python child that records into a directory of its own, in 7 of its 10 tests; the other 3 raise none; measured on Windows only |
+| `test_record_trace` | 2344 | runs strace, in the 2 tests that run where `os.name` is `posix`; the build test is 35.9 of the module's 37.3 seconds |
+| `test_adoption` | 2148 | runs git and bash; the wheel build's child, on Linux, reads `/etc/os-release`, `/etc/mtab` and `/etc/rmt` through links and runs `lsb_release` and `uname`, all from pip's `distro` |
+| `test_record` | 1822 | a Python child that records into a directory of its own, in 25 of the 30 tests that run on Linux; a child with `-S` in one; none in four; on Windows, ctypes in one test's `setUp` |
+| `test_store_reuse` | 1289 | a Python child that records into a directory of its own, in 3 of 4 tests |
+| `test_init` | 987 | runs git, through the `Repo` most of its tests share, and bash in one; its `trifecta check` and `trifecta new` children run git, and the check children Vale, and Sphinx changes the working directory while it reads `conf.py`; on Windows, the host name and a WMI query through `toolchain.bin_vale`'s `platform.system()`, and a junction |
+| `test_package` | 490 | the wheel build's child: on Linux as in `test_adoption`; on Windows the host name and a WMI query through `platform.system()` in pip's `rich`, ctypes in pip's `platformdirs`, and `rustc`, found on `PATH`, run by pip's user agent |
+| `test_planning` | 462 | runs git in most tests and bash in one; about two dozen of the hook's Python children leave no manifest, since the guard refuses through `os._exit(2)`, which runs no `atexit`, and one leaves a malformed one; on Windows, junctions and ctypes |
 
-Reuse takes every other module to a few hundredths of a second, but those were already
-the cheap ones, so reuse as built saves little of what the fixture step spends. The
-Windows job's numbers per module are not yet measured.
-
-The recorder keeps only the first reason it refuses a run, so the table holds one reason
-per module and hides any others. That first reason is not the first in time: a child's
-refusal is merged only when the parent writes its manifest, so any refusal of the
-module's own process wins over its children's. Read from the tests' source:
-
-- `test_init`, `test_planning` and `test_adoption` also run bash. In `test_init` one test
-  runs the workflow's script through bash with a stub `make`. In `test_planning` the hook
-  tests run the hook command through bash. In `test_adoption` one test runs the whole
-  adoption guide through bash, which runs pip, git, init and a nested check with Vale.
-  Making git a known program would not on its own make these three modules storable.
-- `test_adoption` also builds a wheel with `sys.executable -m pip wheel`, the build
-  `test_package` runs, so it would meet the host-name refusal with git and bash solved.
-- Most of their git use is `git init -q` of an empty directory the test made, in a
-  `Repo` helper most tests of `test_init` and `test_planning` share. The code under test
-  also runs git: init reads `git remote get-url origin` when no owner is given, and the
-  history check reads the base ref.
-- `test_record` has tests that start a Python child with `-S`, or a child that runs
-  `git --version` or another program, to see the recorder refuse them. Those tests stay
-  unstorable under every direction below, unless they move to a module of their own.
+So a lift of one reason stores little on its own. In `test_init`, the two tests that run
+the whole check, 9.96 of 11.2 seconds on Linux and 13.9 of 16.4 on Windows, run Vale
+and change the working directory under Sphinx whether or not git and bash are lifted.
 
 The security review of this RFC found a gap in the recorder as built: on Linux,
 `os.uname()` and `platform.node()` read the host name and raise no audit event, so a
 run that reads the host name that way can be stored without it, against
 {need}`REQ_REUSE_SOUND`. `platform.system()`, `platform.uname()` and
-`sysconfig.get_platform()` call `os.uname()` too, so refusing every call could make
-modules stored today unstorable. How and when to close it is {need}`Q_UNAME`.
+`sysconfig.get_platform()` call `os.uname()` too. How and when to close it is
+{need}`Q_UNAME`.
 
 ## Terms
 
@@ -174,181 +171,210 @@ on Linux and on Windows.
 
 ## Questions
 
+Each question gives what was measured on 2026-11-11, then what is left to rule.
+
 :::{question} Which modules are in scope, and in what order?
 :id: Q_SCOPE_MODULES
-Scope is wyatt's ruling. The seconds above favour `test_record_trace`, `test_adoption`
-and `test_record`, but the first two are also the hardest to make sound, and the names
-{need}`REQ_REFUSALS_NAMED` asks for may show other blockers. One order is to name every
-refusal first, then lift the cheapest sound ones, then measure again.
+Measured: nested recording is the only refusal in `test_build_reuse`, probed on
+Windows only, and `test_store_reuse`, 6141 of the eight modules' 14,394 Linux seconds,
+and 7963 with `test_record`, which also needs its `-S` test, and on Windows its ctypes
+`setUp`, moved or lifted; the host reads of `test_package` go away without pip, as
+{need}`Q_HOST` finds; `test_init`, `test_planning` and `test_adoption` each need git,
+bash and more lifted at once, and `test_init`'s costly tests need Vale, which the
+proposed scope leaves out. One order the numbers favour: `test_package` first, as it
+needs no new trust; nested recording next, for the most seconds; `test_record_trace`
+after it, if {need}`Q_TRACE_FRESH` says so; git last or never. Scope and order are
+wyatt's ruling.
 :::
 
 :::{question} Is git a known program, and on what terms?
 :id: Q_GIT_KNOWN
+Measured with `strace` on git 2.39.5, Debian 12, for the calls the tests and the code
+under test make on a repository the run made, with `GIT_CEILING_DIRECTORIES` at its
+parent: `init`, `remote get-url`, `commit` with two `-c` keys, `rev-parse`, `ls-files`
+and `cat-file`, as root, with no configuration file present. Outside the made
+repository, git read or probed its executables, `/usr/bin/git` and
+`/usr/lib/git-core/git`; the dynamic loader's files and its libraries; the locale
+archive and git's message catalogs, which `LANG` selects; `/etc/gitconfig`,
+`~/.gitconfig` and `~/.config/git/config`, all absent; `~/.config/git/ignore`, in
+`ls-files`; the template tree under `/usr/share/git-core/templates`, in `init`;
+`/etc/localtime`, in `commit`; and each parent of the made repository and of the
+directory git started in. It connected nowhere. `commit` started
+`git maintenance run --auto` as a child of its own. The trace kept only absolute paths,
+without `strace`'s `-y`, so a read relative to a directory or descriptor outside the
+repository would not show; here every such read was under the made `.git`. With no
+configuration present, what a configuration can pull in, `include.path`, `includeIf`,
+`core.excludesFile`, `core.attributesFile`, `init.templateDir` or `commit.template`, was
+not exercised. So the list holds for these calls on this version, with no
+configuration; whether it is closed is not shown. CI's Ubuntu 24.04 ships another
+version, which is not yet traced, and Windows cannot be traced this way. Paths under
+`/proc` and `/dev` were filtered out and are not in this list.
+
+What lifting git would store, measured: nothing on its own, since no module is held by
+git alone: `test_init`'s two costly tests also run Vale and change the working
+directory under Sphinx, `test_planning`'s hook tests leave no manifest, and
+`test_adoption` runs bash and pip.
+
 Directions, each with what it trusts and how it fails:
 
-- **git on a repository the run made.** Allow a fixed list of subcommands, such as
-  `init`, `rev-parse`, `commit` and `remote get-url`, only in a directory the run
-  created, with `init` before any other. Every git call of the code under test uses
-  `-C`, and the recorder refuses a change of working directory, so `-C` is allowed only
-  when it names a directory the run made. The repository's own files are then the run's
-  output, not inputs, but only while git reads nowhere else: a `.git` file naming
-  another directory, an `objects/info/alternates` file, a `commondir`, a
-  `core.worktree`, git's search upward for an enclosing repository before `init`, any
-  global option not on a stated list, such as `--git-dir`, `--work-tree`,
-  `--exec-path`, `--template`, `--config-env`, `--attr-source` and `--namespace`, and
-  every `GIT_*` variable that names a path, such as `GIT_DIR`, `GIT_COMMON_DIR`,
-  `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_WORK_TREE`,
-  `GIT_INDEX_FILE`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_GLOBAL`, `GIT_TEMPLATE_DIR` and
-  `GIT_EXEC_PATH`, all move it, so each is refused, or its target recorded. A start
-  without `GIT_CEILING_DIRECTORIES`, set by the test, is refused, since the recorder
-  sets no pin; git does not search into the ceiling itself, so the ceiling is the made
-  directory's parent. `-c` is allowed only for named keys, such as `user.name` and
-  `user.email`, and `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT` and its keys are
-  refused. A hook is a file, not a setting: any file in the repository's `.git/hooks`
-  other than git's samples is refused at each start, whether the test wrote it or
-  `init` copied it from a template. The inputs left
-  include the git executable, its exec path and the helpers under `libexec/git-core`;
-  the system, global and XDG configuration files, `%PROGRAMDATA%\Git\config` on
-  Windows, and every file they include, where `includeIf` makes the result depend on the
-  repository's path and on other settings; the XDG `git/ignore` and `git/attributes`
-  files and those `core.excludesFile` and `core.attributesFile` name; the mailmap; the
-  template directory `init` copies, `info/exclude` and hooks among it; and the `GIT_*`,
-  `HOME`, `XDG_CONFIG_HOME`, `PATH` and locale variables. On Windows, `cmd\git.exe` is a
-  launcher that starts `mingw64\bin\git.exe` and its libraries. These are examples, not
-  a whole list: the direction trusts that a list the design states is whole for those
-  subcommands on every git version that runs the check, and where no list can be closed
-  on a platform the refusal stays. It fails if a setting starts a program, such as
-  `core.fsmonitor`, `core.hooksPath`, an alias, a credential helper, or
-  `commit.gpgSign` with `gpg.program`; if `commit` runs a hook from the templates; or if
-  `commit` starts `gc` or `maintenance` on its own, which can go on writing after the
-  manifest is written. So the recorder would have to read the effective configuration
-  and refuse any such setting. A commit also reads the clock for its dates; a test whose
-  result does not depend on them is outside the clock rule {need}`RFC_0008` leaves out,
-  but one that compares commit IDs is not.
-- **git on this repository.** The history check, setup's `ls-files`, and `trifecta new`,
-  which runs `git config user.name` in the repository and so reads its `.git/config`
-  beside the global files, read refs, objects, packs, the index or the configuration,
-  which no stated list covers without tracing each call. This likely stays refused.
-- **Pinning git's configuration.** The recorder starts git with `GIT_CONFIG_NOSYSTEM`,
-  an empty `GIT_CONFIG_GLOBAL` and an empty template directory, so the configuration is
-  no input. It trusts nothing new, but it changes what the code under test sees, such as
-  the `user.name` `trifecta new` reads. A pin set by the recorder can change a finding,
-  so a pin belongs to the test, never to the recorder.
-- **Tracing git on Linux.** Run each git child under `strace` and take its manifest from
-  the calls. It trusts `strace` and the kernel, costs a traced start for every call, and
-  leaves Windows refused. A trace holds no environment reads, since `getenv` is no
-  system call, so the child's whole environment would have to be recorded beside it.
+- **git on a repository the run made.** Allow a fixed list of subcommands only in a
+  directory the run created, with `init` before any other, and `-C` only when it names
+  such a directory. Refuse every global option not on a stated list, every `GIT_*`
+  variable that names a path, a `.git` file, alternates, `commondir`, `core.worktree`,
+  `-c` beyond named keys, `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT`, a start
+  without `GIT_CEILING_DIRECTORIES` set by the test at the made directory's parent, and
+  any file in `.git/hooks` other than git's samples. Record the measured inputs above,
+  every file the configuration includes, and the `GIT_*`, `HOME`, `XDG_CONFIG_HOME`,
+  `PATH` and locale variables. It trusts that the list is whole on every git version
+  that runs the check. It fails if a setting starts a program, such as
+  `core.fsmonitor`, `core.hooksPath`, an alias, a credential helper or `gpg.program`; so
+  the recorder reads the effective configuration and refuses any such setting. The
+  measured `git maintenance` child is a further program, which
+  {need}`REQ_KNOWN_PROGRAM` refuses, and it can go on writing after the manifest is
+  written: a start that may start another git, through maintenance, `gc --auto` or a
+  hook, keeps the refusal unless the test passes `-c maintenance.auto=false` and
+  `-c gc.auto=0`, both named keys, and a trace on each version shows no program started
+  beyond the git the run started. On Windows, where no trace can be taken, a `commit`
+  keeps the refusal under any ruling that lifts git without one. A commit reads the
+  clock and the time zone for its dates; a test that compares commit IDs is outside the
+  clock rule {need}`RFC_0008` leaves out.
+- **git on this repository.** The history check, setup's `ls-files` and `trifecta new`
+  read refs, objects, packs, the index and the repository's own configuration, which
+  no stated list covers without tracing each call. This likely stays refused.
+- **Pinning git's configuration.** `GIT_CONFIG_NOSYSTEM`, an empty `GIT_CONFIG_GLOBAL`
+  and an empty template directory make the configuration no input. A pin set by the
+  recorder can change a finding, such as the `user.name` `trifecta new` reads, so a pin
+  belongs to the test, never to the recorder.
+- **Tracing git on Linux.** Take each git child's manifest from `strace`. It trusts
+  `strace` and the kernel, costs a traced start per call, leaves Windows refused, and
+  sees no variable read, so the child's whole environment is recorded beside it.
 
-Linux can check each direction with `strace`; Windows cannot. {need}`DES_0008`'s Risks
-already accept that gap for native code; whether it is acceptable for git is wyatt's
-ruling.
+Left to wyatt: whether git is lifted at all, given what it stores; and whether Windows
+may lift it without a trace, as {need}`DES_0008`'s Risks accept for native code.
 :::
 
 :::{question} Where do the tests that run bash live?
 :id: Q_BASH
-bash runs whatever its script names, so it cannot be a known program on stated inputs,
-and {need}`REQ_KNOWN_PROGRAM` keeps it refused. One direction is to move each test that runs bash, the workflow test in `test_init` and
-the hook tests in `test_planning`, into a module of its own, so the rest of each module
-can be stored. That trusts nothing new; it changes only where a test lives, and its
-`@proves` moves with it. `test_adoption` runs the whole adoption guide through bash,
-with pip, init and Vale, and would likely stay fresh.
+bash runs whatever its script names, so {need}`REQ_KNOWN_PROGRAM` keeps it refused.
+Measured: the bash tests cost little, 0.32 seconds of `test_init` on Linux and 1.06 on
+Windows, and 0.17 of `test_planning` on Linux and 0.45 on Windows. Moving them into a module of their own
+stores nothing until git, and in `test_init` Vale and the Sphinx working directory, are
+lifted too, so it is worth doing only together with those. `test_adoption` runs the whole
+adoption guide through bash and stays fresh. Left to wyatt: whether to move them when
+that time comes.
 :::
 
 :::{question} How does the recorder follow a child that records itself?
 :id: Q_NESTED
-Directions, each with what it trusts and how it fails:
+Measured: nested recording is the only reason in `test_build_reuse`, raised in 7 of its
+10 tests, in 3 of 4 tests of `test_store_reuse`, and in 25 of the 30 tests of
+`test_record` that run on Linux: 6141 Linux seconds in CI without `test_record` and
+7963 with it, whose `-S` test and Windows ctypes `setUp` also refuse. So moving tests
+into modules of their own stores nothing here without following the child; for
+`test_record` it takes both.
 
-- **Merge the child's own manifest.** The parent reads the manifest the child's recorder
-  wrote. Both recorders load from the same copy's `record.py`, so the code is no
-  different; but the test chose the child's configuration and ignore list, and its
-  tests provoke refusals on purpose, so the child's manifest records what the test
-  asked, not what the parent needs. {need}`REQ_NESTED_RECORDING` rules this out.
+- **Merge the child's own manifest.** The test chose the child's configuration and
+  ignore list, and its tests provoke refusals on purpose, so the child's manifest
+  records what the test asked, not what the parent needs. {need}`REQ_NESTED_RECORDING`
+  rules this out.
 - **Stack two recorders.** The parent's recorder gives the grandchild a directory of its
-  own under a second variable, since it already rewrites every Python child's
-  environment, and its recorder starts first; the test's recorder starts after it. None
-  of this works today: the `.pth` line reads only `TRIFECTA_RECORD`, the start source
-  loads nothing when `_trifecta_record` is already loaded, and `start` removes
-  `TRIFECTA_RECORD` from the process, so the parent's recorder starting first would
-  delete the test's variable. Stacking needs a second `.pth` line, start source and
-  module name, each a change to the installed environment and a point to trust. The
-  parent's audit hook sees every event, the test recorder's own included, and the test
-  recorder's reads of its own directory fall under what the run made. It fails in five
-  ways. The test recorder wraps `subprocess.Popen._execute_child` last, so its wrapper
-  runs first and sets `TRIFECTA_RECORD`, and the parent's wrapper then refuses the
-  grandchild's own Python children as recording into a directory of their own; the
-  parent's wrapper has to run first, or tell a stacked variable from a test's, and
-  which is a choice for the design.
-  Code in the grandchild can step around a wrapper without replacing it: every wrapper
-  keeps its original in `__wrapped__` and in its closure, `os._Environ.__getitem__`
-  reads past the recording mapping, and the recorder lists `sys.addaudithook` and
-  `object.__setattr__` as harmless; a check at child start and at exit that the hook and
-  wrappers are in place sees none of that, nor a swap put back before exit; whether a
-  gap of this kind, stated, is acceptable is wyatt's ruling, and until then
-  {need}`REQ_NESTED_RECORDING` keeps the refusal. A test, or a recorder a fixture
+  own under a second variable, and its recorder starts first. None of this works today:
+  the `.pth` line reads only `TRIFECTA_RECORD`, the start source loads nothing when
+  `_trifecta_record` is already loaded, and `start` removes `TRIFECTA_RECORD`, so the
+  parent's recorder starting first would delete the test's variable. Stacking needs a
+  second `.pth` line, start source and module name. The test recorder wraps
+  `subprocess.Popen._execute_child` last, so its wrapper runs first; the parent's has to
+  run first, or tell a stacked variable from a test's. A test, or a recorder a fixture
   changed, could set the parent's variable or rewrite a `config.json` the parent's
-  recorder wrote to widen its ignore list, since writes into a recorder's own directory
-  are not recorded; both have to be refused, while the test's recorder still writes its
-  own manifest into the directory the test prepared. And two hooks per event make each
-  grandchild slower, by an amount to measure.
+  recorder wrote, so both are refused, while the test's recorder still writes its own
+  manifest where the test prepared it. The cost of two hooks per event is measured once
+  stacking is built; one recorded start that imports the test stack costs 1.35
+  seconds on Linux and 2.07 on Windows today.
 
-The tests in `test_record` that provoke a refusal on purpose stay unstorable either way.
+Code in the grandchild can step around a wrapper without replacing it: every wrapper
+keeps its original in `__wrapped__` and its closure, `os._Environ.__getitem__` reads
+past the recording mapping, and the recorder lists `sys.addaudithook` and
+`object.__setattr__` as harmless. A check at child start and at exit sees none of that.
+Left to wyatt: whether a gap of this kind, stated, is acceptable for code the
+repository's own tests run; until then {need}`REQ_NESTED_RECORDING` keeps the refusal.
 :::
 
 :::{question} How is `test_package`'s host read handled?
 :id: Q_HOST
-The wheel build reads the host name, and on Linux probes `/etc/os-release`, a link to
-`/usr/lib/os-release`. Which code reads them is not yet found. Directions:
+Measured: the reader is pip, not the package. On Linux pip's `distro` reads
+`/etc/os-release`, `/etc/mtab` and `/etc/rmt` through links and runs `lsb_release` and
+`uname`; on Windows pip's `rich` calls `platform.system()`, which reads the host name and
+runs a WMI query, pip's `platformdirs` loads ctypes, and pip's user agent runs `rustc`
+when one is on `PATH`. The test runs `pip wheel --no-build-isolation`, so pip only calls
+`flit_core`'s build hook. Calling `flit_core.buildapi.build_wheel` directly, in a
+recorded child at the repository's root, gave the wheel with no refusal and no input
+outside the repository and the interpreter's prefixes, which the environment key
+stands for through the interpreter's version and the installed distributions, as for
+every stored module, on Linux and on Windows. It was measured with `-E`, not under the test's own
+environment, and the wheel was not compared with pip's.
 
-- **Record them.** A hash of the host name, and the link with its target and the
-  target's hash, as {need}`REQ_HOST_READS` allows. The calls that read the name carry
-  no value to the audit hook, so the recorder takes the name itself, and the store
-  takes it again at every lookup: a new input kind in IF_MANIFEST and the store. CI
-  runners change their host name every run, so this reuses within one run's 123 copies, where the time is, and not
-  across runs. A hash of a host name is guessable, and a store CI publishes is public,
-  the same as for an environment value today.
-- **Take the read out.** Find the reader and give it what it needs through the test's
-  own environment, if the reader allows that. It trusts nothing new, but it holds only
-  while that reader does not change.
+So taking the read out works for `test_package`, and recording a host name, a new input
+kind, is not needed for it. It trusts nothing new; the test then proves the wheel the
+backend builds, not pip's call of it. `test_adoption`'s guide runs pip by design and
+keeps the reads. trifecta's own `toolchain.bin_vale` calls `platform.system()`, a host
+read on Windows, and on Linux through the `os.uname` gap of {need}`Q_UNAME`, which
+`os.name` avoids. Left to wyatt: whether the test may build through
+the backend.
 :::
 
 :::{question} Does `test_record_trace` stay fresh?
 :id: Q_TRACE_FRESH
-Its subject is the recorder's blind spot: it shows that native code reads nothing the
-recorder misses. A reuse keyed on a manifest the recorder wrote cannot see a change to
-an input the recorder missed, which is what the test exists to catch. Directions:
+Measured: the module's own manifest holds six files under the root, `tests/__init__.py`
+and `tests/test_record_trace.py` among them, and none under `docs/`, while the Sphinx
+build it traces reads `docs/`; `strace` starts that build, so the module's recorder
+never follows it. A reuse keyed on the module's own manifest would therefore reuse the module after
+a document changed, which {need}`REQ_REUSE_SOUND` forbids. The build child does write a
+whole manifest of its own, which is what the test checks, but
+{need}`REQ_NESTED_RECORDING` rules out standing on it; short of that, only a key taken
+from what `strace` saw, beside the module's own manifest, could be sound. The build test is 35.9 of
+37.3 seconds on Linux. 73 of the 123 fixtures change a file under `docs/`, and 5 more
+change the package or the lock, so a sound key reuses in at most the other 50 copies,
+fewer if a lock change reaches the build, about 950 of 2344 Linux seconds at most.
 
-- **Stay fresh in every copy**, as today: 2344 seconds on Linux.
-- **Key it on what `strace` saw**, not on the recorder's manifest. It trusts `strace`,
-  which sees the file, network and listing calls it is told to trace, of the command it
-  traces, which also records itself; a change to the installed
-  distributions changes the identity and runs it again. `strace` traces only the build
-  and the test child the module starts, not the module's own process, so that process
-  stays keyed on the recorder's manifest; the traced half's key has to say what it does
-  with reads under `/proc`, `/dev` and the temporary directory, and holds no environment
-  reads, since `getenv` is no system call.
-- **Run it once per job rather than in every fixture copy.** This changes what a
-  fixture copy proves, so it is a scope ruling.
+Directions: **stay fresh in every copy**, as today; **key it on what `strace` saw**,
+which trusts `strace` for the file, network and listing calls it traces, resolves
+paths through `-y`, records a failed `open`, `stat`, `access` or `readlink` as the file's absence, records the traced
+command's whole environment beside it, since a trace holds no variable read, and has to
+say what it does with reads under `/proc`, `/dev` and the temporary directory; or **run it once per job**, which changes what a fixture copy
+proves. Left to wyatt: which, given at most about 950 seconds.
 :::
 
 :::{question} How and when is the recorder's `os.uname` gap closed?
 :id: Q_UNAME
-On Linux, `os.uname()` raises no audit event, so a stored run may have read the host
-name through it, which {need}`REQ_REUSE_SOUND` forbids. Directions: wrap `os.uname` and
-refuse on any call, at the cost of every module that calls `platform.system()`,
-`platform.uname()` or `sysconfig.get_platform()`, which is not yet counted; wrap it and
-record the host name as {need}`Q_HOST` describes; or wrap it and record only the fields
-other than the host name, which a caller of `platform.system()` reads. Whether this is
-fixed in PLAN_0007, in the plan that builds this RFC, or before either, is wyatt's
-ruling.
+Measured on Linux: of the modules stored today, `test_profile`, `test_proofs`,
+`test_release` and `test_store`, only `test_profile` calls `os.uname`, once, through
+`platform.system()` when `uuid` is imported. Refusing every call would cost
+`test_profile` its reuse. Recording only the fields other than the host name would keep
+it, but closes the gap only if what the caller gets holds no real host name:
+`platform.uname()` caches its whole result, host name included, so a later
+`platform.node()` reads it from the cache with no call to `os.uname`, and
+`posix.uname` is the same function under another name, which a wrapper of `os.uname`
+alone leaves open. The probe wrapped `os.uname` alone, so a direct `posix.uname` caller
+was not counted. Directions: refuse every call; record the host name as a hash under
+{need}`REQ_HOST_READS`, a new input kind; or blank it in what the wrapper returns and in
+`platform`'s cache, filled or not, which changes what the code under test sees, as the
+pin rule in {need}`Q_GIT_KNOWN` forbids for git. Any of them wraps `posix.uname` and
+`os.uname` together, and a test shows that `platform.node()` after `platform.system()`,
+and a read through `posix.uname`, are seen. Among the refused modules,
+`uuid`'s import, `toolchain.bin_vale` and pip's `packaging`, through
+`sysconfig.get_platform()`, call it. Left to wyatt: whether
+this is fixed in PLAN_0007, in the plan that builds this RFC, or before either, and
+which direction.
 :::
 
 :::{question} Is the unit stored the module or the test?
 :id: Q_UNIT
-Today one refusal in a module makes the whole module unstorable. Storing each test on
-its own would keep a refusal to its test, but costs a recorded child for each test, and
-a process start is the dearest step on Windows. Moving the refusing tests into modules
-of their own, as {need}`Q_BASH` and {need}`Q_NESTED` describe, keeps the module as the
-unit and gets most of the same effect.
+Measured: one recorded Python start that imports the test stack costs 1.35 seconds on
+Linux and 2.07 on Windows. The 29 tests of `test_planning` that run on Linux take 6.1
+seconds together, so a child per test would cost about 39. For that module a test as the
+unit costs more than it saves; one whose tests are few and long loses less, such as
+`test_store_reuse`, whose 4 tests take 8.4 seconds and would add about 5; and nested recording, the largest reason, holds whole modules
+either way. Left to wyatt: whether to close this question with the module as the unit.
 :::
 
 ## Out of scope
@@ -387,4 +413,26 @@ public profile hold no value and no root. Found by the security pass and confirm
 Linux: `os.uname()` and `platform.node()` raise no audit event, a gap in the recorder as
 built, now {need}`Q_UNAME`. Dropped: that `test_record_trace` and `test_adoption` have no
 platform rule, since `only_on` keeps their tests to `posix`.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0009_2
+:k: 2
+:date: 2026-11-11
+:digest: 4fcd0541246cff9941efa735e2ef84aea472f8a99d2c35b184b452642f4af9c6
+Two rounds on the rewrite that records the measurements of 2026-11-11 and adds
+`test_build_reuse`, one reviewer per lens, each checking claims against the probe logs,
+the timings, the git traces, the recorder and the store. Folded in from correctness:
+nested recording in 7 of `test_build_reuse`'s 10 tests and 25 of `test_record`'s 30 on
+Linux; the git trace's loader, locale and parent-directory reads; git lifted stores
+nothing on its own; the `os.uname` callers among refused modules; the sums, the bash
+seconds on Linux, the test counts behind {need}`Q_UNIT`; 6141 seconds for nested
+recording alone, 7963 with `test_record`'s other refusals; the `trifecta new` child's
+git. Folded in from security: `platform`'s cache and `posix.uname` leave the host name
+open under a partial wrapper, and blanking it changes what the code under test sees; the
+git list is not shown closed, with no configuration present and no `-y`; the
+maintenance child is a further program, refused unless both auto keys are off and a
+trace shows no further start, so a Windows `commit` stays refused; a trace key records
+the whole environment and every failed probe; the probe's limits, Python code only and
+Debian rather than Ubuntu; what the environment key stands for.
 :::
