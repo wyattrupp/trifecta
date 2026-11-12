@@ -17,9 +17,10 @@ of them can become storable without weakening {need}`REQ_REUSE_SOUND`: a changed
 never reused unchecked, and a run that reads what the recorder cannot see is never
 stored. It names every reason the recorder raises in the Python code it follows in each module,
 measured on Linux and Windows, what each way of lifting a refusal would trust, and how each could fail. Where
-a question had a measurable answer, the measurement is recorded with it; what is left is
-wyatt's to rule. wyatt has ruled that all eight modules are in scope, "ordered by
-highest possible speedup", and that git is lifted. Building any of this waits until
+a question had a measurable answer, the measurement is recorded with it, and each
+question records wyatt's ruling. wyatt has ruled that all eight modules are in scope, "ordered by
+highest possible speedup", and that git is lifted, and has ruled each question
+from recommendations put to him. Building any of this waits until
 {need}`PLAN_0007` is done.
 
 ## Motivation
@@ -30,7 +31,9 @@ On when, wyatt, 2026-11-11: waiting for PLAN_0007 "means the execution of it, no
 planning", so this RFC is written now and built after PLAN_0007. On the questions, wyatt,
 2026-11-11: "all of those questions seem to be empirically answerable", so each was
 measured where it could be. On scope, order and git, wyatt, 2026-11-11: "they're all in
-scope, and ordered by highest possible speedup. lift git".
+scope, and ordered by highest possible speedup. lift git". Then, wyatt, 2026-11-11:
+"just make recommendations, and ask using ask user tool"; each question records the
+option he chose, quoted.
 
 {need}`DES_0008`'s Risks accept that "a test that starts git, Vale or any program other
 than the interpreter is never stored". PLAN_0007 task 3 measured that cost. In CI run
@@ -114,7 +117,12 @@ input a trace of that start found: its executable, each file and directory it re
 that the run did not make, and its environment, whole or narrowed to a list the design
 states, since no trace sees a variable read. The program MUST be named
 by its resolved absolute path, which is not under the repository and not one the run
-made, with that file's hash recorded; a start through a shell, a script, or on Windows a
+made, with that file's hash recorded, or is a file under the repository's `bin/`
+whose SHA-256 the recorder checks, before the start, against a pin of that binary
+itself, per platform, read from the recorder's own package as loaded when the run
+began, so the pin is trusted as the recorder is and no further; the file holding the
+pin is a recorded input of the run, a mismatch keeps the refusal, and a stamp file is
+never trusted for it; a start through a shell, a script, or on Windows a
 `.cmd` or `.bat` file MUST keep the refusal. So MUST a start the design does not name,
 and one whose arguments or environment hold an option or variable not on a list the
 design states for that program. So MUST a start where the program's effective
@@ -124,7 +132,8 @@ helper, a pager or an editor, move it to read elsewhere, or let it reach the net
 On each platform where a lift is made, a test MUST show that the program opens, probes
 and lists nothing outside its stated inputs and connects nowhere, as the `strace` test
 does for the interpreter's native code; on a platform without that proof the refusal
-stays unless wyatt rules otherwise, which is {need}`Q_GIT_KNOWN`.
+stays unless wyatt rules otherwise; for git and Vale, he has, in {need}`Q_GIT_KNOWN`
+and {need}`Q_PROGRAMS`.
 :::
 
 :::{req} A nested recording is the parent's own
@@ -140,8 +149,8 @@ prepared other than that recorder's own, MUST keep the refusal. A child in which
 parent's recorder cannot tell, at each child start and at exit, that its own audit hook
 and wrappers stayed in place, with its handling of each child start not bypassed, MUST
 keep the refusal. Code in the same process can step around a wrapper without replacing
-it; the design MUST list those ways, and the refusal stays while any is open, unless
-wyatt rules the gap acceptable, which is {need}`Q_NESTED`.
+it; the design MUST list every such way, which wyatt has ruled acceptable as stated, in
+{need}`Q_NESTED`; a way the list does not hold, found later, reopens that ruling.
 :::
 
 :::{req} The host's identity is an input, refused or not read
@@ -157,7 +166,10 @@ it, so recording it adds an input kind to IF_MANIFEST and to the store's lookup.
 through a link outside the repository that the run did not make MAY be recorded, with
 the link's target and the target's content, only for paths the design names; every
 other such read stays refused, the time zone's files among them, which PLAN_0007 left
-out as the clock is.
+out as the clock is. Inside a recorded run, a fixed host name that `os.uname`,
+`posix.uname` and `platform`'s cache give in place of the machine's takes the read out,
+as {need}`Q_UNAME` rules; the other `uname` fields are then recorded, a new input kind
+in IF_MANIFEST, and a test shows each way the design lists is seen.
 :::
 
 :::{req} Each lifted refusal is proven
@@ -174,7 +186,7 @@ on Linux and on Windows.
 
 ## Questions
 
-Each question gives what was measured on 2026-11-11, then what is left to rule.
+Each question gives what was measured on 2026-11-11, then wyatt's ruling.
 
 :::{question} Which modules are in scope, and in what order?
 :id: Q_SCOPE_MODULES
@@ -184,10 +196,9 @@ be lifted or taken out of the run, under {need}`REQ_LIFT_PROVEN`, where the othe
 questions' rulings allow; a reason a ruling keeps refused keeps its module unstored.
 The programs the scope brings in that this RFC had left out are {need}`Q_PROGRAMS`.
 
-Proposed reading of "highest possible speedup", for wyatt to confirm: the Linux seconds,
-summed over the fixture copies, a module would save once every reason in it is lifted.
-Windows seconds, or the fixture step's wall time, where copies run side by side, could
-order the list otherwise; `test_build_reuse` alone takes 8903 Windows seconds.
+The reading of "highest possible speedup": the Linux seconds, summed over the fixture
+copies, a module would save once every reason in it is lifted. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Linux summed
+seconds".
 
 Measured on 2026-11-11 on PR #32's head, `00a998f`, on Debian 12: each module ran as
 the proof child runs it, unrecorded, under `strace -f -y`, and every path under the root
@@ -221,8 +232,8 @@ builds its corpus in a directory of its own. The order, from the most saved:
 | 7 | `test_package` | 116 | 5 `src/`, 2 root | 462 of 490 |
 | 8 | `test_planning` | 122 | 1 `src/` | 458 of 462 |
 
-Modules 5 and 6 differ by 14 seconds, less than these bounds can settle, so their
-order is open. Each figure is an upper bound, counted from one unmutated Linux trace, and is not a
+Modules 5 and 6 differ by 14 seconds, less than these bounds can settle; the build
+order takes the table's. Each figure is an upper bound, counted from one unmutated Linux trace, and is not a
 key: it holds only once every reason in that module is lifted; a lift that records more
 than the trace saw saves less; a fixture that creates a file under a name a module's
 import looked up would rerun it; by reading the imports, no module imports the names
@@ -230,13 +241,18 @@ the fixtures create under `tests/`, `helpers`, `support_fx`, `test_fx` and `sub`
 `test_adoption`'s guide failed early under the trace on this machine, so its row counts
 only what the test reads before the guide, which works in a directory of its own from
 the built wheel; its place in the order holds only until the guide is traced to the
-end. What each module waits on, among others:
+end. Before the rulings below, the modules waited on these, among others:
 modules 1 and 4 on {need}`Q_NESTED`; 2 on {need}`Q_GIT_KNOWN`, {need}`Q_BASH`,
 {need}`Q_PROGRAMS` and {need}`Q_HOST`; 3 on {need}`Q_NESTED` and {need}`Q_PROGRAMS`; 5 on
 {need}`Q_TRACE_FRESH`; 6 and 8 on {need}`Q_GIT_KNOWN`, {need}`Q_BASH` and
-{need}`Q_PROGRAMS`; 7 on {need}`Q_HOST`; and 2, 6 and 7 on {need}`Q_UNAME`. Proposed: a lift
-shared by several modules is built when the first module in the order that can be
-stored needs it.
+{need}`Q_PROGRAMS`; 7 on {need}`Q_HOST`; and 2, 6 and 7 on {need}`Q_UNAME`. A lift shared by several
+modules is built when the first module in the order that can be stored needs it;
+ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Accept".
+
+After the rulings below, `test_adoption`'s guide test stays fresh in a module of its
+own, and it is nearly all of the module's 2148 seconds, so the order to build is:
+`test_build_reuse`, `test_record`, `test_store_reuse`, `test_record_trace`,
+`test_init`, `test_package`, `test_planning`, then what is left of `test_adoption`.
 :::
 
 :::{question} Is git a known program, and on what terms?
@@ -322,10 +338,18 @@ neither does as things stand:
 - some starts are behind bash or make, among them `rev-list` in the CI script
   `test_init` runs and the guide's `make check`, and stay refused with those.
 
-No module in scope runs git on this repository. Left to wyatt: which direction, whether
-git on this repository is lifted, and whether
-Windows may lift git without a trace, as {need}`DES_0008`'s Risks accept for native
-code.
+No module in scope runs git on this repository. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: the terms are "Stated
+list + Linux trace", the first direction with a `strace` test proving the list on each
+git version and the tests pinning `HOME`, `GIT_CONFIG_GLOBAL` and the ceiling; Windows,
+"Yes, under the stated list", with the Linux trace standing for both, as
+{need}`DES_0008`'s Risks accept for native code, a `commit` still refused there and Git
+for Windows' credential helper pinned off by the test; git on this repository, "Keep it
+refused". The RFC derives from these: the tests also pin `GIT_CONFIG_NOSYSTEM` and the
+two maintenance keys, as the first direction requires; and since Git for Windows reads
+other files than git on Linux, its installation's `etc/gitconfig` and templates and
+`USERPROFILE` among them, the design states a Windows list from its layout, and the
+Linux trace proves the subcommands and the absence of further starts, not the Windows
+paths.
 :::
 
 :::{question} Where do the tests that run bash live?
@@ -341,9 +365,9 @@ holds. **Run the guide's commands without bash**: the guide is one subshell with
 test would carry its own reading of the shell, and would prove that reading rather than
 the guide as a reader runs it. **Move the guide's run into a module that stays fresh**:
 the proof is unchanged, and the module saves only what its other test costs. **Lift
-bash**: {need}`REQ_KNOWN_PROGRAM` forbids it as written. Left to wyatt: whether the bash
-tests of `test_init` and `test_planning` move into modules of their own that stay
-fresh, and which of these holds for `test_adoption`.
+bash**: {need}`REQ_KNOWN_PROGRAM` forbids it as written. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: the bash tests
+of `test_init` and `test_planning` go to their "Own module, stays fresh"; and for
+`test_adoption`, "Keep it fresh in its own module", so the guide's proof is unchanged.
 :::
 
 :::{question} How does the recorder follow a child that records itself?
@@ -377,9 +401,9 @@ Code in the grandchild can step around a wrapper without replacing it: every wra
 keeps its original in `__wrapped__` and its closure, `os._Environ.__getitem__` reads
 past the recording mapping, and the recorder lists `sys.addaudithook` and
 `object.__setattr__` as harmless. A check at child start and at exit sees none of that.
-Left to wyatt: whether a gap of this kind, stated, is acceptable for code the
-repository's own tests run; until then {need}`REQ_NESTED_RECORDING` keeps the refusal,
-and modules 1, 3 and 4 of {need}`Q_SCOPE_MODULES`'s order stay unstored.
+Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Accept the stated gap", for code the repository's own tests run. The
+design lists every way above; a way the list does not hold, found later, reopens this
+ruling.
 :::
 
 :::{question} How is `test_package`'s host read handled?
@@ -401,8 +425,7 @@ kind, is not needed for it. It trusts nothing new; the test then proves the whee
 backend builds, not pip's call of it. `test_adoption`'s guide runs pip by design and
 keeps the reads. trifecta's own `toolchain.bin_vale` calls `platform.system()`, a host
 read on Windows, and on Linux through the `os.uname` gap of {need}`Q_UNAME`, which
-`os.name` avoids. Left to wyatt: whether the test may build through
-the backend.
+`os.name` avoids. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Yes, through the backend".
 :::
 
 :::{question} Does `test_record_trace` stay fresh?
@@ -427,12 +450,16 @@ which trusts `strace` for the file, network and listing calls it traces, resolve
 paths through `-y`, records a failed `open`, `stat`, `access` or `readlink` as the file's absence, records the traced
 command's whole environment beside it, since a trace holds no variable read, and has to
 say what it does with reads under `/proc`, `/dev` and the temporary directory; or **run it once per job**, which changes what a fixture copy
-proves. Left to wyatt: which.
+proves. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Key on what strace saw". `strace` is then a known program under
+{need}`REQ_KNOWN_PROGRAM`, named by its path and hash with its own inputs stated, and
+the key taken from its trace stands for the build child as a manifest does, holding
+every file read, probed or listed and the whole environment, so
+{need}`REQ_REUSE_SOUND` is unchanged.
 :::
 
 :::{question} Which programs besides git does the scope bring in?
 :id: Q_PROGRAMS
-The Out of scope section left out Vale, make and pip as known programs, and the
+The proposed Out of scope first left out Vale, make and pip as known programs, and the
 network; the scope ruling put in modules that need them, not the programs themselves.
 In `test_init`, the two tests that run the whole check, 9.96 of 11.2 seconds on Linux,
 run Vale. In `test_adoption`, the guide runs, through bash, `basename`,
@@ -479,9 +506,24 @@ children that leave no manifest exit through `os._exit`, the product's code; sto
 child with no manifest is unsound, so either the hook exits in a way that runs
 `atexit`, a change to the product, or the recorder wraps `os._exit` and writes
 the manifest first, a change to the recorder. Removing `test_record`'s `-S` child, or the Windows junctions and
-ctypes, may drop what those tests exist to check. Left to wyatt: for Vale, make, pip and
-the network each, which direction; and for each other reason, whether its test may
-change.
+ctypes, may drop what those tests exist to check.
+
+Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: Vale, "Hash-pinned Vale, traced", which {need}`REQ_KNOWN_PROGRAM` now
+allows for a file under `bin/` whose own hash matches a pin of the binary, a new
+constant, since the toolchain today pins only the release archive; on Windows, "Yes, as
+for git", with the Linux trace standing for both and a Windows list stated from Vale's
+layout; make, pip and the
+network are not lifted, since `test_adoption`'s guide test, the only one that needs
+them, stays fresh, as {need}`Q_BASH` records; and for the other reasons, the
+"Recommended set": the check starts the Sphinx build in `docs/`, the recorder wraps
+`os._exit` and writes the manifest before exiting, holding its lock from the snapshot
+through the real exit so another thread's audit hook blocks before its operation, and
+refusing the run if an event reaches the hook after the snapshot without blocking; only
+in the process the recorder started in, so a forked child that calls `os._exit` writes
+no manifest and the run is refused; and with the exit status as the `atexit` path
+writes it; and `test_record`'s `-S` test and the
+Windows junction and ctypes tests move into a module that stays fresh, so what they
+check is kept.
 :::
 
 :::{question} How and when is the recorder's `os.uname` gap closed?
@@ -502,9 +544,25 @@ pin rule in {need}`Q_GIT_KNOWN` forbids for git. Any of them wraps `posix.uname`
 `os.uname` together, and a test shows that `platform.node()` after `platform.system()`,
 and a read through `posix.uname`, are seen. Among the refused modules,
 `uuid`'s import, `toolchain.bin_vale` and pip's `packaging`, through
-`sysconfig.get_platform()`, call it. Left to wyatt: whether
-this is fixed in PLAN_0007, in the plan that builds this RFC, or before either, and
-which direction.
+`sysconfig.get_platform()`, call it. On Linux under Python 3.12, which CI runs,
+`jsonschema` imports `uuid`, whose import calls `platform.system()`, so every module
+that imports `trifecta.check` calls `os.uname`: `test_profile`, `test_init`,
+`test_package`, `test_planning` and `test_store_reuse` among them. wyatt first chose
+"Refuse every call, in PLAN_0007", on a recommendation that put its cost at
+`test_profile` alone; told it would also refuse those four, he ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Blank the host
+name". In PLAN_0007, `os.uname`, `posix.uname` and `platform`'s cache give a fixed host
+name inside a recorded run, the other fields are recorded, and a test shows that
+`platform.node()` and `posix.uname()` get the constant; the timing was in the option
+he chose. Blanking changes no other way of reading the host's identity:
+`socket.gethostname`, a read of `/etc/hostname` or `/proc/sys/kernel/hostname`, and the
+`HOSTNAME` variable stay refused or recorded as {need}`REQ_HOST_READS` holds, each with
+a test where it raises an audit event, and the MAC address that `uuid.getnode()` and
+`uuid1()` read through native code falls under {need}`DES_0008`'s native-code risk. Blanking covers Linux only: on Windows `platform.system()` reads the host name
+through WMI, which {need}`Q_HOST` finds in `toolchain.bin_vale`; the RFC derives that
+`bin_vale` tests `os.name` instead, a change to the product that widens no trust, without
+which `test_init` stays unstored on Windows. The code under test sees a host
+name that is not the machine's, which the pin rule in {need}`Q_GIT_KNOWN` would forbid
+for git; wyatt accepted that for the host name.
 :::
 
 :::{question} Is the unit stored the module or the test?
@@ -514,14 +572,14 @@ Linux and 2.07 on Windows. The 29 tests of `test_planning` that run on Linux tak
 seconds together, so a child per test would cost about 39. For that module a test as the
 unit costs more than it saves; one whose tests are few and long loses less, such as
 `test_store_reuse`, whose 4 tests take 8.4 seconds and would add about 5; and nested recording, the largest reason, holds whole modules
-either way. Left to wyatt: whether to close this question with the module as the unit.
+either way. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "The module".
 :::
 
 ## Out of scope
 
 A time budget or target: none exists (wyatt, 2026-11-10: "No number yet"), and any is
-only reported (wyatt, 2026-11-10: "Report only"). Proposed, for wyatt's ruling: any
-change to {need}`REQ_REUSE_SOUND`; a test whose result depends on the clock or on
+only reported (wyatt, 2026-11-10: "Report only"). Ruled out of scope, wyatt, 2026-11-11, choosing from Claude's recommendations, "Accept
+all": any change to {need}`REQ_REUSE_SOUND`; a test whose result depends on the clock or on
 chance, as {need}`RFC_0008` leaves out; the Sphinx build's reuse and the CI cache, which
 are {need}`PLAN_0007`'s tasks 4 and 5; the number of fixtures, and splitting them across
 more CI jobs; an adopting repository's CI, which gets no store until a later change.
@@ -597,4 +655,23 @@ Windows' credential helper; git on this repository and the git direction left op
 Vale and make cannot meet {need}`REQ_KNOWN_PROGRAM` as written; what pip's downloads
 would trust; what replacing the guide's commands or bash would cost its proof;
 `test_adoption`'s place in the order provisional.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0009_4
+:k: 2
+:date: 2026-11-11
+:digest: 2033f78e1324a62d0c8308f7c73ae81884b014473161517b3c528ffcabc5b3fe
+Two rounds on recording wyatt's rulings of 2026-11-11, given by choosing from
+recommendations, one reviewer per lens. Folded in from correctness: each ruling quoted
+to the option chosen, with what the RFC derives kept apart; `uuid`'s import reaching
+`os.uname` in five modules through `jsonschema`, which led wyatt to re-rule
+{need}`Q_UNAME`; the build order; {need}`REQ_HOST_READS` and
+{need}`REQ_KNOWN_PROGRAM` brought in line with the rulings; `strace` as a known
+program; Windows' WMI host read in `toolchain.bin_vale`. Folded in from security: the
+`bin/` pin made a pin of the binary itself, checked before the start, its file a
+recorded input, trusted as the recorder is; Windows lists stated from each program's
+own layout; the `os._exit` wrapper's lock, process and exit status; an unlisted way
+around the nested wrappers reopens that ruling; blanking leaves every other host read
+as it was.
 :::
