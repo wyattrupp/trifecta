@@ -44,6 +44,17 @@ seconds on tests, and seven modules held about 9,540 of them, summed over the co
 added an eighth: in CI run 43120488764, on PR #32's head, `test_build_reuse` took 4852
 seconds on Linux and 8903 on Windows, and the fixture step 3593 and 5266.
 
+Later on 2026-11-11 the session building PLAN_0007 measured that the recorder costs 10
+to 15 percent of the test stage, that PLAN_0007's own tests hold about 70 percent of it
+(51 of 72 seconds on Linux, 82 of 111 on Windows), that the test modules run one after
+another, and that the fixture runner runs the whole suite in all 123 copies though 89
+expect a rule about documents. wyatt then paused PLAN_0007 to run the modules in
+parallel and to run a copy's test stage only when it expects REQ_PROVEN_BY_TEST or
+changes `tests/` or `src/`: "Yes, do those first". Those changes shrink every saving this
+RFC counts, since most copies would no longer run the eight modules; the scope stays
+wyatt's, and this RFC's plan is held until their measurements land (wyatt, 2026-11-12:
+"Commit as is, then hold").
+
 The recorder keeps only the first reason it refuses a run, and stops looking after it.
 To find every reason, a copy of the recorder that logs each refusal with its stack and
 keeps recording was run on each module, on Windows 11 and on Debian 12 under WSL, on
@@ -397,6 +408,15 @@ into modules of their own stores nothing here without following the child; for
   stacking is built; one recorded start that imports the test stack costs 1.35
   seconds on Linux and 2.07 on Windows today.
 
+Following the child shows reasons inside it that the probe, which stopped at the
+nested-recording refusal, could not see: about a dozen of `test_record`'s tests start a
+child that does a refused thing on purpose. Ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: the refusal tests "Move to a
+fresh module"; `test_record`'s bound in {need}`Q_SCOPE_MODULES` falls by those tests'
+share. Claude also put to wyatt that `test_build_reuse`'s children run `git add -A` and
+`git commit`; they do not, since only the fixture runner does, outside any recorded run,
+and wyatt, 2026-11-12, withdrew the forms he had allowed on that claim: "Withdraw the
+forms".
+
 Code in the grandchild can step around a wrapper without replacing it: every wrapper
 keeps its original in `__wrapped__` and its closure, `os._Environ.__getitem__` reads
 past the recording mapping, and the recorder lists `sys.addaudithook` and
@@ -550,10 +570,11 @@ that imports `trifecta.check` calls `os.uname`: `test_profile`, `test_init`,
 `test_package`, `test_planning` and `test_store_reuse` among them. wyatt first chose
 "Refuse every call, in PLAN_0007", on a recommendation that put its cost at
 `test_profile` alone; told it would also refuse those four, he ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Blank the host
-name". In PLAN_0007, `os.uname`, `posix.uname` and `platform`'s cache give a fixed host
-name inside a recorded run, the other fields are recorded, and a test shows that
-`platform.node()` and `posix.uname()` get the constant; the timing was in the option
-he chose. Blanking changes no other way of reading the host's identity:
+name". `os.uname`, `posix.uname` and `platform`'s cache give a fixed host name inside
+a recorded run, the other fields are recorded, and a test shows that `platform.node()`
+and `posix.uname()` get the constant. The option named PLAN_0007 for it; asked later
+whether the fix should run alongside PLAN_0007, he ruled, wyatt, 2026-11-11, choosing from Claude's recommendations: "Move the host-name fix
+too", so it is built after PLAN_0007, as the rest of this RFC is. Blanking changes no other way of reading the host's identity:
 `socket.gethostname`, a read of `/etc/hostname` or `/proc/sys/kernel/hostname`, and the
 `HOSTNAME` variable stay refused or recorded as {need}`REQ_HOST_READS` holds, each with
 a test where it raises an audit event, and the MAC address that `uuid.getnode()` and
@@ -674,4 +695,18 @@ recorded input, trusted as the recorder is; Windows lists stated from each progr
 own layout; the `os._exit` wrapper's lock, process and exit status; an unlisted way
 around the nested wrappers reopens that ruling; blanking leaves every other host read
 as it was.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0009_5
+:k: 2
+:date: 2026-11-12
+:digest: 0809d95acecf99516c650f06f245e9c22f96e8451747be7626f7e5a4d9f2e08c
+Two rounds, one reviewer per lens, on wyatt's rulings of 2026-11-11 and 2026-11-12
+that followed acceptance and on {need}`PLAN_0008`. Folded in: `test_record`'s refusal
+tests moved to a fresh module; the host-name fix built after PLAN_0007, with the gap it
+leaves open stated in {need}`DES_0009`'s Risks; git's forms for `add` and `commit`
+withdrawn, since the correctness pass found `test_build_reuse` never starts git, which
+Claude had claimed; git's whole environment recorded; the PLAN_0007 session's
+measurements noted, with this RFC's plan held.
 :::

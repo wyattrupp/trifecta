@@ -50,4 +50,4 @@ for the other reasons, the "Recommended set".
 - Good, because the check starts the Sphinx build in `docs/`, so Sphinx's change of directory is no change.
 - Good, because the recorder wraps `os._exit` and writes the manifest first, under its
   lock through the real exit, only in its own process, with the exit status.
-- Bad, because `test_record`'s `-S` test and the Windows junction and ctypes tests move into a module that stays fresh.
+- Bad, because `test_record`'s `-S` test and the Windows junction and ctypes tests move into a module that stays fresh, and, ruled later, wyatt, 2026-11-11, choosing from Claude's recommendations, "Move to a fresh module", so do its tests whose children do a refused thing on purpose.

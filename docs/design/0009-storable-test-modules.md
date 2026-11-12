@@ -16,8 +16,8 @@ stated terms; a second recorder follows a child that records itself; a recorded 
 a fixed host name; and the tests that need what stays refused, bash, make, pip and the
 network, move into modules of their own that stay fresh. Each lift comes with tests that
 a changed input reruns the module and that a start outside its terms is refused. Nothing
-here is built until {need}`PLAN_0007` is done, except the host name, which
-{need}`DEC_0039` puts in PLAN_0007's time, as COMP_HOST_NAME says.
+here is built until {need}`PLAN_0007` is done, the host name included, as
+{need}`DEC_0039` records.
 
 ## Requirements
 
@@ -73,12 +73,14 @@ as `git init -q DIR`, as the tests start it, or as `git -C DIR` and then exactly
 `remote get-url origin`,
 `ls-files -z`, `ls-files -z --cached --others --exclude-standard` or `config user.name`,
 where `DIR` is a directory the run created and `init` came before any other start on it.
+No `-c` is allowed, and no `add` or `commit` (wyatt, 2026-11-12: "Withdraw the
+forms").
 Here and below, "the whole environment" is every variable that reaches the program,
 inherited through `env=None` or copied into its mapping, each recorded as a hash at the
 start, less the recorder's own and those whose values the run itself set, as
 {need}`DES_0008`'s recorder treats them, so a path the run made is never part of a key;
 a test starts a program with `env=None` and shows an inherited variable is recorded.
-No `-c` is allowed. The environment must hold `GIT_CEILING_DIRECTORIES` at the made
+The environment must hold `GIT_CEILING_DIRECTORIES` at the made
 directory's parent, `GIT_CONFIG_NOSYSTEM=1`, an empty `GIT_CONFIG_GLOBAL`, and `HOME`
 and `XDG_CONFIG_HOME` on directories the run made, which the tests set; any other
 `GIT_*` variable is refused. A `.git` file, alternates, `commondir`, and any file in
@@ -86,10 +88,9 @@ and `XDG_CONFIG_HOME` on directories the run made, which the tests set; any othe
 configuration may hold only the keys `git init` writes and `user.name`; any other key is
 refused. It records git's executables, the loader's files, the locale archive and
 message catalogs, the template tree in `init`, the parents of the made repository, and
-`PATH`, the locale variables and any `GIT_*` variable the run did not set; the
-variables the tests set and the files under the made `HOME` and `XDG_CONFIG_HOME`, such
-as `git/ignore` and `git/attributes`, are the run's own and need no record. The stored modules make no
-`commit`: the one test that does is the bash test {need}`DEC_0034` moves out. On
+the whole environment, since `TZ`, `LD_*`, `LOCPATH`, `NLSPATH` and `GCONV_PATH` move
+what git and its loader read; the files under the made `HOME` and `XDG_CONFIG_HOME`,
+such as `git/ignore` and `git/attributes`, are the run's own and need no record. On
 Windows the list is stated from Git for Windows' layout, its installation's
 `etc/gitconfig` and templates and `USERPROFILE` among them. git on this repository stays
 refused.
@@ -163,8 +164,8 @@ the list does not hold, found later, reopens that decision.
 :::{component} Host name
 :id: COMP_HOST_NAME
 :satisfies: REQ_HOST_READS
-:constrained_by: DEC_0039, DEC_0036
-In {need}`PLAN_0007`, the recorder wraps `os.uname` and `posix.uname` together and fills
+:constrained_by: DEC_0039
+The recorder wraps `os.uname` and `posix.uname` together and fills
 `platform`'s cache at its start, so that inside a recorded run each gives a fixed host
 name, and records the other `uname` fields, each as a SHA-256 and never the value, in a
 new manifest section, `uname`. A test
@@ -175,22 +176,22 @@ the run. Every other way to read the host's identity stays as it was: a read of
 `socket.gethostname` is refused, each with a test, and the MAC address that
 `uuid.getnode()` reads through native code falls under {need}`DES_0008`'s native-code
 risk. Derived, not ruled: `toolchain.bin_vale` tests `os.name` in place of
-`platform.system()`, so it reads nothing of the host on Windows. {need}`DEC_0039` puts
-this in PLAN_0007, which implements {need}`DES_0008` and so cannot build a component of
-this design; this design's plan builds it in a task of its own that is done while
-PLAN_0007 runs, before PLAN_0007 closes and before any other task of that plan. `test_package` builds its wheel through
-`flit_core.buildapi.build_wheel`, not `pip wheel`.
+`platform.system()`, so it reads nothing of the host on Windows.
 :::
 
 :::{component} Lifted reasons
 :id: COMP_LIFTED_REASONS
 :satisfies: REQ_LIFT_PROVEN
-:constrained_by: DEC_0032, DEC_0034, DEC_0038, DEC_0040
+:constrained_by: DEC_0032, DEC_0034, DEC_0036, DEC_0038, DEC_0040
 The stored unit stays the module. The lifts are built in {need}`DEC_0032`'s order, each
 shared lift with the first module that needs it. Tests move into modules that stay fresh
 and are never stored: the bash tests of `test_init` and `test_planning`;
-`test_adoption`'s guide test; `test_record`'s `-S` test; and the Windows junction and
-ctypes tests of `test_init`, `test_planning` and `test_record`. The check starts the
+`test_adoption`'s guide test; `test_record`'s `-S` test and its tests whose children
+do a refused thing on purpose; and the Windows junction and ctypes tests of `test_init`,
+`test_planning` and `test_record`. `test_package` builds its wheel through
+`flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
+that leaves a malformed manifest keeps the refusal until the task that stores
+`test_planning` finds its cause and fixes it. The check starts the
 Sphinx build in `docs/`, so the change into the configuration's directory is no change,
 and maps Sphinx's warning paths as before. The recorder wraps `os._exit`: in the process
 it started in, it takes its lock, writes the manifest with the exit status as the
@@ -225,8 +226,11 @@ can alter the recorder, which is why only a push run on main publishes a store. 
 nested recorder leaves the listed ways around a wrapper open for the repository's own
 test code. A recorded run sees a host name that is not the machine's; code that relied
 on it would behave otherwise under the recorder than outside it, and no test in scope
-does. The fresh modules, `test_adoption`'s guide above all, keep their cost, which the
-profile shows.
+does. Until this design's host-name task lands, after {need}`PLAN_0007` (wyatt,
+2026-11-11: "Move the host-name fix too"), the recorder as built lets a run read the host
+name through `os.uname` unrecorded, so a store published from main can hold such runs,
+`test_profile`'s among them. The fresh modules, `test_adoption`'s guide above all, keep
+their cost, which the profile shows.
 
 ## Review
 
@@ -248,4 +252,18 @@ and paths for Vale's configuration; network, `/proc`, `/dev` and interpreters in
 `strace` key; the parent's wrappers innermost; the `uname` fields hashed; the
 `os._exit` manifest renamed into place last; reasons that hold no value; what the whole
 environment is.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_2
+:k: 2
+:date: 2026-11-12
+:digest: b570d1b6b984609cd6c80d011f46c630fc5ef403ea9acbd6e5619c89d3507e9b
+Two rounds, one reviewer per lens, on wyatt's rulings of 2026-11-11 and 2026-11-12
+that followed acceptance and on {need}`PLAN_0008`. Folded in: `test_record`'s refusal
+tests moved to a fresh module; the host-name fix built after PLAN_0007, with the gap it
+leaves open stated in {need}`DES_0009`'s Risks; git's forms for `add` and `commit`
+withdrawn, since the correctness pass found `test_build_reuse` never starts git, which
+Claude had claimed; git's whole environment recorded; the PLAN_0007 session's
+measurements noted, with this RFC's plan held.
 :::

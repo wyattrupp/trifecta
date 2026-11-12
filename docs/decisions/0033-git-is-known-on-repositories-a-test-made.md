@@ -58,5 +58,8 @@ accept for native code; and for git on this repository, "Keep it refused".
   chosen option says, and, derived by {need}`DES_0009`, `GIT_CONFIG_NOSYSTEM` and
   `XDG_CONFIG_HOME`, so the machine's configuration is no input.
 - Bad, because `trifecta new`'s `config user.name` and the check's `ls-files --others --exclude-standard` have to be traced before the list holds them.
+- Good, because no stored module runs `add` or `commit`: forms for them, allowed on a
+  wrong claim that `test_build_reuse`'s children run them, were withdrawn (wyatt,
+  2026-11-12: "Withdraw the forms").
 - Bad, because on Windows Git for Windows' credential helper is pinned off by the
   test, and the design states a Windows list from its layout, which no trace proves.
