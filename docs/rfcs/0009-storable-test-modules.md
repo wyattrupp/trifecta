@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 authors: [claude]
 created: 2026-11-11
 ---
