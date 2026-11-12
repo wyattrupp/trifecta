@@ -621,7 +621,7 @@ def _taken(given: Path | None, root: Path, modules: list[str], leave_out: list[s
         if data["modules"] != modules or data["leave_out"] != leave_out:
             return None
         results = [data["results"][m] for m in modules]
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
     if not all(_result_ok(r) for r in results):
         return None
@@ -668,8 +668,9 @@ def check_proofs(root: Path, child: list[str] | None = None, fresh: bool = False
 
     leave_out = sorted(m.key for m in reading.methods.values() if m.runs and other(m))
     # Stored records and fresh ones are judged alike, by the running package.
-    taken = _taken(given, root, reading.modules, leave_out)
+    taken = None if fresh else _taken(given, root, reading.modules, leave_out)
     if taken is not None:
+        print(f"tests: taken from {given}, not run", file=sys.stderr)
         results = taken
         module_runs = [ModuleRun(m, 0.0, True, "given") for m in reading.modules]
     else:

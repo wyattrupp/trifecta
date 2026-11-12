@@ -100,7 +100,7 @@ def _reuse(stage: dict) -> str:
     if "reused" not in stage:
         return ""
     if stage["reused"]:
-        return "yes"
+        return f"yes: {stage['why']}" if stage.get("why") else "yes"
     return f"no: {stage['why']}" if stage.get("why") else "no"
 
 

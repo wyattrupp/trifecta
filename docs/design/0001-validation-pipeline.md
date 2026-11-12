@@ -117,9 +117,10 @@ violates, verifies the pinned toolchain, and prints sorted findings.
 Copies the repository, proves the unmutated copy passes, then applies each fixture's
 mutations to a fresh copy and asserts the expected finding appears. The control keeps
 what its test modules reported; a copy runs its test modules only when its fixture
-expects `REQ_PROVEN_BY_TEST` or a mutation touches `tests/` or `src/`, and otherwise its
-check judges the control's reports, taken only for the same modules and the same tests
-left out (wyatt, 2026-11-11: "Yes, do those first").
+expects `REQ_PROVEN_BY_TEST`, its `tests/` or `src/` differs from the base's in any byte,
+file or name, or the run is `--fresh`, and otherwise its check judges the control's
+reports, taken only for the same modules and the same tests left out (wyatt, 2026-11-11:
+"Yes, do those first"). A fixture may not change the copy's `.git/`.
 :::
 
 ## Interfaces
@@ -169,4 +170,15 @@ describes.
 :k: 2
 :date: 2026-11-09
 :digest: 54531476db4f20338fd29c9b05a4b368202d62d5bbe0d7a16f868d95f4506826
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0001_3
+:k: 2
+:date: 2026-11-11
+:digest: 8bee80538cd9ad0dc18221276269d3887b85cd9b66fd603b3c2f50697de7dbd8
+COMP_FIXTURE_RUNNER: a copy runs its test modules only when its fixture expects
+`REQ_PROVEN_BY_TEST`, its `tests/` or `src/` differs from the base's, or the run is
+`--fresh`; otherwise it judges the control's reports. A fixture may not change the
+copy's `.git/`. Three rounds, one reviewer per lens, with the code that builds it.
 :::
