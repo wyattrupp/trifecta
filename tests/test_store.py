@@ -212,3 +212,5 @@ class Portable(unittest.TestCase):
                          f"{there}{os.sep}x.py and {there.as_posix()}/y.py")
         self.assertEqual(lines[1], "raw " + str(there))
         self.assertEqual(output, f"tail {there}")
+
+# Probe for PLAN_0007 step 5.3: a pull request that changes a test.
