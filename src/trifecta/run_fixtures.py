@@ -236,9 +236,11 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
             print(f"FAIL  control: cannot copy the repository: {problem}")
             return 1
         # The control runs first, into a store every copy shares, so a copy reuses each
-        # result whose recorded inputs it left as they were (COMP_RESULT_STORE).
-        cache = tmp / "store"
-        cache.mkdir()
+        # result whose recorded inputs it left as they were (COMP_RESULT_STORE): the store
+        # STORE_ENV names, as CI names main's (COMP_CI_CACHE), or one of this run's own.
+        given = os.environ.get(STORE_ENV)
+        cache = Path(given).resolve() if given else tmp / "store"
+        cache.mkdir(parents=True, exist_ok=True)
         with profiler.stage("control") as record:
             code, findings, stages = run_check(base, vale, cache, fresh,
                                                ("--tests-to", str(tmp / CONTROL_TESTS)))
@@ -249,9 +251,15 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
                 print("      " + f.line())
             return 1
         print("ok    control: the unmutated corpus passes")
+        # The copies share a copy of a named store, so the many results of mutated trees
+        # never prune the control's from it: the store CI keeps holds the unmutated tree's.
+        shared = cache
+        if given:
+            shared = tmp / "store"
+            shutil.copytree(cache, shared, symlinks=True)
         with profiler.stage("fixtures"):
             with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
-                results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, cache, fresh),
+                results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, shared, fresh),
                                         fixtures))
         extra["fixtures"] = [r[3] for r in results]
 

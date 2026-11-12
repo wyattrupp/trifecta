@@ -194,19 +194,30 @@ the identity and builds again.
 :::{component} CI cache
 :id: COMP_CI_CACHE
 :constrained_by: DEC_0031
+:spec: .github/workflows/check.yml#name: Store
 In both jobs of the check workflow: setup runs in a virtual environment, so the recorder's
 `.pth` file has somewhere to go. `actions/cache/restore` and `actions/cache/save`, pinned
-by SHA, keep pip's downloaded archives and setup's Vale archive under a key holding
-`runner.os` and the hash of both locks and the setup script; `bin/` is never cached, and
-setup checks the Vale archive's SHA-256 before every extraction. The check step runs with
-`--fresh`, in the Makefile and the Windows job alike. In push runs on main, the fixture
-step starts from an empty store named in `TRIFECTA_STORE`, so every result in it was run
-by that commit, and uploads the store it wrote as an artifact named for `runner.os`. In pull request runs, a step finds the latest successful run of
-`.github/workflows/check.yml` whose event is `push` and whose branch is main in this
-repository and downloads that run's store artifact by its run ID, which needs
-`actions: read`, and the fixture step runs with `TRIFECTA_STORE` set to it; nothing a pull
-request run writes is ever read by another run. A last step that always runs uploads
-`docs/_build/profile/` and appends `trifecta profile` tables to the job summary.
+by SHA, keep pip's downloaded archives, under `PIP_CACHE_DIR`, and setup's Vale archive,
+which setup keeps under `TRIFECTA_DOWNLOADS` when that names a directory, under a key
+holding `runner.os` and the hash of both locks and the setup script; `bin/` is never
+cached. Setup checks the Vale archive's SHA-256 before every extraction, a kept one as a
+downloaded one, and downloads again in place of a kept archive with another hash; pip
+checks every archive against the lock's hashes. The check step runs with `--fresh`, in
+the Makefile and the Windows job alike. The fixture runner runs the control with the store
+`TRIFECTA_STORE` names, when set, and the copies with a copy of it taken after the
+control, so the results of mutated trees never prune the unmutated tree's from the store
+CI keeps. In push runs on main, the fixture step starts from an empty store named in
+`TRIFECTA_STORE`, so every result in it was run by that commit, and uploads the store,
+which holds the control's results, as an artifact named for `runner.os`. In pull request
+runs, a step finds the latest successful run of `.github/workflows/check.yml` whose event
+is `push` and whose branch is main in this repository, takes it only when its commit is on
+main's first-parent chain, since a tag named main gives the same branch and a merged
+branch's commits are on main without main ever having been at them, and downloads that
+run's store artifact by its run ID, which needs `actions: read`; the fixture step runs
+with `TRIFECTA_STORE` set to it. Where there is no such run, its commit is not on that
+chain or it has no artifact, the store starts empty. No result a pull request run writes
+is ever read by another run. A last step that always runs uploads `docs/_build/profile/`
+and appends `trifecta profile` tables to the job summary.
 :::
 
 ## Interfaces

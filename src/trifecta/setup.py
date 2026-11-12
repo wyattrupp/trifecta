@@ -114,14 +114,56 @@ def _fetch(url: str, limit: int) -> bytes:
     raise AssertionError("unreachable")
 
 
-def download(name: str, sha256: str, size: int) -> bytes:
-    data = _fetch(f"{RELEASES}v{VALE_VERSION}/{name}", 2 * size + 1)
+def _verify(name: str, data: bytes, sha256: str, size: int) -> bytes:
     if len(data) > 2 * size:
         raise SetupError(f"{name} is larger than twice its expected {size} bytes")
     digest = hashlib.sha256(data).hexdigest()
     if digest != sha256:
         raise SetupError(f"{name} has SHA-256 {digest}, expected {sha256}")
     return data
+
+
+def download(name: str, sha256: str, size: int) -> bytes:
+    return _verify(name, _fetch(f"{RELEASES}v{VALE_VERSION}/{name}", 2 * size + 1),
+                   sha256, size)
+
+
+#: A directory where setup keeps the Vale archive it downloaded, so a cache can carry it
+#: to the next run (COMP_CI_CACHE); unset, nothing is kept.
+DOWNLOADS_ENV = "TRIFECTA_DOWNLOADS"
+
+
+def archive(name: str, sha256: str, size: int) -> bytes:
+    """The Vale archive: the kept one when its SHA-256 is the table's, else a download,
+    kept for the next run when DOWNLOADS_ENV names a directory. Every archive returned
+    has been checked, whichever way it came."""
+    given = os.environ.get(DOWNLOADS_ENV)
+    kept = Path(os.path.abspath(given)) / name if given else None
+    if kept is not None and kept.is_file():
+        try:
+            with open(kept, "rb") as f:
+                return _verify(name, f.read(2 * size + 1), sha256, size)
+        except (SetupError, OSError) as exc:
+            print(f"kept archive refused ({exc}); downloading it again", file=sys.stderr)
+    data = download(name, sha256, size)
+    if kept is not None:
+        try:
+            _keep(kept, data)
+        except OSError as exc:  # keeping it only saves the next download
+            print(f"cannot keep {name} in {kept.parent}: {exc}", file=sys.stderr)
+    return data
+
+
+def _keep(kept: Path, data: bytes) -> None:
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=kept.parent, prefix=".vale-archive-")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        os.replace(tmp, kept)  # replaces a link, never writes through one
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def executable(name: str, data: bytes, member: str) -> bytes:
@@ -153,7 +195,7 @@ def install_vale(root: Path) -> Path:
                and stamp.read_text(encoding="utf-8", errors="replace") == want)
     if not current:
         stamp.unlink(missing_ok=True)
-        binary = executable(name, download(name, sha256, size), target.name)
+        binary = executable(name, archive(name, sha256, size), target.name)
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".vale-")
         try:
             with os.fdopen(fd, "wb") as out:
