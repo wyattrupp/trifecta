@@ -88,6 +88,35 @@ def environment_key(root: Path) -> dict:
             "distributions": sorted(dists)}
 
 
+#: The placeholders a stored result holds for the root's path, in each of its spellings,
+#: so a copy elsewhere reads back its own path as a fresh run would have written it.
+ROOT_POSIX = "<root:posix>"
+
+
+def _swap(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        if old:
+            text = re.sub(re.escape(old), lambda _: new, text,
+                          flags=re.IGNORECASE if os.name == "nt" else 0)
+    return text
+
+
+def portable(text: str, root: Path) -> str:
+    """``text`` as stored: the root's path replaced, in its native and posix spellings."""
+    return _swap(text, [(str(root), record.ROOT), (root.as_posix(), ROOT_POSIX)])
+
+
+def holds_placeholder(text: str) -> bool:
+    """Whether ``text`` already holds a placeholder, which a restore could not tell from
+    one the store wrote: such a result is never stored."""
+    return record.ROOT in text or ROOT_POSIX in text
+
+
+def restored(text: str, root: Path) -> str:
+    """Stored ``text`` with this root's path put back, in the spelling it was stored in."""
+    return _swap(text, [(ROOT_POSIX, root.as_posix()), (record.ROOT, str(root))])
+
+
 class Hashes:
     """What one check learns of the tree, so many manifests read each file and directory
     once."""
@@ -280,9 +309,11 @@ class Store:
             directory.mkdir(parents=True, exist_ok=True)
             if self.refused(ident):
                 return False
-            tmp.write_text(json.dumps({"version": VERSION, "identity": ident,
-                                       "manifest": manifest, "result": result}),
-                           encoding="utf-8")
+            data = json.dumps({"version": VERSION, "identity": ident,
+                               "manifest": manifest, "result": result}).encode("utf-8")
+            if len(data) > MAX_ENTRY_BYTES:
+                return False  # a lookup would refuse it
+            tmp.write_bytes(data)
             os.replace(tmp, directory / name)
         except OSError:
             try:

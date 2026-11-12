@@ -27,6 +27,9 @@ import stat
 import sys
 import threading
 
+#: The variables the C library reads for the locale, recorded whether set or not.
+LOCALE_VARIABLES = ("LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY",
+                    "LC_NUMERIC", "LC_TIME", "LANG", "LANGUAGE")
 #: The variable naming the directory a process records into.
 ENV = "TRIFECTA_RECORD"
 #: The result store's variable: like ENV, the recorder's own, so never recorded.
@@ -351,8 +354,11 @@ class Recorder:
         if entries is None:
             self.probe(absolute)
             return
+        # A directory the run made is its output, not part of what it found: the build
+        # lists docs/_build after making html in it.
         keep = [e for e in entries
-                if not any(_under(_norm(os.path.join(absolute, e[0])), i) for i in self.ignore)]
+                if not any(_under(_norm(os.path.join(absolute, e[0])), i)
+                           for i in (*self.ignore, *self.created))]
         self.note("listings", key, keep)
 
     def wrote(self, raw, directory: bool = False) -> None:
@@ -1148,6 +1154,9 @@ def start(directory: str, config: dict) -> Recorder:
     # warnings, hash seed, encodings and locale. Named before the mapping records.
     startup = [n for n in os.environ
                if n.upper().startswith(("PYTHON", "LC_")) or n.upper() in ("LANG", "LANGUAGE")]
+    # The C library reads the locale's variables where the mapping cannot see, as
+    # setlocale(LC_ALL, "") does: each is recorded, set or not, so one set later differs.
+    startup += [n for n in LOCALE_VARIABLES if n not in startup]
     os.environ.__class__ = _recording_environ(r, type(os.environ))
     if hasattr(os, "environb"):
         os.environb.__class__ = _recording_environ(r, type(os.environb))
@@ -1161,3 +1170,35 @@ def start(directory: str, config: dict) -> Recorder:
     sys.addaudithook(r.hook)
     atexit.register(r.finish)
     return r
+
+
+# --- the Sphinx build under the recorder ------------------------------------------------
+
+#: What ``python -m trifecta.record`` may run in its own process: the build alone.
+PROGRAMS = {"sphinx"}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m trifecta.record sphinx ARGS``: run Sphinx in this process, which the
+    .pth file has already started recording when ENV names a directory (COMP_BUILD_REUSE).
+    """
+    import runpy
+    args = sys.argv[1:] if argv is None else argv
+    if not args or args[0] not in PROGRAMS:
+        print(f"usage: python -m trifecta.record {{{','.join(sorted(PROGRAMS))}}} ARGS",
+              file=sys.stderr)
+        return 2
+    sys.argv = [args[0], *args[1:]]
+    try:
+        runpy.run_module(args[0], run_name="__main__", alter_sys=True)
+    except SystemExit as exc:
+        code = exc.code
+        if code is None or isinstance(code, int):
+            return code or 0
+        print(code, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
