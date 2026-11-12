@@ -29,3 +29,5 @@ design/*
 
 plans/*
 ```
+
+% Probe for PLAN_0007 step 5.3: a pull request that changes only a document.
