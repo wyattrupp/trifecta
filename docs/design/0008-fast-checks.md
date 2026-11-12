@@ -330,3 +330,16 @@ COMP_PROOF_REUSE: the modules run side by side, and the fixture runner's path th
 takes the control's reports is named, with what it does not match. Three rounds,
 one reviewer per lens, with the code that builds it.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_6
+:k: 2
+:date: 2026-11-12
+:digest: 1c0deb94234679f4e2f80d21dc7de135d6b7d8ea0afd21366070ce8e27c059b7
+{need}`PLAN_0007` task 5: setup keeps the Vale archive under `TRIFECTA_DOWNLOADS` and
+checks it as a download; the fixture copies share a copy of the named store, so CI keeps
+the control's results; a pull request takes main's store only from a push run whose
+commit is on main's first-parent chain. Three rounds, one reviewer per lens, with the
+workflow and the code that builds it, the last after the rebase onto the control's kept
+reports.
+:::

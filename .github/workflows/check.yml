@@ -93,7 +93,7 @@ jobs:
           fi
           # A tag named main also gives head_branch main: the run's commit must be one main
           # itself was at, on its first-parent chain, not any commit of a branch merged into it.
-          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! git rev-list --first-parent origin/main | grep -qx "$sha"; then
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! git rev-list --first-parent origin/main | grep -x "$sha" >/dev/null; then
             echo "::warning::run $id ran $sha, no commit of main; the fixtures start from an empty store"
             exit 0
           fi
@@ -194,7 +194,7 @@ jobs:
           fi
           # A tag named main also gives head_branch main: the run's commit must be one main
           # itself was at, on its first-parent chain, not any commit of a branch merged into it.
-          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! git rev-list --first-parent origin/main | grep -qx "$sha"; then
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! git rev-list --first-parent origin/main | grep -x "$sha" >/dev/null; then
             echo "::warning::run $id ran $sha, no commit of main; the fixtures start from an empty store"
             exit 0
           fi

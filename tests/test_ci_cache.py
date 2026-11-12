@@ -118,7 +118,7 @@ class Workflow(unittest.TestCase):
                 self.assertIn("actions/workflows/check.yml/runs?branch=main&event=push"
                               "&status=success", store)
                 self.assertIn('"push main $REPO .github/workflows/check.yml"', store)
-                self.assertIn('git rev-list --first-parent origin/main | grep -qx "$sha"', store)
+                self.assertIn('git rev-list --first-parent origin/main | grep -x "$sha" >/dev/null', store)
                 self.assertIn('gh run download "$id"', store)
                 self.assertIn('rm -rf "$STORE" && mkdir "$STORE"', store.splitlines()[0])
                 steps = self.jobs[job]["steps"]
@@ -150,8 +150,11 @@ class NamedStore(unittest.TestCase):
             named = Path(raw).resolve() / "named"
             used = []
 
-            def check(base, vale, cache, fresh):
+            def check(base, vale, cache, fresh, tests=()):
                 used.append(cache)
+                kept = Path(tests[1]).resolve()
+                self.assertFalse(kept.is_relative_to(named), "the control's reports stay "
+                                 "out of the store CI keeps")
                 (cache / f"entry-{len(used)}").write_text("", encoding="utf-8")
                 return 0, [], []
 
