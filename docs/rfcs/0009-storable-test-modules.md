@@ -18,7 +18,9 @@ never reused unchecked, and a run that reads what the recorder cannot see is nev
 stored. It names every reason the recorder raises in the Python code it follows in each module,
 measured on Linux and Windows, what each way of lifting a refusal would trust, and how each could fail. Where
 a question had a measurable answer, the measurement is recorded with it; what is left is
-wyatt's to rule. Building any of this waits until {need}`PLAN_0007` is done.
+wyatt's to rule. wyatt has ruled that all eight modules are in scope, "ordered by
+highest possible speedup", and that git is lifted. Building any of this waits until
+{need}`PLAN_0007` is done.
 
 ## Motivation
 
@@ -27,7 +29,8 @@ PLAN_0007 is done, or should they stay as the design's accepted cost": "yes", a 
 On when, wyatt, 2026-11-11: waiting for PLAN_0007 "means the execution of it, not the
 planning", so this RFC is written now and built after PLAN_0007. On the questions, wyatt,
 2026-11-11: "all of those questions seem to be empirically answerable", so each was
-measured where it could be.
+measured where it could be. On scope, order and git, wyatt, 2026-11-11: "they're all in
+scope, and ordered by highest possible speedup. lift git".
 
 {need}`DES_0008`'s Risks accept that "a test that starts git, Vale or any program other
 than the interpreter is never stored". PLAN_0007 task 3 measured that cost. In CI run
@@ -175,16 +178,65 @@ Each question gives what was measured on 2026-11-11, then what is left to rule.
 
 :::{question} Which modules are in scope, and in what order?
 :id: Q_SCOPE_MODULES
-Measured: nested recording is the only refusal in `test_build_reuse`, probed on
-Windows only, and `test_store_reuse`, 6141 of the eight modules' 14,394 Linux seconds,
-and 7963 with `test_record`, which also needs its `-S` test, and on Windows its ctypes
-`setUp`, moved or lifted; the host reads of `test_package` go away without pip, as
-{need}`Q_HOST` finds; `test_init`, `test_planning` and `test_adoption` each need git,
-bash and more lifted at once, and `test_init`'s costly tests need Vale, which the
-proposed scope leaves out. One order the numbers favour: `test_package` first, as it
-needs no new trust; nested recording next, for the most seconds; `test_record_trace`
-after it, if {need}`Q_TRACE_FRESH` says so; git last or never. Scope and order are
-wyatt's ruling.
+Ruled, wyatt, 2026-11-11: "they're all in scope, and ordered by highest possible
+speedup". All eight modules are in scope: each reason in the Motivation's table is to
+be lifted or taken out of the run, under {need}`REQ_LIFT_PROVEN`, where the other
+questions' rulings allow; a reason a ruling keeps refused keeps its module unstored.
+The programs the scope brings in that this RFC had left out are {need}`Q_PROGRAMS`.
+
+Proposed reading of "highest possible speedup", for wyatt to confirm: the Linux seconds,
+summed over the fixture copies, a module would save once every reason in it is lifted.
+Windows seconds, or the fixture step's wall time, where copies run side by side, could
+order the list otherwise; `test_build_reuse` alone takes 8903 Windows seconds.
+
+Measured on 2026-11-11 on PR #32's head, `00a998f`, on Debian 12: each module ran as
+the proof child runs it, unrecorded, under `strace -f -y`, and every path under the root
+that any of its processes read, probed or listed was kept. Listings of the root,
+`tests/`, `src/` and `src/trifecta/`, which are on the import path, were dropped, since
+the recorder records the import system's listings as the names it looked up, not as the
+listing, and by reading the eight modules' own source none lists them itself. A library
+or child that lists them would be missed: `flit_core`, in the `pip wheel` child of
+`test_adoption` and `test_package`, walks `src/trifecta/`, and no fixture creates or
+deletes a file there. `flit_core` may also list the root for its license glob, so rows 2
+and 7 count the root's listing, "root" in the table: the fixture that deletes
+`.gitattributes`, and for `test_package` the one that creates `bin/`; for any other
+module a library's listing of the root would rerun it in at most those two. An import lookup of an absent
+name leaves no system call, since the import system answers it from its cached listing,
+so the trace does not hold those names. Each path a
+fixture creates or deletes counts against a listing of any directory above it. `test_record_trace`'s own `strace`
+cannot run under another, so the Sphinx build it traces was traced alone and its paths
+added. A fixture copy can reuse a module only if none of its mutations touches one of
+those paths. The saving is the module's CI seconds times the copies that can reuse it,
+over 123. No module but `test_record_trace` reads the repository's `docs/`, since each
+builds its corpus in a directory of its own. The order, from the most saved:
+
+| Order | Module | Copies that can reuse it | Rerun by | Linux seconds saved, at most |
+|---:|---|---:|---|---:|
+| 1 | `test_build_reuse` | 118 | 5 `src/` | 4655 of 4852 |
+| 2 | `test_adoption` | 116 | 5 `src/`, 1 `bin/`, 1 root | 2026 of 2148 |
+| 3 | `test_record` | 119 | 4 `src/` | 1763 of 1822 |
+| 4 | `test_store_reuse` | 118 | 5 `src/` | 1237 of 1289 |
+| 5 | `test_record_trace` | 50 | 73 `docs/` | 953 of 2344 |
+| 6 | `test_init` | 117 | 5 `src/`, 1 `bin/` | 939 of 987 |
+| 7 | `test_package` | 116 | 5 `src/`, 2 root | 462 of 490 |
+| 8 | `test_planning` | 122 | 1 `src/` | 458 of 462 |
+
+Modules 5 and 6 differ by 14 seconds, less than these bounds can settle, so their
+order is open. Each figure is an upper bound, counted from one unmutated Linux trace, and is not a
+key: it holds only once every reason in that module is lifted; a lift that records more
+than the trace saw saves less; a fixture that creates a file under a name a module's
+import looked up would rerun it; by reading the imports, no module imports the names
+the fixtures create under `tests/`, `helpers`, `support_fx`, `test_fx` and `sub`.
+`test_adoption`'s guide failed early under the trace on this machine, so its row counts
+only what the test reads before the guide, which works in a directory of its own from
+the built wheel; its place in the order holds only until the guide is traced to the
+end. What each module waits on, among others:
+modules 1 and 4 on {need}`Q_NESTED`; 2 on {need}`Q_GIT_KNOWN`, {need}`Q_BASH`,
+{need}`Q_PROGRAMS` and {need}`Q_HOST`; 3 on {need}`Q_NESTED` and {need}`Q_PROGRAMS`; 5 on
+{need}`Q_TRACE_FRESH`; 6 and 8 on {need}`Q_GIT_KNOWN`, {need}`Q_BASH` and
+{need}`Q_PROGRAMS`; 7 on {need}`Q_HOST`; and 2, 6 and 7 on {need}`Q_UNAME`. Proposed: a lift
+shared by several modules is built when the first module in the order that can be
+stored needs it.
 :::
 
 :::{question} Is git a known program, and on what terms?
@@ -249,8 +301,31 @@ Directions, each with what it trusts and how it fails:
   `strace` and the kernel, costs a traced start per call, leaves Windows refused, and
   sees no variable read, so the child's whole environment is recorded beside it.
 
-Left to wyatt: whether git is lifted at all, given what it stores; and whether Windows
-may lift it without a trace, as {need}`DES_0008`'s Risks accept for native code.
+Ruled, wyatt, 2026-11-11: "lift git". By reading the tests and the code they start,
+every git start in the eight modules is on a repository a test made: `Repo` in
+`test_init` and `test_planning`, `test_adoption`'s own `git init`, and the code under
+test run in them. `test_record` starts `git --version` in a recorded child to prove that
+git is refused; it reads no repository the run made and no direction lists
+`--version`, so that start stays refused, which is what the test proves. The first
+direction would cover the others, and the fourth could;
+neither does as things stand:
+
+- the code under test runs subcommands not yet traced: `config user.name` in
+  `trifecta new`, and `ls-files --others --exclude-standard` in the check; no test in
+  the eight runs the history check, which runs only with `--base`;
+- no test sets `GIT_CEILING_DIRECTORIES` or the two maintenance keys, and `test_init`'s
+  children keep the real `HOME`, so `user.name` and `core.excludesFile` come from the
+  machine's configuration; pinning `HOME`, `GIT_CONFIG_GLOBAL` and
+  `GIT_CONFIG_NOSYSTEM` is a change to the tests that must change no finding;
+- Git for Windows sets `credential.helper` in its system configuration by default,
+  which the first direction refuses;
+- some starts are behind bash or make, among them `rev-list` in the CI script
+  `test_init` runs and the guide's `make check`, and stay refused with those.
+
+No module in scope runs git on this repository. Left to wyatt: which direction, whether
+git on this repository is lifted, and whether
+Windows may lift git without a trace, as {need}`DES_0008`'s Risks accept for native
+code.
 :::
 
 :::{question} Where do the tests that run bash live?
@@ -260,8 +335,15 @@ Measured: the bash tests cost little, 0.32 seconds of `test_init` on Linux and 1
 Windows, and 0.17 of `test_planning` on Linux and 0.45 on Windows. Moving them into a module of their own
 stores nothing until git, and in `test_init` Vale and the Sphinx working directory, are
 lifted too, so it is worth doing only together with those. `test_adoption` runs the whole
-adoption guide through bash and stays fresh. Left to wyatt: whether to move them when
-that time comes.
+adoption guide through bash, so bash keeps that module refused unless one of these
+holds. **Run the guide's commands without bash**: the guide is one subshell with
+`set -euo pipefail`, `$(...)`, pipes, a redirect, variables and `. activate`, so the
+test would carry its own reading of the shell, and would prove that reading rather than
+the guide as a reader runs it. **Move the guide's run into a module that stays fresh**:
+the proof is unchanged, and the module saves only what its other test costs. **Lift
+bash**: {need}`REQ_KNOWN_PROGRAM` forbids it as written. Left to wyatt: whether the bash
+tests of `test_init` and `test_planning` move into modules of their own that stay
+fresh, and which of these holds for `test_adoption`.
 :::
 
 :::{question} How does the recorder follow a child that records itself?
@@ -296,7 +378,8 @@ keeps its original in `__wrapped__` and its closure, `os._Environ.__getitem__` r
 past the recording mapping, and the recorder lists `sys.addaudithook` and
 `object.__setattr__` as harmless. A check at child start and at exit sees none of that.
 Left to wyatt: whether a gap of this kind, stated, is acceptable for code the
-repository's own tests run; until then {need}`REQ_NESTED_RECORDING` keeps the refusal.
+repository's own tests run; until then {need}`REQ_NESTED_RECORDING` keeps the refusal,
+and modules 1, 3 and 4 of {need}`Q_SCOPE_MODULES`'s order stay unstored.
 :::
 
 :::{question} How is `test_package`'s host read handled?
@@ -332,16 +415,73 @@ a document changed, which {need}`REQ_REUSE_SOUND` forbids. The build child does 
 whole manifest of its own, which is what the test checks, but
 {need}`REQ_NESTED_RECORDING` rules out standing on it; short of that, only a key taken
 from what `strace` saw, beside the module's own manifest, could be sound. The build test is 35.9 of
-37.3 seconds on Linux. 73 of the 123 fixtures change a file under `docs/`, and 5 more
-change the package or the lock, so a sound key reuses in at most the other 50 copies,
-fewer if a lock change reaches the build, about 950 of 2344 Linux seconds at most.
+37.3 seconds on Linux. Traced alone, the build reads 88 paths under `docs/` and 18
+under `src/trifecta/`, none of which the 5 `src/` fixtures change, and lists `docs/`
+and its document directories, so all 73 fixtures that change, create or delete under
+`docs/` rerun it, and a sound key reuses in at most the other 50 copies, about 953 of 2344 Linux seconds, as {need}`Q_SCOPE_MODULES`
+measures.
 
-Directions: **stay fresh in every copy**, as today; **key it on what `strace` saw**,
+With the module in scope, staying fresh in every copy, as today, keeps it unstored,
+though it stays a direction if no other is sound. Directions: **key it on what `strace` saw**,
 which trusts `strace` for the file, network and listing calls it traces, resolves
 paths through `-y`, records a failed `open`, `stat`, `access` or `readlink` as the file's absence, records the traced
 command's whole environment beside it, since a trace holds no variable read, and has to
 say what it does with reads under `/proc`, `/dev` and the temporary directory; or **run it once per job**, which changes what a fixture copy
-proves. Left to wyatt: which, given at most about 950 seconds.
+proves. Left to wyatt: which.
+:::
+
+:::{question} Which programs besides git does the scope bring in?
+:id: Q_PROGRAMS
+The Out of scope section left out Vale, make and pip as known programs, and the
+network; the scope ruling put in modules that need them, not the programs themselves.
+In `test_init`, the two tests that run the whole check, 9.96 of 11.2 seconds on Linux,
+run Vale. In `test_adoption`, the guide runs, through bash, `basename`,
+`python3 -m venv`, `unzip`, pip installing the lock with `--require-hashes
+--only-binary :all:` from the network or the test's pip cache, pip installing the
+wheel, `trifecta init`, `sha256sum`, `cut`, `rm`, and `make check`, which runs make,
+Vale, Sphinx and git. The `pip wheel` children of `test_adoption` and `test_package`
+read the host, as
+{need}`Q_HOST` measures. bash is {need}`Q_BASH`, `strace` is {need}`Q_TRACE_FRESH`, and
+`os.uname` is {need}`Q_UNAME`.
+
+Directions, each with what it costs:
+
+- **Vale cannot meet {need}`REQ_KNOWN_PROGRAM` as written**: `test_init` runs
+  `bin/vale` under the repository, and `test_adoption` copies it into the repository
+  the run made, while the requirement names a program outside both. Lifting it means a
+  Vale outside the repository, hash-pinned, with a traced list of its inputs, its
+  configuration, styles and the files it lints, or a change to the requirement.
+- **make cannot meet {need}`REQ_KNOWN_PROGRAM` as written**: it runs every recipe
+  through `/bin/sh -c`, and the Makefile, which `trifecta init` writes from the wheel,
+  names Vale, Sphinx and git. Lifting it means changing that requirement or running the
+  Makefile's targets directly, which no longer proves `make check` as the guide says.
+- **pip's downloads** are pinned by the lock's hashes, but which file pip takes depends
+  on the host's platform tags, a read under {need}`REQ_HOST_READS`, and on pip's
+  version, its configuration file and `PIP_*` variables, and the pip cache, which is
+  host state; whether the index answers decides pass or fail while a key stays the same.
+  The venv's interpreter is another executable than the one the recorder follows.
+  {need}`REQ_REUSE_SOUND` refuses a network read today; installing with `--no-index`
+  from a local wheel directory takes the network out, and changes what the guide's test
+  proves.
+- **Replacing `unzip`, `sha256sum`, `cut`, `basename` and `rm` with Python** in the test
+  means it no longer runs the guide as written; changing the guide changes what a reader
+  runs to suit the store.
+- **Move the tests that need a program into a module that stays fresh**: the proof is
+  unchanged, and the module saves only what the rest of it costs; for `test_init`, whose
+  Vale tests take 9.96 of 11.2 seconds, about a ninth.
+
+The other reasons in the Motivation's table each have a cost too. Sphinx changes the
+working directory to the configuration's while it reads `conf.py`; the recorder
+refuses only a change to another directory, so starting the build in `docs/` takes it
+out, at the cost that the paths in Sphinx's warnings, which the check parses, may
+change; lifting it instead changes how the recorder resolves a relative path. The hook
+children that leave no manifest exit through `os._exit`, the product's code; storing a
+child with no manifest is unsound, so either the hook exits in a way that runs
+`atexit`, a change to the product, or the recorder wraps `os._exit` and writes
+the manifest first, a change to the recorder. Removing `test_record`'s `-S` child, or the Windows junctions and
+ctypes, may drop what those tests exist to check. Left to wyatt: for Vale, make, pip and
+the network each, which direction; and for each other reason, whether its test may
+change.
 :::
 
 :::{question} How and when is the recorder's `os.uname` gap closed?
@@ -379,13 +519,14 @@ either way. Left to wyatt: whether to close this question with the module as the
 
 ## Out of scope
 
-Proposed, for wyatt's ruling under {need}`Q_SCOPE_MODULES`. A time budget or target: none
-exists (wyatt, 2026-11-10: "No number yet"), and any is only reported (wyatt,
-2026-11-10: "Report only"). Any change to {need}`REQ_REUSE_SOUND`. Network access, and
-Vale, make and pip as known programs. A test whose result depends on the clock or on
-chance, as {need}`RFC_0008` leaves out. The Sphinx build's reuse and the CI cache, which
-are {need}`PLAN_0007`'s tasks 4 and 5. The number of fixtures, and splitting them across
-more CI jobs. An adopting repository's CI, which gets no store until a later change.
+A time budget or target: none exists (wyatt, 2026-11-10: "No number yet"), and any is
+only reported (wyatt, 2026-11-10: "Report only"). Proposed, for wyatt's ruling: any
+change to {need}`REQ_REUSE_SOUND`; a test whose result depends on the clock or on
+chance, as {need}`RFC_0008` leaves out; the Sphinx build's reuse and the CI cache, which
+are {need}`PLAN_0007`'s tasks 4 and 5; the number of fixtures, and splitting them across
+more CI jobs; an adopting repository's CI, which gets no store until a later change.
+Vale, make, pip and the network are no longer left out here, since wyatt's scope ruling
+puts in the modules that need them; how each is handled is {need}`Q_PROGRAMS`.
 
 ## Review
 
@@ -435,4 +576,25 @@ maintenance child is a further program, refused unless both auto keys are off an
 trace shows no further start, so a Windows `commit` stays refused; a trace key records
 the whole environment and every failed probe; the probe's limits, Python code only and
 Debian rather than Ubuntu; what the environment key stands for.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0009_3
+:k: 2
+:date: 2026-11-11
+:digest: e5d27885607c002fd3a9c9c4ddd39e1a877582decc72af88b5ed7c456f4f9d4c
+Three rounds on recording wyatt's rulings of 2026-11-11 on scope, order and git, one
+reviewer per lens, each checking claims against the traces, the fixtures, the tests and
+the recorder. Folded in from correctness: the reading of "highest possible speedup"
+proposed, not ruled; the shared-lift order proposed; the rerun counts per module; the
+`.gitattributes` and `docs/superpowers/` fixtures, through the listings above them; the
+history check not run by any module; `rev-list` behind bash; `test_adoption`'s own
+`git init`; Sphinx's working directory taken out by starting the build in `docs/`; a
+recorder wrapper for `os._exit`; what each module waits on. Folded in from security:
+the Sphinx build traced alone, not assumed; which listings were dropped and why, and
+what that misses; git's untraced subcommands, the tests' configuration, Git for
+Windows' credential helper; git on this repository and the git direction left open;
+Vale and make cannot meet {need}`REQ_KNOWN_PROGRAM` as written; what pip's downloads
+would trust; what replacing the guide's commands or bash would cost its proof;
+`test_adoption`'s place in the order provisional.
 :::
