@@ -168,7 +168,7 @@ def run_runner(root: Path, argv: list[str], fail: str = "") -> tuple[str, str, i
         (tmp / "base").mkdir()
         return tmp / "base"
 
-    def fake_check(copy: Path, vale: Path, cache: Path, fresh: bool = False):
+    def fake_check(copy: Path, vale: Path, cache: Path, fresh: bool = False, tests=()):
         stages = [{"name": "tests", "seconds": 0.5}, {"name": "sphinx", "seconds": 0.25}]
         if copy.name == "base":
             return (1, [Finding("REQ_Y", "x", "y")], stages) if fail == "control" else (0, [], stages)

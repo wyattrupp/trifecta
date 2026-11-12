@@ -42,29 +42,56 @@ Index
 """
 
 
+def project(root: Path) -> None:
+    """A small Sphinx project, with a lock file and a test the build never reads."""
+    docs = root / "docs"
+    (root / "tests").mkdir(parents=True)
+    docs.mkdir()
+    (docs / "conf.py").write_text(CONF, encoding="utf-8")
+    (docs / "helper.py").write_text('NAME = "demo"\n', encoding="utf-8")
+    (docs / "index.rst").write_text(INDEX, encoding="utf-8")
+    (docs / "other.rst").write_text("Other\n=====\n\nText.\n", encoding="utf-8")
+    (root / "requirements.lock").write_text("a==1\n", encoding="utf-8")
+    (root / "tests" / "test_x.py").write_text("", encoding="utf-8")
+
+
+def sphinx(root: Path, at: Path, fresh: bool = False):
+    """The check's build stage on ``root`` with the store at ``at``: its findings and the
+    stage's record."""
+    stage: dict = {}
+    run = functools.partial(build.run_build, store_at=at)
+    with mock.patch.object(check, "run_build", run):
+        findings = check.run_sphinx(root, fresh, stage)
+    return findings, stage
+
+
 class Built(unittest.TestCase):
+    """Each test starts from a copy of one project built once, and of the store that
+    build filled: an entry restores at another path, so no test builds its start again."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._base = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(cls._base.name).resolve()
+        project(base / "repo")
+        cls.first = sphinx(base / "repo", base / "store")
+        cls.base = base
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._base.cleanup()
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self._tmp.cleanup)
         tmp = Path(self._tmp.name).resolve()
         self.root, self.store = tmp / "repo", tmp / "store"
-        docs = self.root / "docs"
-        (self.root / "tests").mkdir(parents=True)
-        docs.mkdir()
-        (docs / "conf.py").write_text(CONF, encoding="utf-8")
-        (docs / "helper.py").write_text('NAME = "demo"\n', encoding="utf-8")
-        (docs / "index.rst").write_text(INDEX, encoding="utf-8")
-        (docs / "other.rst").write_text("Other\n=====\n\nText.\n", encoding="utf-8")
-        (self.root / "requirements.lock").write_text("a==1\n", encoding="utf-8")
-        (self.root / "tests" / "test_x.py").write_text("", encoding="utf-8")
+        shutil.copytree(self.base / "repo", self.root, symlinks=True)
+        shutil.copytree(self.base / "store", self.store, symlinks=True)
 
     def sphinx(self, root: Path | None = None, fresh: bool = False):
         """The check's build stage on ``root``: its findings and the stage's record."""
-        stage: dict = {}
-        run = functools.partial(build.run_build, store_at=self.store)
-        with mock.patch.object(check, "run_build", run):
-            findings = check.run_sphinx(root or self.root, fresh, stage)
-        return findings, stage
+        return sphinx(root or self.root, self.store, fresh)
 
     def reused(self, root: Path | None = None) -> bool:
         return self.sphinx(root)[1]["reused"]
@@ -73,10 +100,10 @@ class Built(unittest.TestCase):
 class Reuse(Built):
     @proves("REQ_REUSE_SOUND")
     def test_an_input_the_build_read_builds_again(self):
-        first, stage = self.sphinx()
+        first, stage = self.first
         self.assertEqual((first, stage["reused"]), ([], False), stage["why"])
+        self.assertTrue(self.reused(), "a copy of the built project restores its build")
         self.assertTrue((self.root / build.OUTPUT / "index.html").is_file())
-        self.assertTrue(self.reused())
         self.assertTrue((self.root / build.OUTPUT / "other.html").is_file(),
                         "the restored output directory holds every page")
         docs = self.root / "docs"

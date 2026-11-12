@@ -148,7 +148,8 @@ runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
 The test stage runs each proof module it chose in a child of its own, under the recorder,
-and stores the module's records and its manifest; reading the
+the children side by side, as many at once as the machine has processors, and stores the
+module's records and its manifest; reading the
 declarations, matching results to them and judging them run every time, on the stored
 records or the fresh ones alike, against every module's name. A module is looked up by
 its own identity, so a fixture that adds a test module runs that module, and reuses every

@@ -79,8 +79,27 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             raise FixtureError(f"unknown mutation {m!r}")
 
 
-def run_check(copy: Path, vale: Path, cache: Path,
-              fresh: bool = False) -> tuple[int, list[Finding], list[dict]]:
+#: Where the control keeps what its test modules reported, under the run's directory.
+CONTROL_TESTS = "control-tests.json"
+#: The requirement a fixture expects of the test stage itself.
+TESTS_REQ = "REQ_PROVEN_BY_TEST"
+
+
+def reaches_tests(spec: dict) -> bool:
+    """Whether a fixture's copy runs its test modules: it expects a finding of the test
+    stage, or its mutation touches the tests or the package. Any other copy takes what the
+    control's modules reported (wyatt, 2026-11-11: "Yes, do those first")."""
+    return spec["expect"] == TESTS_REQ or any(
+        _top(m["file"]) in ("tests", "src") for m in spec["mutations"])
+
+
+def _top(path: str) -> str:
+    """A mutated path's first directory, as Windows and macOS would match it."""
+    return os.path.normpath(path).replace("\\", "/").lstrip("/").split("/")[0].casefold()
+
+
+def run_check(copy: Path, vale: Path, cache: Path, fresh: bool = False,
+              tests: tuple[str, ...] = ()) -> tuple[int, list[Finding], list[dict]]:
     """The copy's check: its exit status, its findings and the stages its profile lists."""
     # The copy's own package runs, so a fixture that changes the package's code or data
     # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
@@ -88,7 +107,8 @@ def run_check(copy: Path, vale: Path, cache: Path,
     profile = copy / PROFILE_DIR / "check.json"
     profile.unlink(missing_ok=True)
     proc = subprocess.run(
-        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD", *(["--fresh"] if fresh else [])],
+        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD",
+         *(["--fresh"] if fresh else []), *tests],
         capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
         env={**child_env(copy / "src"), VALE_ENV: str(vale), STORE_ENV: str(cache)},
     )
@@ -118,7 +138,8 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
         return done(False, f"fixture error: {exc}")
     mutated = time.perf_counter()
     record["mutate_seconds"] = seconds(mutated - copied)
-    code, findings, record["stages"] = run_check(copy, vale, cache, fresh)
+    tests = () if reaches_tests(spec) else ("--tests-from", str(tmp / CONTROL_TESTS))
+    code, findings, record["stages"] = run_check(copy, vale, cache, fresh, tests)
     record["check_seconds"] = seconds(time.perf_counter() - mutated)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
@@ -184,7 +205,8 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
         cache = tmp / "store"
         cache.mkdir()
         with profiler.stage("control") as record:
-            code, findings, stages = run_check(base, vale, cache, fresh)
+            code, findings, stages = run_check(base, vale, cache, fresh,
+                                               ("--tests-to", str(tmp / CONTROL_TESTS)))
         extra["control"] = {"seconds": record["seconds"], "ok": code == 0, "stages": stages}
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")

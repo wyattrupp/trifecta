@@ -115,7 +115,11 @@ violates, verifies the pinned toolchain, and prints sorted findings.
 :constrained_by: DEC_0007
 :consumes: IF_NEEDS_JSON, IF_FINDING
 Copies the repository, proves the unmutated copy passes, then applies each fixture's
-mutations to a fresh copy and asserts the expected finding appears.
+mutations to a fresh copy and asserts the expected finding appears. The control keeps
+what its test modules reported; a copy runs its test modules only when its fixture
+expects `REQ_PROVEN_BY_TEST` or a mutation touches `tests/` or `src/`, and otherwise its
+check judges the control's reports, taken only for the same modules and the same tests
+left out (wyatt, 2026-11-11: "Yes, do those first").
 :::
 
 ## Interfaces
