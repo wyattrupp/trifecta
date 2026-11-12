@@ -76,7 +76,7 @@ The second stage the profile measured.
 
 - [x] **4.1** Run the Sphinx build under the recorder through `python -m trifecta.record sphinx`, and store and restore its warnings and output directory as COMP_BUILD_REUSE states.
 - [x] **4.2** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED.
-- [ ] **4.3** Record in the As built entry the profiles before and after.
+- [x] **4.3** Record in the As built entry the profiles before and after.
 :::
 
 :::{task} CI cache
@@ -361,3 +361,84 @@ the modules never stored are most of the time. CI reused 470 of 1,386 module run
 Linux and 706 on Windows. This is the measured baseline the later tasks are compared
 with; it was merged on wyatt's ruling (2026-11-11): "we're establishing a measured
 baseline here. keep going".
+
+### Task 4 (2026-11-11)
+
+The build is `trifecta.build`: the Sphinx stage runs `python -m trifecta.record sphinx`
+from `docs/`, with `-B`, `-P` and an empty `pycache_prefix`, since Sphinx changes into the
+configuration's directory to read `conf.py` and the recorder refuses any other change of
+working directory; `-P` keeps a module in `docs/` from shadowing Sphinx. A recorded build
+of this repository is storable: 66 files, 87 probes, 6 listings and 165 lookups, none
+outside the repository. The store holds the exit status, the error stream with the root
+replaced, and `docs/_build/html` as a zip without `.doctrees`, 0.8 MB here. A restore
+checks every member from the archive's directory before reading any, refusing the whole
+archive for a member that is absolute, holds `..`, is a link, names a Windows device or
+repeats another's name but for case, or past 256 MB or 50,000 members; it unpacks beside
+the output and moves it into place, and a refusal or failure builds instead.
+
+Two changes the build needed to match itself:
+- The clean emptied `docs/_build` but removed it when nothing in it was kept, so the
+  build probed it absent on one run and present on the next. It now leaves the directory
+  in place.
+- The build lists `docs/_build` after making `html` in it. The recorder now leaves a
+  directory the run made out of a listing, as it already left out what is under one.
+
+DES_0008's COMP_BUILD_REUSE and COMP_RECORDER are amended, reviewed k=2 (correctness;
+security) and stamped REV_DES_0008_4.
+
+Review, one round. Applied:
+- Correctness:
+  - the locale's variables, which `setlocale` reads in C where the mapping cannot see,
+    are recorded set or not, so one set after a build was stored makes it build again;
+  - a result whose output already holds the store's placeholder is not stored;
+  - a restore unpacks beside the output, so a failure leaves no page behind;
+  - tests for a new and a removed document and a variable `conf.py` reads.
+- Security:
+  - Windows device names, names ending in a dot or space, and names repeated but for
+    case are refused;
+  - a link or junction under the output is neither followed nor archived;
+  - members are checked before any is read, then streamed, with a bound on their number;
+  - `-P`.
+
+Dropped:
+- **A root that is a prefix of a sibling's path.** As in task 3: a miss or a rewritten
+  sibling path in a message, never a reuse.
+- **A junction planted at `docs/_build/html` between the clean and the restore.** It
+  needs a writer running beside the check, which could change the package itself;
+  outside DES_0008's trust model.
+
+`trifecta fixtures` and `trifecta fixtures --fresh` both pass 123/123 locally, with
+identical standard output. The stored run restored the build in 35 of 123 copies; the
+others change a document, `conf.py` or the package, and build.
+
+The first CI run failed one test on Linux: with no locale variable set, Python sets
+`LC_CTYPE` itself (PEP 538), so the test of an unset locale now turns that off with
+`PYTHONCOERCECLOCALE=0`, and checks that a set variable is recorded.
+
+Profiles before and after, in seconds, after from CI run 43120488764:
+
+| Run | Check | Tests | Sphinx | Fixture step | Fixtures summed |
+|---|---:|---:|---:|---:|---:|
+| Linux CI, before (task 3) | 66.2 | 60.4 | 4.9 | 2825.6 | 10908 |
+| Linux CI, after | 78.3 | 72.4 | 5.2 | 3593.0 | 13895 |
+| Windows CI, before (task 3) | 63.4 | 56.0 | 4.7 | 2672.4 | 10229 |
+| Windows CI, after | 122.7 | 111.5 | 8.3 | 5265.8 | 20254 |
+| Local, after, built | 125.6 | 111.0 | 11.2 | 2104.3 | 42638 |
+| Local, after, restored | 67.9 | 62.4 | 0.3 | | |
+| Local, after, `--fresh` | | | | 2286.9 | 46802 |
+
+Locally the copies spent 2,336 s in the build, against 3,208 s with `--fresh`. The local
+fixture times ran beside another session's work, so they compare only with each other.
+
+In CI the build was restored in 44 of 123 copies on each system, at 0.12 s on Linux and
+0.44 s on Windows. A build run under the recorder costs more than one without it: 7.85 s
+became 9.02 s on Linux and 8.49 s became 13.74 s on Windows, means over the copies that
+built. Summed over the copies, the build fell from 965 s to 717 s on Linux and rose from
+1,044 s to 1,105 s on Windows.
+
+The fixture step is slower on both systems, and the build is not why. This task's own
+test module, `test_build_reuse`, starts recorded children of its own, so it is never
+stored and every copy runs it: 4,852 s of the Linux sum and 8,903 s of the Windows one.
+Without it the sums would be 9,043 s and 11,351 s. It joins the modules RFC_0009 proposes
+to make storable. As with task 3, the times are recorded, not judged, on wyatt's ruling
+(2026-11-11): "we're establishing a measured baseline here. keep going".
