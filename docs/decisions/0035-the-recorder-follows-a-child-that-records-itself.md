@@ -54,5 +54,5 @@ run.
 
 ## Consequences
 
-- Good, because modules 1, 3 and 4 of {need}`DEC_0032`'s order can be stored.
+- Good, because `test_build_reuse`, `test_record` and `test_store_reuse` can be stored.
 - Bad, because a way around a wrapper the design does not list, found later, reopens this decision.

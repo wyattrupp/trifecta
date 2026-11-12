@@ -54,9 +54,14 @@ Chosen option: {need}`OPT_0032_LINUX`, because wyatt, 2026-11-11: "just make rec
 `test_planning`, then what is left of `test_adoption`, whose guide test stays fresh by
 {need}`DEC_0034`.
 
+On the numbers after PR #34, which runs the test modules in only 39 copies, he chose,
+wyatt, 2026-11-12, choosing from Claude's recommendations: "Re-rank and unhold", so the order is `test_build_reuse`, `test_record_trace`,
+`test_record`, `test_init`, `test_store_reuse`, `test_planning`, `test_package`, then
+what is left of `test_adoption`, as {need}`Q_SCOPE_MODULES` measures.
+
 ## Consequences
 
 - Good, because the order is measured and can be measured again the same way.
 - Good, because a lift shared by several modules is built when the first module in
   the order that can be stored needs it, as wyatt accepted ("Accept").
-- Bad, because `test_record_trace` and `test_init` differ by 14 seconds, less than the bounds can settle; the order takes the table's.
+- Bad, because on the 2026-11-11 numbers `test_record_trace` and `test_init` differed by 14 seconds, less than the bounds could settle; on the 2026-11-12 numbers they are 2656 and 1839.

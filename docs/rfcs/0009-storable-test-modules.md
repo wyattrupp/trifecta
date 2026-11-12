@@ -53,7 +53,10 @@ parallel and to run a copy's test stage only when it expects REQ_PROVEN_BY_TEST 
 changes `tests/` or `src/`: "Yes, do those first". Those changes shrink every saving this
 RFC counts, since most copies would no longer run the eight modules; the scope stays
 wyatt's, and this RFC's plan is held until their measurements land (wyatt, 2026-11-12:
-"Commit as is, then hold").
+"Commit as is, then hold"). They landed with PR #34, merged as `6355f7a`: the fixture
+step fell from 3593 to 1771 seconds on Linux and from 5266 to 2676 on Windows, and only
+39 of the 123 copies now run the test modules; {need}`Q_SCOPE_MODULES` re-ranks the
+modules on them.
 
 The recorder keeps only the first reason it refuses a run, and stops looking after it.
 To find every reason, a copy of the recorder that logs each refusal with its stack and
@@ -230,7 +233,9 @@ cannot run under another, so the Sphinx build it traces was traced alone and its
 added. A fixture copy can reuse a module only if none of its mutations touches one of
 those paths. The saving is the module's CI seconds times the copies that can reuse it,
 over 123. No module but `test_record_trace` reads the repository's `docs/`, since each
-builds its corpus in a directory of its own. The order, from the most saved:
+builds its corpus in a directory of its own. The order of 2026-11-11, from the most saved,
+which the table of 2026-11-12 below supersedes, as do the module numbers in the text
+that follows it:
 
 | Order | Module | Copies that can reuse it | Rerun by | Linux seconds saved, at most |
 |---:|---|---:|---|---:|
@@ -264,6 +269,29 @@ After the rulings below, `test_adoption`'s guide test stays fresh in a module of
 own, and it is nearly all of the module's 2148 seconds, so the order to build is:
 `test_build_reuse`, `test_record`, `test_store_reuse`, `test_record_trace`,
 `test_init`, `test_package`, `test_planning`, then what is left of `test_adoption`.
+
+After PR #34, a copy runs the test modules only when it changes `tests/` or `src/`: 39
+copies, 32 adding `tests/test_fx.py`, 5 changing `src/` and 2 adding another file under
+`tests/`. The PLAN_0007 session summed each module's seconds over those 39 copies in CI
+run 43171407888, and the traces above give the copies that can reuse it, all but the 5
+`src/` ones for most modules, all 39 for `test_record_trace`, whose build reads none of
+those files:
+
+| Order | Module | Copies that can reuse it | Linux seconds saved, at most |
+|---:|---|---:|---:|
+| 1 | `test_build_reuse` | 34 | 4587 of 5262 |
+| 2 | `test_record_trace` | 39 | 2656 of 2656 |
+| 3 | `test_record` | 35 | 2222 of 2476 |
+| 4 | `test_init` | 34 | 1839 of 2110 |
+| 5 | `test_store_reuse` | 34 | 1062 of 1218 |
+| 6 | `test_planning` | 38 | 531 of 545 |
+| 7 | `test_package` | 34 | 473 of 543 |
+
+`test_adoption`'s 2893 seconds are nearly all its guide test, which stays fresh, so it
+comes last. `test_record`'s figure falls by the share of the tests that move out. Ruled,
+wyatt, 2026-11-12, choosing from Claude's recommendations: "Re-rank and unhold": the order is the table's, then what is left of
+`test_adoption`. A module whose only reason an earlier task lifts is stored in that
+task, as `test_store_reuse` is with nested recording.
 :::
 
 :::{question} Is git a known program, and on what terms?
@@ -709,4 +737,17 @@ leaves open stated in {need}`DES_0009`'s Risks; git's forms for `add` and `commi
 withdrawn, since the correctness pass found `test_build_reuse` never starts git, which
 Claude had claimed; git's whole environment recorded; the PLAN_0007 session's
 measurements noted, with this RFC's plan held.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0009_6
+:k: 2
+:date: 2026-11-12
+:digest: 12e7c88b3c03f35deec0048e24b7fb0c3e7b38bc0b7d3c9a4f16964f682f8e12
+One round, one reviewer per lens, on the re-rank after PR #34 that wyatt ruled on
+2026-11-12, checking the bounds against the traces and the PLAN_0007 session's sums over
+the 39 copies that still run tests. Folded in: the 2026-11-11 order marked as superseded,
+with its module numbers; {need}`DEC_0032` and {need}`DEC_0035` brought in line;
+{need}`PLAN_0008`'s task 3 holding that a module the probe could not see inside is
+stored only once task 2's profile shows no reason left.
 :::
