@@ -440,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"(default {PROFILE_DIR.as_posix()}/check.json)")
     parser.add_argument("--fresh", action="store_true",
                         help="run every stage and reuse no stored result")
+    # The fixture runner's (COMP_FIXTURE_RUNNER): the control keeps what its test modules
+    # reported, and a copy whose mutation leaves the tests and the package alone takes it.
+    parser.add_argument("--tests-to", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--tests-from", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     root = corpus_root()
     try:
@@ -451,12 +455,13 @@ def main(argv: list[str] | None = None) -> int:
     # written however the run ends, and touches neither standard output nor the exit status.
     profiler = Profiler("check")
     try:
-        return _run(root, args.base, profiler, args.fresh)
+        return _run(root, args.base, profiler, args.fresh, args.tests_from, args.tests_to)
     finally:
         write_profile(profile_path, profiler.data())
 
 
-def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) -> int:
+def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False,
+         tests_from: Path | None = None, tests_to: Path | None = None) -> int:
     stage = profiler.stage
     vale = vale_path(root).resolve()
     with stage("files"):
@@ -474,7 +479,8 @@ def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) 
         prefix = store_dir.relative_to(root).as_posix().casefold() + "/"
         fresh = fresh or any(f.casefold().startswith(prefix) for f in files)
     with stage("tests"):
-        proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs)
+        proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs,
+                                                     given=tests_from, keep=tests_to)
         findings += proof_findings
     # Each proof module, within the test stage: whether its stored records were reused.
     for r in runs:

@@ -7,6 +7,7 @@ mutations to a fresh copy and asserts the pipeline reports the expected requirem
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -62,6 +63,9 @@ def apply(copy: Path, mutations: list[dict]) -> None:
         target = (copy / m["file"]).resolve()
         if not target.is_relative_to(copy.resolve()):
             raise FixtureError(f"{m['file']}: path leaves the repository copy")
+        if target.relative_to(copy.resolve()).parts[:1] and target.relative_to(
+                copy.resolve()).parts[0].rstrip(". ").casefold() == ".git":
+            raise FixtureError(f"{m['file']}: a fixture may not change the copy's git")
         if "find" in m:
             text = target.read_text(encoding="utf-8")
             count = text.count(m["find"])
@@ -79,8 +83,53 @@ def apply(copy: Path, mutations: list[dict]) -> None:
             raise FixtureError(f"unknown mutation {m!r}")
 
 
-def run_check(copy: Path, vale: Path, cache: Path,
-              fresh: bool = False) -> tuple[int, list[Finding], list[dict]]:
+#: Where the control keeps what its test modules reported, under the run's directory.
+CONTROL_TESTS = "control-tests.json"
+#: The requirement a fixture expects of the test stage itself.
+TESTS_REQ = "REQ_PROVEN_BY_TEST"
+
+
+def reaches_tests(expect: str, copy: Path, base: Path) -> bool:
+    """Whether a fixture's copy runs its test modules: it expects a finding of the test
+    stage, or its tests or package differ from the base's in any byte, file or name. Any
+    other copy judges what the control's modules reported (wyatt, 2026-11-11: "Yes, do
+    those first"). The trees are compared directly, so no spelling of a mutation's path,
+    git setting or line-ending rule hides a change."""
+    return expect == TESTS_REQ or _reachable(copy) != _reachable(base)
+
+
+def _reachable(root: Path) -> dict[str, str]:
+    """Every entry under each top-level name the file system would open as tests/ or
+    src/, by path: a file's hash, a link's target, or a directory's mark."""
+    seen: dict[str, str] = {}
+    for top in sorted(os.listdir(root)):
+        if top.rstrip(". ").casefold() not in ("tests", "src"):
+            continue
+        start = root / top
+        if start.is_symlink() or not start.is_dir():
+            seen[top] = _entry(start)
+            continue
+        for directory, dirs, files in os.walk(start):
+            here = Path(directory)
+            for name in sorted(dirs + files):
+                path = here / name
+                key = path.relative_to(root).as_posix()
+                if "__pycache__" in path.parts:
+                    continue
+                seen[key] = _entry(path)
+    return seen
+
+
+def _entry(path: Path) -> str:
+    if path.is_symlink():
+        return "link " + os.readlink(path)
+    if path.is_dir():
+        return "directory"
+    return "file " + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def run_check(copy: Path, vale: Path, cache: Path, fresh: bool = False,
+              tests: tuple[str, ...] = ()) -> tuple[int, list[Finding], list[dict]]:
     """The copy's check: its exit status, its findings and the stages its profile lists."""
     # The copy's own package runs, so a fixture that changes the package's code or data
     # is checked by that changed code (REQ_SELF_TESTS_SCOPED: this repository only).
@@ -88,7 +137,8 @@ def run_check(copy: Path, vale: Path, cache: Path,
     profile = copy / PROFILE_DIR / "check.json"
     profile.unlink(missing_ok=True)
     proc = subprocess.run(
-        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD", *(["--fresh"] if fresh else [])],
+        [sys.executable, "-m", "trifecta", "check", "--base", "HEAD",
+         *(["--fresh"] if fresh else []), *tests],
         capture_output=True, encoding="utf-8", errors="replace", cwd=copy,
         env={**child_env(copy / "src"), VALE_ENV: str(vale), STORE_ENV: str(cache)},
     )
@@ -118,7 +168,13 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
         return done(False, f"fixture error: {exc}")
     mutated = time.perf_counter()
     record["mutate_seconds"] = seconds(mutated - copied)
-    code, findings, record["stages"] = run_check(copy, vale, cache, fresh)
+    # A --fresh run takes nothing it did not run, the control's reports included.
+    try:
+        runs_tests = fresh or reaches_tests(spec["expect"], copy, base)
+    except OSError:
+        runs_tests = True
+    tests = () if runs_tests else ("--tests-from", str(tmp / CONTROL_TESTS))
+    code, findings, record["stages"] = run_check(copy, vale, cache, fresh, tests)
     record["check_seconds"] = seconds(time.perf_counter() - mutated)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
@@ -184,7 +240,8 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
         cache = tmp / "store"
         cache.mkdir()
         with profiler.stage("control") as record:
-            code, findings, stages = run_check(base, vale, cache, fresh)
+            code, findings, stages = run_check(base, vale, cache, fresh,
+                                               ("--tests-to", str(tmp / CONTROL_TESTS)))
         extra["control"] = {"seconds": record["seconds"], "ok": code == 0, "stages": stages}
         if code != 0:
             print("FAIL  control: the unmutated corpus has findings")

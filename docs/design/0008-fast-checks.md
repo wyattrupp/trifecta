@@ -148,7 +148,8 @@ runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
 The test stage runs each proof module it chose in a child of its own, under the recorder,
-and stores the module's records and its manifest; reading the
+the children side by side, as many at once as the machine has processors, and stores the
+module's records and its manifest; reading the
 declarations, matching results to them and judging them run every time, on the stored
 records or the fresh ones alike, against every module's name. A module is looked up by
 its own identity, so a fixture that adds a test module runs that module, and reuses every
@@ -156,6 +157,13 @@ other whose manifest holds neither the new file nor a lookup the new name answer
 `_content_key` and its claim that no test reads `docs/` go. {need}`DES_0004`'s
 COMP_TEST_PROOFS, which states one child for every module, is amended to one child per
 module, with its rules on the child's `os.name` and its end record holding per child.
+One path skips the store: the fixture runner's control keeps what its modules reported,
+and a copy whose fixture neither expects `REQ_PROVEN_BY_TEST` nor leaves its `tests/` or
+`src/` different from the base's in any byte, file or name judges those reports in place
+of running its modules (wyatt, 2026-11-11: "Yes, do those first"). No manifest is matched
+there: a copy whose mutation changes only what a test reads elsewhere, such as `docs/` or
+the lock, is judged on the control's reports, so {need}`REQ_REUSE_SOUND` holds for the
+store and not for this path. A run with `--fresh` takes nothing from it.
 :::
 
 :::{component} Build reuse
@@ -300,4 +308,14 @@ reviewer per lens, with the code that builds it.
 unpacks beside the output and moves it into place; a directory the run made is no entry
 of a listing, and the locale's variables are recorded set or not. One round, one reviewer
 per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_5
+:k: 2
+:date: 2026-11-11
+:digest: deeb9951fe9160f3cf4d5918eaf5d39918c4ba909d06056c3a1123cc99b974bd
+COMP_PROOF_REUSE: the modules run side by side, and the fixture runner's path that
+takes the control's reports is named, with what it does not match. Three rounds,
+one reviewer per lens, with the code that builds it.
 :::
