@@ -11,9 +11,10 @@ setup:
 vale:
 	$(PY) -m trifecta setup --vale-only
 
-## check: run the pipeline. Set BASE=<git ref> to also check MADR immutability.
+## check: run the pipeline, reusing no stored result. Set BASE=<git ref> to also check MADR
+## immutability.
 check: vale
-	$(PY) -m trifecta check $(if $(BASE),--base $(BASE))
+	$(PY) -m trifecta check --fresh $(if $(BASE),--base $(BASE))
 
 ## fixtures: prove the corpus passes and every negative fixture fails as expected.
 fixtures: vale

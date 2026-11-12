@@ -85,8 +85,8 @@ The second stage the profile measured.
 :gate: In both CI jobs, a second run of the same commit restores setup's downloads and setup still checks every hash; a push run on main runs the fixtures from an empty store and uploads it; a pull request's run fetches that store by the run ID of main's latest successful push run of `.github/workflows/check.yml`, never a pull request run from a branch named main, and saves no cache entry holding results; the check step runs with `--fresh`; the fixture step's profile shows which results were reused.
 The last task, so it also closes the design.
 
-- [ ] **5.1** Have setup keep the Vale archive and check its SHA-256 before every extraction, and cache pip's downloaded archives and that archive in both jobs with `actions/cache/restore` and `actions/cache/save`, pinned by SHA, never `bin/`.
-- [ ] **5.2** Run the check step with `--fresh`, in the Makefile and the Windows job; in push runs on main, run the fixtures from an empty store and upload it, named for `runner.os`; in pull request runs, add `actions: read` and fetch main's store by run ID.
+- [x] **5.1** Have setup keep the Vale archive and check its SHA-256 before every extraction, and cache pip's downloaded archives and that archive in both jobs with `actions/cache/restore` and `actions/cache/save`, pinned by SHA, never `bin/`.
+- [x] **5.2** Run the check step with `--fresh`, in the Makefile and the Windows job; in push runs on main, run the fixtures from an empty store and upload it, named for `runner.os`; in pull request runs, add `actions: read` and fetch main's store by run ID.
 - [ ] **5.3** Record in the As built entry both jobs' times from the workflow and from the profile, before and after, for a pull request that changes only a document and one that changes a test.
 - [ ] **5.4** Mark DES_0008 implemented, check that every requirement of RFC_0008 has its proving test, and review this plan's As built k=2.
 :::
