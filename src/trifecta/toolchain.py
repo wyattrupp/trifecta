@@ -7,7 +7,6 @@ the setup script's table. Holds no table of its own.
 from __future__ import annotations
 
 import os
-import platform
 from pathlib import Path
 
 #: Platform key -> the suffix of the file Vale releases for it, after ``vale_<version>_``.
@@ -47,8 +46,9 @@ VALE_ENV = "TRIFECTA_VALE"
 
 
 def bin_vale(root: Path) -> Path:
-    """Where setup writes Vale: the repository's own ``bin/``."""
-    return root / "bin" / ("vale.exe" if platform.system() == "Windows" else "vale")
+    """Where setup writes Vale: the repository's own ``bin/``. Told by ``os.name``, which,
+    unlike ``platform.system()``, reads nothing of the host (COMP_HOST_NAME)."""
+    return root / "bin" / ("vale.exe" if os.name == "nt" else "vale")
 
 
 def vale_path(root: Path) -> Path:

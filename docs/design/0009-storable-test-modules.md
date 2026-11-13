@@ -214,7 +214,8 @@ after each lift, on Linux and on Windows.
 {need}`DES_0008`'s IF_MANIFEST gains three sections, amended there when the first of
 them is built: `reasons`, the list of every reason a refused run was refused, beside
 `why`; `programs`, mapping each known program started to its SHA-256; and `uname`, the
-`uname` fields other than the host name, each as a SHA-256. A manifest without them is read as before.
+`uname` fields other than the host name, each as a SHA-256. A manifest without them is
+malformed, since a lookup requires every section, so it is never reused.
 
 ## Risks
 
@@ -266,4 +267,14 @@ leaves open stated in {need}`DES_0009`'s Risks; git's forms for `add` and `commi
 withdrawn, since the correctness pass found `test_build_reuse` never starts git, which
 Claude had claimed; git's whole environment recorded; the PLAN_0007 session's
 measurements noted, with this RFC's plan held.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_3
+:k: 2
+:date: 2026-11-13
+:digest: 3262dd28cead768ff6037d8b7f082c61872402a29e787f1bc946abb916d9e09b
+Reviewed with {need}`DES_0008`'s amendment in {need}`PLAN_0008`'s task 1. Folded in: a
+manifest without the new sections is malformed and never reused, since a lookup requires
+every section, not read as before.
 :::

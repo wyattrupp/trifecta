@@ -237,14 +237,24 @@ environment variable. The profile MUST NOT be read by any rule: it is a report.
 :::{interface} Manifest
 :id: IF_MANIFEST
 :spec: src/trifecta/record.py#def valid
-:constrained_by: DEC_0028
+:constrained_by: DEC_0028, DEC_0039
 A JSON object with `version: 1`, `storable` and, when false, `why`; `files`, mapping each
 path read to its SHA-256; `probes`, mapping each path probed to its kind, `file`,
 `directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
 entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
-path replaced, or null when it is unset; and `outside`, mapping
-each file read outside the repository and the interpreter's prefixes to its SHA-256.
+path replaced, or null when it is unset; `outside`, mapping
+each file read outside the repository and the interpreter's prefixes to its SHA-256; and
+`uname`, mapping each field of `os.uname` other than the host name (`sysname`,
+`release`, `version`, `machine`) to the SHA-256 of its value, taken when the run starts,
+which a lookup takes again to match. Where `os.uname` exists all four are required, and
+inside a recorded run `os.uname`, `posix.uname` and `platform` give a fixed host name,
+`localhost`, the design's value, not ruled ({need}`DEC_0039` rules a fixed name); where it
+does not, `uname` is empty and the first fill of `platform`'s cache, which
+`platform.system()` and the others also make, reads the name through
+`socket.gethostname`, which refuses the run. No manifest holds a host name's value: a read of one through a
+file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
+`/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
 :::
@@ -255,7 +265,12 @@ The recorder sees what Python does through the audited calls and the wrapped fun
 and fails closed on the events it does not know. A read by native code that opens a file
 itself is missed in a run on Windows or macOS; the `strace` test catches it on Linux,
 where a dependency that starts doing so fails the test, and a dependency added to the lock
-is covered by the same test. A test whose result depends on the clock or on chance can be
+is covered by the same test. Native code that reads the host's identity without an
+audited call or a file open, such as the MAC address `uuid.getnode()` reads through
+`_uuid`, is missed on every system. A fresh `posix` module, made by `import` or through
+`_imp.create_builtin`, is refused, and so is a new interpreter, which has none of the
+recorder's hooks or wrappers; reaching the original `uname` through other means stays out
+of scope. A test whose result depends on the clock or on chance can be
 reused with a result a fresh run would not give; the check already treats one passing run
 as a proof, so reuse adds no new assumption, only a longer life for the same one.
 
@@ -342,4 +357,20 @@ the control's results; a pull request takes main's store only from a push run wh
 commit is on main's first-parent chain. Three rounds, one reviewer per lens, with the
 workflow and the code that builds it, the last after the rebase onto the control's kept
 reports.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_7
+:k: 2
+:date: 2026-11-13
+:digest: 4e440f99c7f34a3e8a1750ecd74c8da60bf4ae4f6c2b0ee13022dccf4a1052b0
+Three rounds and a final check, one reviewer per lens, on IF_MANIFEST's `uname`
+section and the Risks that {need}`PLAN_0008`'s task 1 added. Folded in: the fixed host
+name scoped to systems with `os.uname`, Windows' `platform` refused through
+`socket.gethostname`; `localhost` labelled the design's value, not ruled; every field
+required where `os.uname` exists; no manifest holds a host name's value; native reads of
+the host's identity, such as `uuid.getnode()`, stated as missed; a fresh `posix`, by
+import or through `_imp.create_builtin` with its spec's name read once, and a new
+interpreter refused, which the security pass found open; taking a wrapper apart stated
+out of scope.
 :::

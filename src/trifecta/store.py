@@ -190,8 +190,9 @@ def _printable(text: str) -> str:
 
 
 def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str | None:
-    """The kind and path, or the variable's name, of the first input that differs; None
-    when every input the manifest holds is as it was. Never a variable's value."""
+    """The kind and path, the variable's name or the ``uname`` field of the first input
+    that differs; None when every input the manifest holds is as it was. Never a
+    variable's or a field's value."""
     def at(key: str) -> str:
         return str(root if key == "." else root / key)
 
@@ -219,6 +220,12 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
             hold(value).encode("utf-8", "surrogateescape"))
         if now != digest:
             return f"variable {name}"
+    if manifest["uname"]:
+        # Taken again, as the recorder took it: every field but the host name.
+        now = record.uname_digests(os.uname()) if hasattr(os, "uname") else {}
+        for field, digest in manifest["uname"].items():
+            if now.get(field) != digest:
+                return f"uname {field}"
     return None
 
 

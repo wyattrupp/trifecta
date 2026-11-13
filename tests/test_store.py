@@ -41,6 +41,8 @@ class Tree(unittest.TestCase):
             "lookups": {"./helper": None},
             "environment": {"TRIFECTA_DEMO": sha("one"), "TRIFECTA_UNSET": None},
             "outside": {},
+            # The recorder takes every field where os.uname exists.
+            "uname": record.uname_digests(os.uname()) if hasattr(os, "uname") else {},
         }
 
     def tearDown(self):
@@ -84,6 +86,24 @@ class Mismatch(Tree):
         why = self.differs()
         self.assertEqual(why, "variable TRIFECTA_UNSET")
         self.assertNotIn("secret", why)
+
+    @proves("REQ_REUSE_SOUND", "REQ_HOST_READS")
+    def test_a_uname_field_that_changes_names_no_value(self):
+        fields = ("sysname", "nodename", "release", "version", "machine")
+        host = dict(zip(fields, ("Linux", "host", "6.8.0", "#1 SMP", "x86_64")))
+        double = lambda **change: mock.patch.object(
+            os, "uname", create=True,
+            return_value=type("uname", (), {**host, **change})())
+        self.manifest["uname"] = {f: sha(host[f]) for f in record.UNAME_FIELDS}
+        with double():
+            self.assertIsNone(self.differs())
+        with double(nodename="another"):
+            self.assertIsNone(self.differs(), "the host name is no input")
+        for field in record.UNAME_FIELDS:
+            with self.subTest(field=field), double(**{field: "secret"}):
+                why = self.differs()
+                self.assertEqual(why, f"uname {field}")
+                self.assertNotIn("secret", why)
 
     @proves("REQ_REUSE_SOUND")
     def test_a_value_holding_the_root_matches_in_a_copy_elsewhere(self):

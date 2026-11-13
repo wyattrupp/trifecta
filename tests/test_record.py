@@ -9,6 +9,7 @@ the virtual environment setup made.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -23,7 +24,7 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
-from trifecta import record
+from trifecta import record, store
 from trifecta import setup as setup_module
 from trifecta.testing import only_on, proves
 
@@ -369,10 +370,240 @@ class Unstorable(unittest.TestCase):
         self.assertIn("runs ", why)
 
 
+class HostName(unittest.TestCase):
+    """COMP_HOST_NAME: inside a recorded run the host name is a constant, the other
+    ``uname`` fields are recorded as hashes, and every other way to read the host's
+    identity is recorded or refused."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.root = repository(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def names(self, code: str) -> tuple[dict, list]:
+        """The manifest of a run of ``code``, and the host names it wrote to names.json."""
+        m = run(self.root, "import json, os, posix, platform\nnames = []\n"
+                + textwrap.dedent(code)
+                + "\nwith open('names.json', 'w') as f:\n    json.dump(names, f)\n")
+        out = self.root / "names.json"
+        names = json.loads(out.read_text(encoding="utf-8"))
+        out.unlink()  # the tree as it was, which the run probed
+        return m, names
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_every_uname_gives_the_fixed_host_name_before_and_after_platform_system(self):
+        every = ("names += [os.uname().nodename, posix.uname().nodename, platform.node(), "
+                 "platform.uname().node]")
+        for order in (f"{every}\nplatform.system()\n{every}",
+                      f"platform.system()\n{every}",
+                      # platform's cache emptied: filled again through the wrapper.
+                      f"platform._uname_cache = None\n{every}\nplatform.system()\n{every}"):
+            with self.subTest(order=order):
+                m, names = self.names(order)
+                self.assertTrue(m["storable"], m.get("why"))
+                self.assertTrue(names)
+                self.assertEqual(set(names), {record.HOST_NAME})
+                self.assertEqual(set(m["uname"]), set(record.UNAME_FIELDS))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_other_fields_are_held_only_as_hashes(self):
+        m, _ = self.names("platform.system(); platform.release(); platform.version()")
+        real = os.uname()
+        text = json.dumps(m)
+        for field in record.UNAME_FIELDS:
+            self.assertEqual(m["uname"][field], hashlib.sha256(getattr(real, field).encode(
+                "utf-8", "surrogateescape")).hexdigest(), field)
+        # Linux or x86_64 may occur in a path; the kernel's release and build do not.
+        for field in ("release", "version"):
+            self.assertNotIn(getattr(real, field), text, field)
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_change_to_another_field_reruns_the_module(self):
+        m, _ = self.names("platform.release()")
+        self.assertTrue(m["storable"], m.get("why"))
+        shelf = store.Store(self.tmp / "store", self.root)
+        ident = shelf.identity("tests", {"module": "tests.test_host", "leave_out": []})
+        self.assertTrue(shelf.put(ident, m, "result"))
+        lookup = lambda: shelf.lookup(ident, dict(os.environ), store.Hashes(),
+                                      lambda result: result == "result")
+        self.assertEqual(lookup(), ("result", ""))
+        real = os.uname()
+        for field in record.UNAME_FIELDS:
+            double = os.uname_result(tuple(
+                getattr(real, f) + ("-changed" if f == field else "")
+                for f in ("sysname", "nodename", "release", "version", "machine")))
+            with self.subTest(field=field), mock.patch.object(os, "uname",
+                                                              return_value=double):
+                self.assertEqual(lookup(), (None, f"uname {field}"))
+        # The host name is no input: another one matches.
+        double = os.uname_result((real.sysname, "another-host", real.release,
+                                  real.version, real.machine))
+        with mock.patch.object(os, "uname", return_value=double):
+            self.assertEqual(lookup(), ("result", ""))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_of_etc_hostname_is_recorded(self):
+        if not os.path.lexists("/etc/hostname"):
+            self.skipTest("this system has no /etc/hostname")
+        m = run(self.root, "open('/etc/hostname').read()")
+        if os.path.islink("/etc/hostname"):
+            # A link the run did not make is refused, and named.
+            self.assertFalse(m["storable"])
+            self.assertIn("/etc/hostname", m["why"])
+        else:
+            self.assertTrue(m["storable"], m.get("why"))
+            self.assertIn("/etc/hostname", m["outside"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_of_the_kernels_host_name_is_recorded(self):
+        if not os.path.exists("/proc/sys/kernel/hostname"):
+            self.skipTest("this system has no /proc/sys/kernel/hostname")
+        m = run(self.root, "open('/proc/sys/kernel/hostname').read()")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("/proc/sys/kernel/hostname", m["outside"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_a_read_of_the_host_name_variables_is_recorded(self):
+        m = run(self.root, "import os; os.environ.get('HOSTNAME'); "
+                           "os.environ.get('COMPUTERNAME')")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("HOSTNAME", m["environment"])
+        self.assertIn("COMPUTERNAME", m["environment"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_fresh_posix_is_refused(self):
+        routes = {
+            "import": "import sys; del sys.modules['posix']; import posix",
+            "import_module": "import importlib, sys; del sys.modules['posix']; "
+                             "posix = importlib.import_module('posix')",
+            "module_from_spec": "import importlib.util; spec = importlib.util.find_spec("
+                                "'posix'); posix = importlib.util.module_from_spec(spec); "
+                                "spec.loader.exec_module(posix)",
+            # Made and not run, the module crashes the interpreter when used.
+            "create_builtin": "import _imp, posix; "
+                              "posix = _imp.create_builtin(posix.__spec__); "
+                              "_imp.exec_builtin(posix)",
+            "_load": "import importlib._bootstrap as b, posix; "
+                     "posix = b._load(posix.__spec__)",
+        }
+        for route, code in routes.items():
+            with self.subTest(route=route):
+                m = run(self.root, code + "\n" + "posix.uname()")
+                self.assertFalse(m["storable"])
+                self.assertIn("imports posix again", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_spec_whose_name_changes_gets_no_fresh_posix(self):
+        # Each spec names another module at its first read and posix after: the recorder
+        # reads the name once, so the module made is the one it checked.
+        make = ("import _imp\n"
+                "made = _imp.create_builtin(spec)\n"
+                "_imp.exec_builtin(made)\n"
+                "if hasattr(made, 'uname'):\n"
+                "    names.append(made.uname().nodename)\n")
+        specs = {
+            "property": "class Spec:\n"
+                        "    reads = 0\n"
+                        "    @property\n"
+                        "    def name(self):\n"
+                        "        self.reads += 1\n"
+                        "        return 'math' if self.reads == 1 else 'posix'\n"
+                        "    origin = 'built-in'\n",
+            "__getattr__": "class Spec:\n"
+                           "    reads = 0\n"
+                           "    def __getattr__(self, attribute):\n"
+                           "        if attribute != 'name':\n"
+                           "            raise AttributeError(attribute)\n"
+                           "        self.reads += 1\n"
+                           "        return 'math' if self.reads == 1 else 'posix'\n",
+        }
+        for variant, define in specs.items():
+            with self.subTest(variant=variant):
+                m, names = self.names(define + "spec = Spec()\n" + make)
+                self.assertLessEqual(set(names), {record.HOST_NAME},
+                                     "the real host name reached the run")
+                self.assertTrue(not m["storable"] or not names, m)
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_name_that_is_not_a_str_is_refused(self):
+        m = run(self.root, """
+            import _imp, posix
+            class Name(str):
+                __hash__ = lambda self: 1
+                __eq__ = lambda self, other: False
+            class Spec:
+                name = Name("posix")
+                origin = "built-in"
+            made = _imp.create_builtin(Spec())
+            _imp.exec_builtin(made)
+            made.uname()
+            """)
+        self.assertFalse(m["storable"])
+        self.assertIn("a name that is not a str", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_wrapper_hands_out_no_original(self):
+        m, names = self.names(
+            "import inspect\n"
+            "names.append(inspect.unwrap(os.uname)().nodename)\n"
+            "for cell in os.uname.__closure__ or ():\n"
+            "    value = cell.cell_contents\n"
+            "    names.append(value().nodename if callable(value) else value.nodename)\n")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertEqual(set(names), {record.HOST_NAME})
+        self.assertGreater(len(names), 1, "the closure was looked into")
+
+    @proves("REQ_REUSE_SOUND")
+    def test_another_interpreter_is_refused(self):
+        m = run(self.root, """
+            try:
+                import _interpreters as interpreters
+            except ImportError:
+                try:
+                    import _xxsubinterpreters as interpreters
+                except ImportError:
+                    interpreters = None
+            if interpreters is None:
+                open("no-interpreters", "w").close()
+            else:
+                interpreters.destroy(interpreters.create())
+            """)
+        if (self.root / "no-interpreters").exists():
+            self.skipTest("this Python has no module that starts an interpreter")
+        self.assertFalse(m["storable"])
+        self.assertIn("starts another interpreter", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_socket_gethostname_is_refused(self):
+        m = run(self.root, "import socket; socket.gethostname()")
+        self.assertFalse(m["storable"])
+        self.assertIn("host name", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_where_vale_lives_reads_nothing_of_the_host(self):
+        # Only on Windows does this guard the change: platform.system() there reads the host.
+        m = run(self.root, "from pathlib import Path\n"
+                           "from trifecta.toolchain import bin_vale\n"
+                           "bin_vale(Path('.'))\n")
+        self.assertTrue(m["storable"], m.get("why"))
+
+
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
-        "environment": {"HOME": None}, "outside": {}}
+        "environment": {"HOME": None}, "outside": {},
+        "uname": {f: "0" * 64 for f in record.UNAME_FIELDS} if hasattr(os, "uname") else {}}
 
 
 class Shape(unittest.TestCase):
@@ -387,6 +618,7 @@ class Shape(unittest.TestCase):
             {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
             {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
+            {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},
         ]
         for change in bad:
             with self.subTest(change=change):
@@ -396,6 +628,15 @@ class Shape(unittest.TestCase):
         # The interpreter's own _sysconfigdata module on Linux has dashes in its name.
         self.assertTrue(record.valid(
             {**GOOD, "lookups": {"./_sysconfigdata__linux_x86_64-linux-gnu": None}}))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_where_os_uname_exists_every_field_is_required(self):
+        self.assertTrue(record.valid(GOOD))
+        for fields in ((), ("release",), record.UNAME_FIELDS[:-1]):
+            with self.subTest(fields=fields):
+                self.assertFalse(record.valid(
+                    {**GOOD, "uname": {f: "0" * 64 for f in fields}}))
 
 
 def short_name(path: Path) -> str | None:
