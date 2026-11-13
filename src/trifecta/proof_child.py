@@ -3,8 +3,8 @@
 Started by ``trifecta.proofs`` as ``python -E -X utf8``, with the channel's path and a
 plan file naming the modules to run and the tests to leave out. It writes one JSON record per line: its
 ``os.name`` before any import and after the run, every import error, every collected
-test, every result, every class or module set-up and tear-down that did not succeed, and
-an end record once it has reported all of them.
+test, every result, each test's wall time, every class or module set-up and tear-down
+that did not succeed, and an end record once it has reported all of them.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import inspect
 import json
 import os
 import sys
+import time
 import traceback
 import unittest
 from unittest.case import _SubTest
@@ -62,6 +63,7 @@ class Recorder(unittest.TestResult):
         super().__init__()
         self.channel, self.returned = channel, returned
         self.modules = sorted(modules, key=len, reverse=True)
+        self.started: dict[int, float] = {}
 
     def _split(self, dotted: str) -> str:
         """``module:qualified.class`` for a dotted class path, split at the longest module."""
@@ -85,6 +87,20 @@ class Recorder(unittest.TestResult):
         module, cls, name = _where(test)
         self.channel.write("result", module=module, cls=cls, name=name, outcome=outcome,
                            detail=_detail(err), returned=self.returned.get(id(test)))
+
+    def startTest(self, test):
+        super().startTest(test)
+        self.started[id(test)] = time.perf_counter()
+
+    def stopTest(self, test):
+        # Each test's wall time, set-up and tear-down included: a report for the profile
+        # (COMP_REFUSAL_REASONS), which nothing judges.
+        begin = self.started.pop(id(test), None)
+        if begin is not None and hasattr(test, "_testMethodName"):
+            module, cls, name = _where(test)
+            self.channel.write("time", module=module, cls=cls, name=name,
+                               seconds=round(time.perf_counter() - begin, 3))
+        super().stopTest(test)
 
     def addSuccess(self, test):
         self._record(test, "success")

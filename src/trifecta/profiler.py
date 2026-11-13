@@ -112,17 +112,42 @@ def _stage_table(stages: list[dict]) -> list[str]:
     return rows
 
 
+def _unstored(stages: list[dict]) -> list[str]:
+    """Each test module the store did not store: every reason it was refused, with the
+    process that raised it, and each of its tests' wall times, slowest first."""
+    named = lambda s: [r for r in s["reasons"] if isinstance(r, dict) and r.get("why")]
+    modules = [s for s in stages if isinstance(s.get("reasons"), list)
+               and isinstance(s.get("tests"), list) and named(s)]
+    if not modules:
+        return []
+    out = ["", "#### Test modules not stored", "",
+           "| Module | Process | Reason |", "|---|---|---|"]
+    for s in modules:
+        for r in named(s):
+            out.append(f"| {_cell(s.get('name', ''))} | {_cell(r.get('process') or 'own')} "
+                       f"| {_cell(r.get('why', ''))} |")
+    out += ["", "| Module | Test | Seconds |", "|---|---|---:|"]
+    for s in modules:
+        tests = [t for t in s["tests"] if isinstance(t, dict)]
+        for t in sorted(tests, key=lambda t: -t.get("seconds", 0)):
+            out.append(f"| {_cell(s.get('name', ''))} | {_cell(t.get('name', ''))} "
+                       f"| {t.get('seconds', 0):.3f} |")
+    return out
+
+
 def table(data: dict) -> str:
     """A profile as Markdown: the stages by time, and for the fixture runner each fixture
     and each check stage summed over every fixture, by time."""
     out = [f"### trifecta {_cell(data.get('command', ''))}: {data.get('total', 0):.3f} s", ""]
     out += _stage_table(data.get("stages", []))
+    out += _unstored(data.get("stages", []))
     if data.get("command") != "fixtures":
         return "\n".join(out) + "\n"
     fixtures = data.get("fixtures", [])
     control = data.get("control") or {}
     if control.get("stages"):
         out += ["", "#### Control", ""] + _stage_table(control["stages"])
+        out += _unstored(control["stages"])
     sums: dict[str, list] = {}
     for f in fixtures:
         for s in f.get("stages", []):

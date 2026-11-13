@@ -426,6 +426,7 @@ RECORDS = {
     "result": {"module": str, "cls": str, "name": str, "outcome": str, "detail": str,
                "returned": (str, type(None))},
     "fixture": {"scope": str, "target": str, "outcome": str, "detail": str},
+    "time": {"module": str, "cls": str, "name": str, "seconds": float},
     "end": {},
 }
 OUTCOMES = {"success", "failure", "error", "skip", "expected_failure", "unexpected_success"}
@@ -498,8 +499,9 @@ def run_child(root: Path, module: str, leave_out: list[str], child: list[str] | 
                 manifest = None
             if not record.valid(manifest):
                 why = "left no manifest" if manifest is None else "left a malformed manifest"
-                manifest = {"version": record.VERSION, "storable": False,
-                            "why": f"the test child {why}"}
+                why = f"the test child {why}"
+                manifest = {"version": record.VERSION, "storable": False, "why": why,
+                            "reasons": [{"process": None, "why": why}]}
     return text.splitlines(), tail, manifest
 
 
@@ -518,6 +520,15 @@ class ModuleRun:
     seconds: float
     reused: bool
     why: str = ""
+    #: For a module run and not stored for a reason named: every reason, each with its
+    #: process, and each test's wall time (COMP_REFUSAL_REASONS). Only the profile reads them.
+    reasons: list[dict] = field(default_factory=list)
+    tests: list[dict] = field(default_factory=list)
+
+    @property
+    def unstored(self) -> bool:
+        """Run and not stored, for a reason named."""
+        return bool(self.reasons)
 
 
 def _map_lines(lines: list[str], change) -> list[str]:
@@ -545,6 +556,13 @@ def _restored(result: dict, root: Path) -> tuple[list[str], str]:
     """A stored result with this root's path put back, in the spelling it was stored in."""
     change = lambda text: store.restored(text, root)
     return _map_lines(result["lines"], change), change(result["output"])
+
+
+def _times(lines: list[str]) -> list[dict]:
+    """Each test's wall time, as the child reported it."""
+    records, _ = _parse(lines)
+    return [{"name": f"{r['cls']}.{r['name']}", "seconds": r["seconds"]}
+            for r in records if r["kind"] == "time"]
 
 
 def _ended(lines: list[str]) -> bool:
@@ -589,17 +607,27 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
                         ModuleRun(module, seconds(time.perf_counter() - begin), True))
         lines, output, manifest = run_child(root, module, leave_out, child,
                                             recorded=shelf is not None)
+        # Named only for the profile, after the store has decided (REQ_REFUSALS_NAMED):
+        # the recorder's reasons, or the check's own when the manifest was storable.
+        reasons: list = []
         if manifest is not None:
+            unstored = ""
             if not manifest["storable"]:
                 why = f"{why}; not stored: {manifest.get('why', '')}"
+                reasons = list(manifest.get("reasons", []))
             elif any(store.holds_placeholder(t) for t in (*lines, output)):
-                why = f"{why}; not stored: its output holds the store's placeholder"
+                unstored = "its output holds the store's placeholder"
             elif not _ended(lines):
-                why = f"{why}; not stored: the child ended before it reported every result"
-            else:
-                shelf.put(ident, manifest, _portable(lines, output, root))
+                unstored = "the child ended before it reported every result"
+            elif not shelf.put(ident, manifest, _portable(lines, output, root)):
+                unstored = "the store did not store it"
+            if unstored:
+                why = f"{why}; not stored: {unstored}"
+                reasons = [{"process": None, "why": unstored}]
+        reasons = [r for r in reasons if r.get("why")]
         return (lines, output), ModuleRun(module, seconds(time.perf_counter() - begin),
-                                          False, why[:store.MAX_WHY])
+                                          False, why[:store.MAX_WHY], reasons=reasons,
+                                          tests=_times(lines) if reasons else [])
 
     # The modules run side by side, each in its own child; the results keep their order.
     with ThreadPoolExecutor(max_workers=max(1, min(len(modules), os.cpu_count() or 1))) as pool:

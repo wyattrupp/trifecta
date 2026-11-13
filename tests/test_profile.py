@@ -17,6 +17,7 @@ from unittest import mock
 from trifecta import check, profiler, run_fixtures
 from trifecta.ext.ontology import DOC_LEVEL
 from trifecta.findings import Finding
+from trifecta.proofs import ModuleRun, _times, run_child
 from trifecta.testing import proves
 
 #: Every stage of check.main, in the order it runs, when the build gives needs.json, the
@@ -240,6 +241,72 @@ class FixturesProfile(unittest.TestCase):
         self.assertFalse(data["control"]["ok"])
         self.assertEqual([s["name"] for s in data["control"]["stages"]], ["tests", "sphinx"])
         self.assertEqual(data["fixtures"], [])
+
+
+class Reasons(unittest.TestCase):
+    """REQ_REFUSALS_NAMED: the profile names each unstored module's reasons and times."""
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_module_with_no_reason_and_an_empty_reason_are_not_listed(self):
+        stages = [{"name": "tests: a", "seconds": 1.0, "reasons": [], "tests": []},
+                  {"name": "tests: b", "seconds": 1.0, "reasons": [{"process": None,
+                                                                     "why": ""}],
+                   "tests": [{"name": "T.t", "seconds": 1.0}]},
+                  {"name": "tests: c", "seconds": 1.0,
+                   "reasons": [{"process": None, "why": ""},
+                               {"process": None, "why": "runs git"}], "tests": []}]
+        text = profiler.table({"command": "check", "total": 3.0, "stages": stages})
+        listed = text.split("#### Test modules not stored")[1]
+        self.assertEqual(listed.count("| tests: c |"), 1)
+        self.assertNotIn("| tests: a |", listed)
+        self.assertNotIn("| tests: b |", listed)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_the_check_profile_holds_each_unstored_modules_reasons_and_times(self):
+        reasons = [{"process": None, "why": "runs git"},
+                   {"process": "python -m trifecta", "why": "reads the host name"}]
+        tests = [{"name": "T.test_a", "seconds": 0.25}]
+
+        def proofs(root, fresh=False, runs=None, **_):
+            runs += [ModuleRun("tests.test_kept", 0.1, True),
+                     ModuleRun("tests.test_x", 0.3, False, "no stored result; not stored: "
+                               "runs git", reasons=reasons, tests=tests)]
+            return [], set(), []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = corpus(tmp)
+            run_main(root, ["--base", "main"], False, check_proofs=mock.Mock(side_effect=proofs))
+            data = profiler.read(root / "docs/_build/profile/check.json")
+        stages = {s["name"]: s for s in data["stages"]}
+        self.assertNotIn("reasons", stages["tests: tests.test_kept"])
+        self.assertNotIn("tests", stages["tests: tests.test_kept"])
+        self.assertEqual(stages["tests: tests.test_x"]["reasons"], reasons)
+        self.assertEqual(stages["tests: tests.test_x"]["tests"], tests)
+        text = profiler.table(data)
+        self.assertIn("| tests: tests.test\\_x | own | runs git |", text)
+        self.assertIn("| tests: tests.test\\_x | python -m trifecta | reads the host name |",
+                      text)
+        self.assertIn("| tests: tests.test\\_x | T.test\\_a | 0.250 |", text)
+        self.assertNotIn("| tests: tests.test\\_kept | ", text.split("#### Test modules not stored")[1])
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_the_proof_child_reports_each_tests_wall_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "tests").mkdir()
+            (root / "tests" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "tests" / "test_x.py").write_text(
+                "import time, unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_slow(self):\n"
+                "        time.sleep(0.2)\n"
+                "    def test_fails(self):\n"
+                "        self.fail('no')\n", encoding="utf-8")
+            lines, _, _ = run_child(root, "tests.test_x", [])
+        times = {t["name"]: t["seconds"] for t in _times(lines)}
+        self.assertEqual(set(times), {"T.test_slow", "T.test_fails"})
+        self.assertGreaterEqual(times["T.test_slow"], 0.15)
+        self.assertEqual(times["T.test_slow"], round(times["T.test_slow"], 3))
 
 
 class ProfileTable(unittest.TestCase):

@@ -484,8 +484,11 @@ def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False,
         findings += proof_findings
     # Each proof module, within the test stage: whether its stored records were reused.
     for r in runs:
-        profiler.stages.append({"name": f"tests: {r.module}", "seconds": r.seconds,
-                                "reused": r.reused, "why": r.why})
+        entry = {"name": f"tests: {r.module}", "seconds": r.seconds, "reused": r.reused,
+                 "why": r.why}
+        if r.unstored:  # what kept it out of the store, and what each test cost
+            entry |= {"reasons": r.reasons, "tests": r.tests}
+        profiler.stages.append(entry)
     with stage("sphinx") as built:
         findings += run_sphinx(root, fresh, built)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
