@@ -551,6 +551,89 @@ class PreSite(unittest.TestCase):
         self.assertEqual(m["why"], "runs under prefixes other than its parent's")
 
 
+OUTSIDE_PATH = ("starts a Python child whose PYTHONPATH names a directory outside the "
+                "repository and the interpreter")
+
+
+class SearchPath(unittest.TestCase):
+    """DEC_0042: a Python child's PYTHONPATH may name only directories in the repository
+    or the interpreter's prefixes, resolved, and is recorded."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.root = repository(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def started(self, entries: str, cwd: str = ".") -> dict:
+        """A recorded run that starts a Python child with PYTHONPATH set to ``entries``
+        in ``cwd``."""
+        return run(self.root, f"""
+            import os, subprocess, sys
+            subprocess.run([sys.executable, "-c", "import os; os.environ.get('X')"],
+                           check=True, cwd={cwd!r},
+                           env={{**os.environ, "PYTHONPATH": {entries!r}}})
+            """)
+
+    def recorded(self, entries: str) -> dict:
+        """A recorded child started with PYTHONPATH set to ``entries``: its manifest."""
+        directory = self.tmp / f"record-path-{len(list(self.tmp.glob('record-path-*')))}"
+        record.prepare(str(directory), str(self.root))
+        env = {k: v for k, v in os.environ.items() if k not in record.OWN}
+        env.update({record.ENV: str(directory), "PYTHONPATH": entries})
+        subprocess.run([sys.executable, "-c", "pass"], cwd=self.root, env=env, check=True)
+        return json.loads((directory / record.MANIFEST).read_text(encoding="utf-8"))
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_an_entry_in_the_repository_is_allowed_and_recorded(self):
+        m = self.started(str(self.root / "sub"))
+        self.assertTrue(m["storable"], m.get("why"))
+        m = self.recorded(str(self.root / "sub"))
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIsNotNone(m["environment"]["PYTHONPATH"])
+        self.assertIn("sub", m["listings"], "a new module there runs the child again")
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_an_entry_elsewhere_is_refused(self):
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        m = self.started(os.pathsep.join([str(self.root / "sub"), str(elsewhere)]))
+        self.assertEqual(m["why"], OUTSIDE_PATH)
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_a_link_from_the_repository_to_elsewhere_is_refused(self):
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        try:
+            os.symlink(elsewhere, self.root / "link", target_is_directory=True)
+        except OSError:
+            self.skipTest("no symbolic links here")
+        m = self.started(str(self.root / "link"))
+        self.assertEqual(m["why"], OUTSIDE_PATH)
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_an_empty_entry_is_the_working_directory(self):
+        m = self.started(os.pathsep.join(["sub", ""]))
+        self.assertTrue(m["storable"], m.get("why"))
+        m = self.started(os.pathsep, cwd=str(self.tmp))
+        self.assertEqual(m["why"], OUTSIDE_PATH)
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_an_entry_holding_a_name_of_the_standard_library_is_refused(self):
+        # Refused as the child starts, since a module the recorder imports as it starts,
+        # as json, would load from there; and by the child itself, for any other.
+        (self.root / "sub" / "json.py").write_text("", encoding="utf-8")
+        m = self.started(str(self.root / "sub"))
+        self.assertEqual(m["why"], "starts a Python child whose PYTHONPATH holds json, a "
+                                   "name of the standard library")
+        (self.root / "sub" / "json.py").unlink()
+        (self.root / "sub" / "colorsys.py").write_text("", encoding="utf-8")
+        m = self.recorded(str(self.root / "sub"))
+        self.assertEqual(m["why"], "PYTHONPATH holds colorsys, a name of the standard "
+                                   "library")
+
+
 class RmtreeCallbacks(unittest.TestCase):
     """What a callback ``shutil.rmtree`` calls on an error does is the run's own."""
 

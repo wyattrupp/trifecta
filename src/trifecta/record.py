@@ -116,9 +116,11 @@ if __name__ == MODULE and PARENT_MODULE in sys.modules:
                                           for name in ("_lstat", "_stat", "_scandir",
                                                        "_realpath"))
 #: Variables that make an interpreter run code of the run's before ``site`` starts the
-#: recorder, or from another standard library, unless ``-E`` or ``-I`` is given.
-PRE_SITE = ("PYTHONPATH", "PYTHONHOME", "PYTHONPLATLIBDIR", "PYTHONSTARTUP",
-            "PYTHON_FROZEN_MODULES")
+#: recorder, or from another standard library, unless ``-E`` or ``-I`` is given: refused.
+PRE_SITE = ("PYTHONHOME", "PYTHONPLATLIBDIR", "PYTHONSTARTUP", "PYTHON_FROZEN_MODULES")
+#: The search path's variable, whose entries a Python child may take only from inside the
+#: repository or the interpreter's prefixes (DEC_0042).
+PATH_ENV = "PYTHONPATH"
 
 
 def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
@@ -637,6 +639,21 @@ class Recorder:
                 return False
             current = parent
         return True  # deeper than any path: refused rather than walked
+
+    def inside(self, path: str) -> bool:
+        """Whether ``path``, resolved, is under the repository root or the interpreter's
+        prefixes, each as given and resolved."""
+        n = _norm(path)
+        return any(_under(n, place) for place in self.places_inside())
+
+    def places_inside(self) -> list[str]:
+        places = [self.nroot, *self.prefixes]
+        for place in list(places):
+            try:
+                places.append(_norm(_realpath(place)))
+            except (OSError, ValueError):
+                pass
+        return places
 
     def top_id(self) -> tuple | None:
         if self._top_id is None:
@@ -1373,11 +1390,14 @@ def _interpreter_options(argv: list[str]) -> tuple[str, str | None]:
     return _options(argv)[:2]
 
 
-def _python_child(argv: list[str], env: dict | None = None) -> str | None:
+def _python_child(argv: list[str], env: dict | None = None, inside=None,
+                  cwd: str | None = None) -> str | None:
     """Why a child started with ``sys.executable`` cannot record itself, or None: it
     runs no .pth file, or it can run code of the run's before ``site`` starts the
     recorder, through a variable in ``env``, its final environment by name, that ``-E``
-    or ``-I`` does not cancel, or through ``-X frozen_modules=off``."""
+    or ``-I`` does not cancel, through a PYTHONPATH entry that ``inside`` does not hold
+    once resolved from ``cwd``, the child's working directory, or through
+    ``-X frozen_modules=off``."""
     flags, _, xs = _options(argv)
     if "S" in flags:
         return "starts a Python child with -S, which runs no .pth file"
@@ -1389,7 +1409,38 @@ def _python_child(argv: list[str], env: dict | None = None) -> str | None:
             if env.get(name):
                 return (f"starts a Python child whose environment sets {name}, which can "
                         f"run code before the recorder")
+        entries = [_entry(entry, cwd) for entry in os.fsdecode(env[PATH_ENV]).split(
+            os.pathsep)] if env.get(PATH_ENV) else []
+        if not all(inside is not None and inside(entry) for entry in entries):
+            return (f"starts a Python child whose {PATH_ENV} names a directory outside the "
+                    f"repository and the interpreter")
+        for entry in entries:
+            shadow = _shadow(entry)
+            if shadow:
+                return (f"starts a Python child whose {PATH_ENV} holds {shadow}, a name of "
+                        f"the standard library")
     return None
+
+
+def _shadow(directory: str) -> str | None:
+    """The first name of the standard library a search-path entry holds, outside the
+    interpreter's own prefixes, which would load in its place, before ``site`` or as the
+    recorder starts; or None."""
+    if any(_under(_norm(directory), _norm(p)) for p in _prefixes()):
+        return None
+    names = {n.split(".")[0] for n, _ in listing(directory) or ()}
+    found = sorted(names & set(getattr(sys, "stdlib_module_names", ())))
+    return found[0] if found else None
+
+
+def _entry(entry: str, cwd: str | None) -> str:
+    """A search-path entry as the interpreter reaches it: an empty one is the working
+    directory, a relative one is under it, and every link is resolved."""
+    base = cwd if cwd is not None else _getcwd()
+    try:
+        return _realpath(os.path.join(base, entry))
+    except (OSError, ValueError):
+        return os.path.abspath(os.path.join(base, entry))
 
 
 def _child_name(argv: list[str], program: str) -> str:
@@ -1412,6 +1463,7 @@ def _watch_children(r: Recorder) -> None:
     original = subprocess.Popen._execute_child
     names = list(inspect.signature(original).parameters)
     env_at, shell_at = names.index("env") - 1, names.index("shell") - 1  # less self
+    cwd_at = names.index("cwd") - 1
     executable = _norm(os.path.abspath(sys.executable))
 
     def execute_child(self, *args):
@@ -1430,7 +1482,9 @@ def _watch_children(r: Recorder) -> None:
             # The environment read past the recording mappings, so nothing is noted.
             final = {_name(k): v for k, v in (_environment() if env is None
                                               else env.items())}
-            why = _python_child(decoded, final)
+            cwd = _text(args[cwd_at])
+            why = _python_child(decoded, final, r.inside,
+                                None if cwd is None else os.path.join(_getcwd(), cwd))
             if why is None and PARENT_ENV in final:
                 # Only a recorder sets it, and only here, as the child starts.
                 why = f"starts a Python child whose environment already holds {PARENT_ENV}"
@@ -1741,19 +1795,35 @@ _recorder: Recorder | None = None
 
 def _started_clean(r: Recorder, config: dict) -> None:
     """Refuse a process whose interpreter is not its parent's, by its prefixes, or that
-    ran a module from outside them before the recorder started, as one on PYTHONPATH
-    named ``encodings`` would."""
+    ran a module from outside the repository and the prefixes before the recorder
+    started, as one on PYTHONPATH named ``encodings`` would (DEC_0042). A PYTHONPATH entry
+    in the repository is listed as an input, and one that holds a name of the standard
+    library, which the interpreter imports before ``site``, is refused: a module that ran
+    and then left ``sys.modules`` is found by its file, not by what it left behind."""
     mine = sorted(_norm(p) for p in _prefixes())
     given = config.get("prefixes")
     if given is not None and sorted(_norm(str(p)) for p in given) != mine:
         r.refuse("runs under prefixes other than its parent's")
+    places = r.places_inside()
     for name, module in list(sys.modules.items()):
         if name in MODULES:
             continue
         origin = getattr(getattr(module, "__spec__", None), "origin", None)
         if isinstance(origin, str) and os.path.isabs(origin) \
-                and not any(_under(_norm(origin), p) for p in mine):
+                and not any(_under(_norm(_entry(origin, None)), p) for p in places):
             r.refuse(f"ran {name} from outside the interpreter before the recorder started")
+        elif isinstance(origin, str) and os.path.isabs(origin)                 and name.partition(".")[0] in getattr(sys, "stdlib_module_names", ())                 and not any(_under(_norm(_entry(origin, None)), p) for p in mine):
+            r.refuse(f"ran {name} from outside the standard library before the recorder "
+                     f"started")
+    value = dict(_environment()).get(PATH_ENV) if not sys.flags.ignore_environment else None
+    for entry in (value or "").split(os.pathsep) if value else ():
+        path = _entry(entry, None)
+        if any(_under(_norm(path), p) for p in mine):
+            continue  # the interpreter's own, left to the environment key
+        shadow = _shadow(path)
+        if shadow:
+            r.refuse(f"{PATH_ENV} holds {shadow}, a name of the standard library")
+        r.list(path)
 
 
 def start(directory: str, config: dict) -> Recorder:
