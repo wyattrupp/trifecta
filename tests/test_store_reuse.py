@@ -4,8 +4,9 @@ others, reuses nothing with ``--fresh``, and gives the same findings either way.
 
 Each test runs the test stage on a small repository in a temporary directory, with a
 store of its own, so its children record themselves through the .pth file setup
-installs. A test here starts children that record into directories of their own, so
-this module is never stored itself.
+installs. Each such child records into a directory of its own, which the module's own
+recorder follows as its parent's (COMP_NESTED_RECORDER); a test here whose child reads
+the host name on purpose keeps this module from being stored.
 """
 
 from __future__ import annotations

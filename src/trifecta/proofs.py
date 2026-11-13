@@ -582,7 +582,7 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
         shelf = None
     elif store_at is not None:
         shelf = store.Store(store_at, root)
-    elif "_trifecta_record" not in sys.modules:
+    elif not any(name in sys.modules for name in record.MODULES):
         shelf = store.Store(store.location(root), root)
     else:
         shelf = None

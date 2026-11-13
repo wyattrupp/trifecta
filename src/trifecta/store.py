@@ -68,7 +68,7 @@ def placeholder(root: Path):
 
 
 def environment_key(root: Path) -> dict:
-    """The system, the interpreter, the recorder's .pth file and every installed
+    """The system, the interpreter, the recorder's .pth files and every installed
     distribution: what a manifest leaves to the environment, under the interpreter's
     prefixes."""
     dists = []
@@ -77,14 +77,15 @@ def environment_key(root: Path) -> dict:
         dists.append([dist.metadata["Name"] or "", dist.version or "",
                       _sha(files.encode("utf-8", "surrogateescape"))])
     paths = sysconfig.get_paths()
-    pth = Path(paths["purelib"]) / record.PTH_NAME
+    pth = [record.file_hash(str(Path(paths["purelib"]) / name))
+           for name, _ in record.PTH_FILES]
     # What the site directories hold by name, so a module or .pth file no RECORD lists
     # changes the key too.
     site = {name: record.listing(paths[name]) for name in ("purelib", "platlib")}
     return {"os": os.name, "python": sys.version, "site": site,
             "executable": placeholder(root)(sys.executable),
             "runner": os.environ.get("RUNNER_OS"),
-            "pth": record.file_hash(str(pth)),
+            "pth": pth,
             "distributions": sorted(dists)}
 
 

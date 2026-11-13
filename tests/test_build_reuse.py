@@ -4,8 +4,9 @@ either way, a failed build's included, in a copy at another path, and refuses an
 member that is absolute, holds ``..`` or is a link.
 
 Each test builds a small Sphinx project in a temporary directory with a store of its own,
-recording the build through the .pth file setup installs. A test here starts a Python
-child that records into a directory of its own, so this module is never stored itself.
+recording the build through the .pth file setup installs. The build is a Python child
+that records into a directory of its own, which the module's own recorder follows as its
+parent's (COMP_NESTED_RECORDER).
 """
 
 from __future__ import annotations

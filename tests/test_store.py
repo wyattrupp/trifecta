@@ -211,10 +211,12 @@ class Entries(Tree):
 class ChildEnvironment(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     def test_a_test_child_gets_no_store_or_record_variable(self):
-        with mock.patch.dict(os.environ, {store.ENV: "x", record.ENV: "y", "KEEP": "1"}):
+        with mock.patch.dict(os.environ, {store.ENV: "x", record.ENV: "y",
+                                          record.PARENT_ENV: "z", "KEEP": "1"}):
             env = child_environment()
         self.assertNotIn(store.ENV, env)
         self.assertNotIn(record.ENV, env)
+        self.assertNotIn(record.PARENT_ENV, env)
         self.assertEqual(env["KEEP"], "1")
 
 

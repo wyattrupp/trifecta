@@ -12,6 +12,13 @@ follow, from an audit event it does not list to a program other than the interpr
 makes the manifest unstorable: such a run is never reused, so a blind spot costs time,
 never soundness.
 
+A Python child that records into a directory of its own, as the recorder's and the
+store's tests start, is recorded too (COMP_NESTED_RECORDER): its parent's recorder gives
+it a directory under TRIFECTA_RECORD_PARENT, whose .pth file sorts first, so in the
+child the parent's recorder starts before the test's, under a module name of its own, and
+its wrappers are innermost. It checks at each child start and at exit that its audit hook
+and wrappers are still in place.
+
 The module imports only the standard library and loads under its own name, so the
 package a run imports is the run's own, never the recorder's.
 """
@@ -34,9 +41,17 @@ LOCALE_VARIABLES = ("LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONET
                     "LC_NUMERIC", "LC_TIME", "LANG", "LANGUAGE")
 #: The variable naming the directory a process records into.
 ENV = "TRIFECTA_RECORD"
+#: The variable naming the directory the parent's recorder records a child into, when the
+#: child runs a recorder of its own under ENV (COMP_NESTED_RECORDER); the name is the
+#: design's.
+PARENT_ENV = "TRIFECTA_RECORD_PARENT"
 #: The result store's variable: like ENV, the recorder's own, so never recorded.
 STORE_ENV = "TRIFECTA_STORE"
-OWN = frozenset({ENV, STORE_ENV})
+OWN = frozenset({ENV, PARENT_ENV, STORE_ENV})
+#: The names the recorder loads under: the test's, under ENV, and the parent's, under
+#: PARENT_ENV, which loads first.
+MODULE, PARENT_MODULE = "_trifecta_record", "_trifecta_record_parent"
+MODULES = (MODULE, PARENT_MODULE)
 MANIFEST = "manifest.json"
 #: What a process made and wrote, which its parent leaves out of its own inputs.
 MADE = "made.json"
@@ -48,28 +63,40 @@ ROOT = "<root>"
 #: What a reason holds in place of the home directory, the temporary directory and the
 #: interpreter's prefixes (COMP_REFUSAL_REASONS); these names are the design's, not ruled.
 HOME, TEMP, PREFIX, BASE_PREFIX = "<home>", "<tmp>", "<prefix>", "<base_prefix>"
-#: What the .pth line runs when ENV is set: loads the recorder its parent named, once.
-START_SOURCE = """\
+#: What a .pth line runs when its variable is set: loads the recorder its parent named,
+#: once, under the module name that goes with the variable.
+_START = """\
 import sys
-if "_trifecta_record" not in sys.modules:
+if "{module}" not in sys.modules:
     import importlib.util, json, os
-    _d = os.environ["TRIFECTA_RECORD"]
+    _d = os.environ["{variable}"]
     with open(os.path.join(_d, "config.json"), encoding="utf-8") as _f:
         _c = json.load(_f)
     # No byte code from the tree, the recorder's own included.
     sys.dont_write_bytecode = True
     sys.pycache_prefix = os.path.join(_d, "pycache")
-    _s = importlib.util.spec_from_file_location("_trifecta_record", _c["recorder"])
+    _s = importlib.util.spec_from_file_location("{module}", _c["recorder"])
     _m = importlib.util.module_from_spec(_s)
-    sys.modules["_trifecta_record"] = _m
+    sys.modules["{module}"] = _m
     _s.loader.exec_module(_m)
     _m.start(_d, _c)
 """
+START_SOURCE = _START.format(module=MODULE, variable=ENV)
+PARENT_START_SOURCE = _START.format(module=PARENT_MODULE, variable=PARENT_ENV)
+_PTH = ('import os; os.environ.get("{0}") and exec(open(os.path.join('
+        'os.environ["{0}"], "start.py"), encoding="utf-8").read())\n')
 #: The .pth file setup installs, and its one line, which imports nothing while ENV is unset.
 #: Named to sort first, so no other .pth file in the environment runs before the recorder.
 PTH_NAME = "00-trifecta-record.pth"
-PTH_LINE = ('import os; os.environ.get("TRIFECTA_RECORD") and exec(open(os.path.join('
-            'os.environ["TRIFECTA_RECORD"], "start.py"), encoding="utf-8").read())\n')
+PTH_LINE = _PTH.format(ENV)
+#: The parent's .pth file, whose name sorts before PTH_NAME, so ``site`` starts the
+#: parent's recorder first and its wrappers are innermost (COMP_NESTED_RECORDER).
+PARENT_PTH_NAME = "00-trifecta-record-parent.pth"
+PARENT_PTH_LINE = _PTH.format(PARENT_ENV)
+#: The .pth files setup installs, each with its line, in the order ``site`` runs them.
+PTH_FILES = ((PARENT_PTH_NAME, PARENT_PTH_LINE), (PTH_NAME, PTH_LINE))
+#: The audit event a recorder raises to see that its own hook still runs.
+CHECK_EVENT = "trifecta.record.check"
 SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname")
 KINDS = ("file", "directory", "link", "absent")
 #: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
@@ -84,19 +111,23 @@ _lstat, _scandir, _getcwd, _open = os.lstat, os.scandir, os.getcwd, io.open
 _realpath = os.path.realpath
 
 
-def prepare(directory: str, root: str, ignore=(), recorder: str | None = None) -> None:
+def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
+            parent: bool = False) -> None:
     """Make ``directory`` one a process records into: the repository root, the recorder
     file to load, and the run's own control files, which are not inputs. The directory is
     a new one, or an empty one the caller made, such as by ``tempfile.mkdtemp``: what it
-    holds is run by the processes that record into it."""
+    holds is run by the processes that record into it. ``parent`` makes it one the
+    parent's recorder starts from, named in PARENT_ENV. A write into it, or into a child's
+    directory the recorder makes under it, by anything but a recorder is refused."""
     if os.path.islink(directory) or os.path.isdir(directory) and os.listdir(directory):
         raise ValueError(f"{directory} is a link or is not empty")
     os.makedirs(directory, exist_ok=True)
     config = {"root": os.path.abspath(root),
               "recorder": os.path.abspath(recorder or __file__),
-              "ignore": [os.path.abspath(p) for p in ignore]}
+              "ignore": [os.path.abspath(p) for p in ignore],
+              "top": os.path.abspath(directory)}
     _write(os.path.join(directory, CONFIG), json.dumps(config))
-    _write(os.path.join(directory, START), START_SOURCE)
+    _write(os.path.join(directory, START), PARENT_START_SOURCE if parent else START_SOURCE)
 
 
 def _write(path: str, text: str) -> None:
@@ -145,15 +176,21 @@ _long_path_name = None
 
 def _bind_long() -> None:
     """Bind GetLongPathNameW once, on Windows: before the audit hook, whose ctypes events
-    would otherwise refuse the recorder's own call."""
+    would otherwise refuse the recorder's own call. The test's recorder, which starts
+    under the parent's hook, takes the binding the parent's recorder made."""
     global _long_path_name
-    if os.name == "nt" and _long_path_name is None:
-        import ctypes
-        from ctypes import wintypes
-        function = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
-        function.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
-        function.restype = wintypes.DWORD
-        _long_path_name = (function, ctypes.c_wchar * 32768)
+    if os.name != "nt" or _long_path_name is not None:
+        return
+    parent = sys.modules.get(PARENT_MODULE)
+    if __name__ == MODULE and getattr(parent, "_long_path_name", None) is not None:
+        _long_path_name = parent._long_path_name
+        return
+    import ctypes
+    from ctypes import wintypes
+    function = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
+    function.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+    function.restype = wintypes.DWORD
+    _long_path_name = (function, ctypes.c_wchar * 32768)
 
 
 def _long(path: str) -> str:
@@ -286,6 +323,18 @@ def _text(raw) -> str | None:
 class Recorder:
     def __init__(self, directory: str, config: dict):
         self.directory = os.path.abspath(directory)
+        self.config = dict(config)
+        #: The directory the chain of recorders this one belongs to was prepared in: a
+        #: write under it by anything but a recorder is refused.
+        self.top = _norm(config.get("top") or self.directory)
+        #: What the recorder installed, checked at each child start and at exit: each
+        #: wrapper as ``(owner, attribute, wrapper, name)``, each recording mapping of the
+        #: environment as ``(owner, attribute, class, name)``, and the fixed ``uname``.
+        self.installed: list[tuple] = []
+        self.mappings: list[tuple] = []
+        self.fixed_uname = None
+        #: Whether ``start`` installed this recorder, its audit hook last.
+        self.started = False
         self.root = _long(config["root"])
         self.nroot = _norm(self.root)
         self.ignore = [_norm(p) for p in config.get("ignore", ())] + [_norm(self.directory)]
@@ -534,11 +583,56 @@ class Recorder:
         if path is None:
             return
         n = _norm(os.path.abspath(os.path.join(_getcwd(), path)))
+        if _under(n, self.top):
+            # A recorder's own writes raise no event it handles: this one is the run's,
+            # which could rewrite a configuration or a manifest a recorder reads.
+            self.refuse("writes into a directory the recorder prepared")
         (self.created if directory else self.written).add(n)
+
+    def install(self, owner, attribute: str, wrapper, name: str) -> None:
+        """Put ``wrapper`` in place of ``owner.attribute``, to be checked later."""
+        setattr(owner, attribute, wrapper)
+        self.installed.append((owner, attribute, wrapper, name))
+
+    def intact(self) -> str | None:
+        """What of the recorder's own is no longer in place, or None: its audit hook, which
+        must still see an event; each wrapper, which must be the attribute or be reached
+        from it through ``__wrapped__``, as another recorder's wrapper reaches it; the
+        environment's recording mappings; and the fixed ``uname``."""
+        token = object()
+        self.local.audited = None
+        sys.audit(CHECK_EVENT, token)
+        if self.local.audited is not token:
+            return "its audit hook"
+        for owner, attribute, wrapper, name in self.installed:
+            current = getattr(owner, attribute, None)
+            for _ in range(MAX_CHAIN):
+                if current is wrapper or current is None:
+                    break
+                current = getattr(current, "__wrapped__", None)
+            if current is not wrapper:
+                return name
+        for owner, attribute, cls, name in self.mappings:
+            if not isinstance(getattr(owner, attribute, None), cls):
+                return name
+        if self.fixed_uname is not None:
+            import posix
+            if os.uname() != self.fixed_uname or posix.uname() != self.fixed_uname:
+                return "os.uname"
+        return None
+
+    def check_intact(self) -> None:
+        """Refuse the run when what the recorder installed is no longer in place."""
+        what = self.intact() if self.started else None
+        if what is not None:
+            self.refuse(f"replaces what the recorder installed: {what}")
 
     # -- the audit hook -----------------------------------------------------------
 
     def hook(self, event: str, args: tuple) -> None:
+        if event == CHECK_EVENT:  # the recorder's own check that this hook still runs
+            self.local.audited = args[0] if args else None
+            return
         if self.quiet() or self.in_rmtree():
             return  # rmtree's calls name entries by descriptor; its tree is written
         self.local.busy = True
@@ -576,7 +670,7 @@ class Recorder:
         with self.lock:
             if self.why is None:
                 for name, module in list(sys.modules.items()):
-                    if name == "_trifecta_record":
+                    if name in MODULES:
                         continue  # the recorder is part of the package's identity
                     origin = getattr(getattr(module, "__spec__", None), "origin", None)
                     if isinstance(origin, str) and os.path.isabs(origin):
@@ -649,6 +743,9 @@ class Recorder:
                 del section[key]
 
     def finish(self) -> None:
+        self.local.busy = True
+        with self.lock:
+            self.check_intact()
         data = self.manifest()
         target = os.path.join(self.directory, MANIFEST)
         if os.path.exists(target):  # another process wrote here: whose reads is unknown
@@ -667,6 +764,8 @@ class Recorder:
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 #: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
 MAX_REASONS = 64
+#: How many ``__wrapped__`` steps the check follows from an attribute to a wrapper.
+MAX_CHAIN = 64
 _HEX = frozenset("0123456789abcdef")
 _SPECIAL = ("(namespace)", "(elsewhere)")
 
@@ -1100,7 +1199,8 @@ def _watch_imports(r: Recorder) -> None:
         r.guarded(note)
         return spec
 
-    finder.find_spec = find_spec
+    find_spec.__wrapped__ = original
+    r.install(finder, "find_spec", find_spec, "FileFinder.find_spec")
 
 
 def _interpreter_options(argv: list[str]) -> tuple[str, str | None]:
@@ -1170,36 +1270,46 @@ def _watch_children(r: Recorder) -> None:
             program = program_arg if program_arg is not None else argv[0]
             python = _norm(os.path.abspath(os.fsdecode(program))) == executable
         if python and not r.quiet():
-            # A child of a run already refused records too: its reasons are named.
+            # A child of a run already refused records too: its reasons are named. This
+            # wrapper is the innermost when another recorder started after this one, so
+            # what it reads here are the final arguments and environment.
             env = args[env_at]
             decoded = [os.fsdecode(a) for a in argv]
+            # The environment read past the recording mappings, so nothing is noted.
+            final = {_name(k): v for k, v in (_environment() if env is None
+                                              else env.items())}
             why = _python_child(decoded)
-            if env is not None and ENV in env:
-                # The recorder took ENV out of the process: the run named one itself.
-                why = "starts a Python child that records into a directory of its own"
+            if why is None and PARENT_ENV in final:
+                # Only a recorder sets it, and only here, as the child starts.
+                why = f"starts a Python child whose environment already holds {PARENT_ENV}"
+            r.guarded(r.check_intact)
             if why:
                 r.refuse(why)
             else:
                 r.local.busy = True
                 try:
                     child = os.path.join(r.directory, "children", secrets.token_hex(8))
-                    with _open(os.path.join(r.directory, CONFIG), encoding="utf-8") as f:
-                        config = json.load(f)
+                    # The child of a run that records into a directory of its own: this
+                    # recorder follows it under PARENT_ENV and leaves ENV to the run's.
+                    nested = ENV in final
+                    config = dict(r.config)
                     # What the parent made or wrote is no input to its child either.
                     with r.lock:
                         config["ignore"] = sorted({*config.get("ignore", ()), *r.created,
                                                    *r.written})
+                    config["top"] = r.config.get("top") or r.directory
                     os.makedirs(child)
                     _write(os.path.join(child, CONFIG), json.dumps(config))
-                    _write(os.path.join(child, START), START_SOURCE)
+                    _write(os.path.join(child, START),
+                           PARENT_START_SOURCE if nested else START_SOURCE)
                     if env is not None:
                         # What the run puts in a child's environment is its own.
+                        here = {_name(k): v for k, v in _environment()}
                         with r.lock:
-                            r.child_env.update(
-                                _name(k) for k in set(env) | set(os.environ)
-                                if env.get(k) != os.environ.get(k))
-                    env = dict(os.environ if env is None else env)
-                    env[ENV] = child
+                            r.child_env.update(n for n in set(final) | set(here)
+                                               if final.get(n) != here.get(n))
+                    env = dict(_environment()) if env is None else dict(env)
+                    env[PARENT_ENV if nested else ENV] = child
                     args[env_at] = env
                     with r.lock:
                         r.children.append((child, r.seq, _child_name(
@@ -1219,7 +1329,9 @@ def _watch_children(r: Recorder) -> None:
         finally:
             r.local.child, r.local.popen = False, False
 
-    subprocess.Popen._execute_child = execute_child
+    # The original's signature, which a recorder started after this one reads.
+    execute_child.__wrapped__ = original
+    r.install(subprocess.Popen, "_execute_child", execute_child, "Popen._execute_child")
     try:
         import _posixsubprocess
     except ImportError:
@@ -1233,7 +1345,8 @@ def _watch_children(r: Recorder) -> None:
             r.guarded(lambda: r.refuse("starts a process other than through subprocess"))
         return fork_exec(*args, **kwargs)
 
-    _posixsubprocess.fork_exec = guarded_fork_exec
+    guarded_fork_exec.__wrapped__ = fork_exec
+    r.install(_posixsubprocess, "fork_exec", guarded_fork_exec, "fork_exec")
 
 
 def _watch_rmtree(r: Recorder) -> None:
@@ -1255,7 +1368,8 @@ def _watch_rmtree(r: Recorder) -> None:
             r.local.rmtree -= 1
 
     rmtree.avoids_symlink_attacks = getattr(original, "avoids_symlink_attacks", False)
-    shutil.rmtree = rmtree
+    rmtree.__wrapped__ = original
+    r.install(shutil, "rmtree", rmtree, "shutil.rmtree")
 
 
 def _watch_open(r: Recorder) -> None:
@@ -1268,7 +1382,7 @@ def _watch_open(r: Recorder) -> None:
             r.guarded(lambda: r.refuse("names a path relative to a directory descriptor"))
         return original(path, flags, mode, dir_fd=dir_fd)
 
-    os.open = _wrapping(open_, original)
+    r.install(os, "open", _wrapping(open_, original), "os.open")
 
 
 class _Entry:
@@ -1330,7 +1444,7 @@ def _watch_scandir(r: Recorder) -> None:
         it = original(path)
         return it if isinstance(path, int) else _Scandir(it, r)
 
-    os.scandir = _wrapping(scandir, original)
+    r.install(os, "scandir", _wrapping(scandir, original), "os.scandir")
 
 
 def _name(key) -> str:
@@ -1423,6 +1537,7 @@ def _fix_host_name(r: Recorder) -> None:
     uname.__name__, uname.__doc__ = posix.uname.__name__, posix.uname.__doc__
     os.uname = posix.uname = uname
     r.uname_fixed = True
+    r.fixed_uname = fixed
     r.guarded(lambda: [r.note("uname", field, digest)
                        for field, digest in uname_digests(fixed).items()])
     # A new posix module holds the original. The import system makes every builtin module
@@ -1441,7 +1556,8 @@ def _fix_host_name(r: Recorder) -> None:
         return create(_Named(name, spec))
 
     create_builtin.__name__ = create.__name__
-    _imp.create_builtin = create_builtin
+    create_builtin.__wrapped__ = create
+    r.install(_imp, "create_builtin", create_builtin, "_imp.create_builtin")
     import platform
     platform._uname_cache = None
     platform.uname()
@@ -1452,7 +1568,8 @@ _recorder: Recorder | None = None
 
 def start(directory: str, config: dict) -> Recorder:
     """Install the recorder in this process, once: the .pth file can run twice in one
-    start on Windows."""
+    start on Windows. Loaded as PARENT_MODULE, it is the parent's recorder, which starts
+    before the test's and leaves ENV to it (COMP_NESTED_RECORDER)."""
     global _recorder
     if _recorder is not None:
         return _recorder
@@ -1468,25 +1585,29 @@ def start(directory: str, config: dict) -> Recorder:
     # it counts as following one.
     for name, hashes, follows in (("stat", True, True), ("lstat", True, False),
                                   ("access", False, True), ("readlink", False, True)):
-        setattr(os, name, _probing(r, getattr(os, name), hashes, follows))
+        r.install(os, name, _probing(r, getattr(os, name), hashes, follows), f"os.{name}")
     for name, follows in (("exists", True), ("isfile", True), ("isdir", True),
                           ("realpath", True), ("lexists", False), ("islink", False),
                           ("isjunction", False)):
         if hasattr(os.path, name):
-            setattr(os.path, name, _probing(r, getattr(os.path, name), False, follows))
+            r.install(os.path, name, _probing(r, getattr(os.path, name), False, follows),
+                      f"os.path.{name}")
     # Only a child the recorder starts gets a directory: one that inherits this one, as a
     # process started some other way would, would write over this manifest.
-    os.environ.pop(ENV, None)
+    os.environ.pop(PARENT_ENV if __name__ == PARENT_MODULE else ENV, None)
     # The interpreter read these before the recorder started: the module search path, its
-    # warnings, hash seed, encodings and locale. Named before the mapping records.
-    startup = [n for n in os.environ
+    # warnings, hash seed, encodings and locale. Named before the mapping records, and
+    # read past any recording mapping, as the parent's is when this is the test's recorder.
+    startup = [n for n, _ in _environment()
                if n.upper().startswith(("PYTHON", "LC_")) or n.upper() in ("LANG", "LANGUAGE")]
     # The C library reads the locale's variables where the mapping cannot see, as
     # setlocale(LC_ALL, "") does: each is recorded, set or not, so one set later differs.
     startup += [n for n in LOCALE_VARIABLES if n not in startup]
-    os.environ.__class__ = _recording_environ(r, type(os.environ))
-    if hasattr(os, "environb"):
-        os.environb.__class__ = _recording_environ(r, type(os.environb))
+    for attribute in ("environ", "environb"):
+        if hasattr(os, attribute):
+            mapping = getattr(os, attribute)
+            mapping.__class__ = _recording_environ(r, type(mapping))
+            r.mappings.append((os, attribute, mapping.__class__, f"os.{attribute}"))
     for name in startup:
         os.environ.get(name)
     _watch_imports(r)
@@ -1497,6 +1618,7 @@ def start(directory: str, config: dict) -> Recorder:
     # After the import watch, so a platform module on PYTHONPATH is a lookup it records.
     _fix_host_name(r)
     sys.addaudithook(r.hook)
+    r.started = True
     atexit.register(r.finish)
     return r
 

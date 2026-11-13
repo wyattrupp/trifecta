@@ -153,7 +153,7 @@ def run_build(root: Path, fresh: bool = False, store_at: Path | None = None,
     process uses no store unless ``store_at`` names one."""
     if store_at is not None:
         shelf = store.Store(store_at, root)
-    elif "_trifecta_record" not in sys.modules:
+    elif not any(name in sys.modules for name in record.MODULES):
         shelf = store.Store(store.location(root), root)
     else:
         shelf = None
