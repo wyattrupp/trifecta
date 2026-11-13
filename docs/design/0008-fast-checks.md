@@ -109,9 +109,9 @@ other file read outside the repository is hashed in `outside`.
 Native code: a module of the lock built from C or Rust, such as `jsonschema_rs`,
 `minijinja`, `rpds`, PyYAML's `_yaml`, `markupsafe` and `charset_normalizer`, can open a
 file without any audited call. A test on Linux runs each recorded stage under
-`strace -f -e trace=%file,%network`, and reports every path inside the repository the
-system calls opened, probed or listed that the manifest does not hold, and any
-connection.
+`strace -f`, in the form {need}`DES_0009` lets through, and reports every path inside the
+repository the system calls opened, probed or listed that the manifest does not hold, and
+any connection.
 :::
 
 :::{component} Result store
@@ -263,6 +263,13 @@ file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
 `/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
+
+`programs` maps each program a run started other than the interpreter, which only a known
+program started on its terms can be ({need}`DES_0009`'s COMP_KNOWN_PROGRAMS), and each
+program that the command `strace` traced started, with its `#!` interpreter, followed
+again, and its ELF interpreter, to the SHA-256 of the file its path reaches, links
+followed, which a lookup takes again to match. A program the run made is not held; one
+under the interpreter's prefixes is.
 
 `reasons` lists every distinct reason the run was refused: the run's own in the order
 raised, then each Python child's in the order the children started; `why` is the first,
