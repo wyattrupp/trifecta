@@ -124,6 +124,7 @@ class Hashes:
 
     def __init__(self):
         self.files: dict[str, str | None] = {}
+        self.programs: dict[str, str | None] = {}
         self.finders: dict[str, machinery.FileFinder] = {}
 
     def file(self, path: str) -> str | None:
@@ -135,6 +136,12 @@ class Hashes:
                 regular = False
             self.files[path] = record.file_hash(path) if regular else None
         return self.files[path]
+
+    def program(self, path: str) -> str | None:
+        """What a program's path reaches, its links followed, as the kernel starts it."""
+        if path not in self.programs:
+            self.programs[path] = record._program_hash(path)
+        return self.programs[path]
 
     def lookup(self, directory: str, name: str, root: Path) -> str | None:
         """What the import system finds for ``name`` in ``directory``, as the recorder
@@ -203,6 +210,9 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
     for key, digest in manifest["outside"].items():
         if hashes.file(key) != digest:
             return f"file {key}"
+    for key, digest in manifest["programs"].items():
+        if hashes.program(key if os.path.isabs(key) else at(key)) != digest:
+            return f"program {key}"
     for key, kind in manifest["probes"].items():
         if record.kind(key if os.path.isabs(key) else at(key)) != kind:
             return f"path {key}"

@@ -10,7 +10,8 @@ it reads, with the fields of ``os.uname`` but the host name, which it fixes, and
 writes ``manifest.json`` into the directory. Anything it cannot
 follow, from an audit event it does not list to a program other than the interpreter,
 makes the manifest unstorable: such a run is never reused, so a blind spot costs time,
-never soundness.
+never soundness. The one program let through is strace, a known program, on its terms and
+only in test_record_trace's own process, keyed on its log (COMP_KNOWN_PROGRAMS).
 
 A Python child that records into a directory of its own, as the recorder's and the
 store's tests start, is recorded too (COMP_NESTED_RECORDER): its parent's recorder gives
@@ -97,7 +98,8 @@ PARENT_PTH_LINE = _PTH.format(PARENT_ENV)
 PTH_FILES = ((PARENT_PTH_NAME, PARENT_PTH_LINE), (PTH_NAME, PTH_LINE))
 #: The audit event a recorder raises to see that its own hook still runs.
 CHECK_EVENT = "trifecta.record.check"
-SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname")
+SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname",
+            "programs")
 KINDS = ("file", "directory", "link", "absent")
 #: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
 #: in place of the machine's (COMP_HOST_NAME). DEC_0039 rules a fixed host name; this
@@ -122,6 +124,18 @@ PATH_ENV = "PYTHONPATH"
 #: The configuration's keys for a child's PYTHONPATH, carried there in place of the
 #: environment until its recorder has started: the resolved entries and the value.
 SEARCH_PATH, SEARCH_PATH_ENV = "search_path", "search_path_value"
+#: The configuration's key for the proof module whose own process records: a known program
+#: started only by one module is let through only there (COMP_KNOWN_PROGRAMS).
+MODULE_KEY = "module"
+#: strace, under DEC_0037: started only by this module, in exactly this form, ``strace -f
+#: -y -s 4096 -qq -o LOG COMMAND...``, with LOG under a directory the run made.
+STRACE, STRACE_MODULE = "strace", "tests.test_record_trace"
+STRACE_FORM = ("-f", "-y", "-s", "4096", "-qq", "-o")
+#: The files under /dev a traced command may open; in its own /proc entries it may only list
+#: ``fd`` and read the ``exe`` link (COMP_KNOWN_PROGRAMS).
+TRACE_DEVICES = ("/dev/null", "/dev/urandom")
+#: How deep a program's ``#!`` interpreters are followed, as the kernel follows them.
+MAX_INTERPRETERS = 5
 #: Modules other than the standard library's that may be loaded when a recorder starts.
 BEFORE_START = frozenset({"__main__"})
 #: How many directories above a written path the identity check walks.
@@ -139,13 +153,15 @@ if __name__ == MODULE and PARENT_MODULE in sys.modules:
 
 
 def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
-            parent: bool = False) -> None:
+            parent: bool = False, module: str | None = None) -> None:
     """Make ``directory`` one a process records into: the repository root, the recorder
     file to load, and the run's own control files, which are not inputs. The directory is
     a new one, or an empty one the caller made, such as by ``tempfile.mkdtemp``: what it
     holds is run by the processes that record into it. ``parent`` makes it one the
     parent's recorder starts from, named in PARENT_ENV. A write into it, or into a child's
-    directory the recorder makes under it, by anything but a recorder is refused."""
+    directory the recorder makes under it, by anything but a recorder is refused.
+    ``module`` names the proof module whose own process records there, which a known
+    program started by one module only is judged on."""
     if os.path.islink(directory) or os.path.isdir(directory) and os.listdir(directory):
         raise ValueError(f"{directory} is a link or is not empty")
     os.makedirs(directory, exist_ok=True)
@@ -154,6 +170,8 @@ def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
               "ignore": [os.path.abspath(p) for p in ignore],
               "top": os.path.abspath(directory),
               "prefixes": _prefixes()}
+    if module is not None:
+        config[MODULE_KEY] = module
     _write(os.path.join(directory, CONFIG), json.dumps(config))
     _write(os.path.join(directory, START), PARENT_START_SOURCE if parent else START_SOURCE)
 
@@ -397,6 +415,10 @@ class Recorder:
         self.lookups: dict[str, str | None] = {}
         self.environment: dict[str, str | None] = {}
         self.uname: dict[str, str] = {}
+        self.programs: dict[str, str] = {}
+        #: Each strace started and not yet reaped, by its Popen's id: what its log is taken
+        #: with once it has ended.
+        self.traces: dict[int, tuple] = {}
         self.env_set: set[str] = set()
         self.created: set[str] = set()   # directories the run made: nothing under them is read
         self.written: set[str] = set()   # files the run wrote, moved or removed
@@ -419,6 +441,9 @@ class Recorder:
         """Refuse the run: the first reason is ``why``, and every distinct one is kept with
         the process that raised it, None for this one, bounded as ``why`` is
         (COMP_REFUSAL_REASONS). Naming a reason changes nothing about storing the run."""
+        if process is None:
+            # A reason found in a traced command's log is named for strace.
+            process = getattr(self.local, "process", None)
         with self.lock:
             if len(self.reasons) >= MAX_REASONS:
                 return  # full, and so already refused: nothing more is cleaned
@@ -639,6 +664,9 @@ class Recorder:
         if self.lands(joined, self.prefixes):
             # A .pth file or a module there runs in every child before the recorder.
             self.refuse("writes under the interpreter's prefixes")
+        if any(_norm(os.path.abspath(joined)) == _norm(t.log) for _, t in self.traces.values()):
+            # strace's log is the key of what it traced until the recorder has taken it.
+            self.refuse("writes the log of a strace still running")
         (self.created if directory else self.written).add(_norm(os.path.abspath(joined)))
 
     def in_top(self, path: str) -> bool:
@@ -795,6 +823,9 @@ class Recorder:
     def manifest(self) -> dict:
         self.local.busy = True
         with self.lock:
+            if self.traces:
+                # Its log may not be whole, and what it traced may still run.
+                self.refuse("starts strace and does not wait for it")
             if self.why is None:
                 for _, origin in _module_origins():
                     self.read(origin)
@@ -859,7 +890,7 @@ class Recorder:
         def made(key: str) -> bool:
             n = _norm(key if os.path.isabs(key) else os.path.join(self.root, key))
             return n in written or any(_under(n, c) for c in created)
-        for name in ("files", "outside", "probes", "listings"):
+        for name in ("files", "outside", "probes", "listings", "programs"):
             section = getattr(self, name)
             for key in [k for k, v in section.items() if v != "absent" and made(k)
                         and self.first.get((name, k), 0) > started]:
@@ -1041,6 +1072,7 @@ def valid(data) -> bool:
             and all(name(k) and (v is None or _digest(v))
                     for k, v in data["environment"].items())
             and all(k in UNAME_FIELDS and _digest(v) for k, v in data["uname"].items())
+            and all(_path(k) and _digest(v) for k, v in data["programs"].items())
             # Where os.uname exists, the recorder takes every field at the start of a run.
             and (not hasattr(os, "uname") or set(data["uname"]) == set(UNAME_FIELDS)))
 
@@ -1189,6 +1221,8 @@ def _chdir(r: Recorder, args) -> None:
 
 
 def _popen(r: Recorder, args) -> None:
+    if getattr(r.local, "known", False):
+        return  # a known program, let through on its terms
     if not getattr(r.local, "child", False):
         program = args[0]
         if program is None:
@@ -1575,6 +1609,9 @@ def _prepare_child(r: Recorder, env, final: dict, name: str, token: str,
         config["prefixes"] = _prefixes()
         config.pop(SEARCH_PATH, None)
         config.pop(SEARCH_PATH_ENV, None)
+        # A child is not the module's own process: a program only the module may start
+        # stays refused there.
+        config.pop(MODULE_KEY, None)
         given = {_name(k): v for k, v in final.items()}.get(PATH_ENV)
         if search_path is not None and given:
             config[SEARCH_PATH], config[SEARCH_PATH_ENV] = search_path, os.fsdecode(given)
@@ -1640,9 +1677,748 @@ def _restore_search_path(config: dict) -> None:
     os._Environ.__setitem__(os.environ, PATH_ENV, value)
 
 
+# --- known programs: strace -------------------------------------------------------------
+
+class _Trace:
+    """A strace the run started on its terms: its log, which the recorder takes once strace
+    has ended, and the working directory its command starts in."""
+
+    __slots__ = ("log", "cwd")
+
+    def __init__(self, log: str, cwd: str):
+        self.log, self.cwd = log, cwd
+
+
+def _program_hash(path: str) -> str | None:
+    """The SHA-256 of the regular file ``path`` reaches, its links followed, as the kernel
+    reaches a program; None for anything else."""
+    try:
+        if not stat.S_ISREG(_stat(path).st_mode):
+            return None
+    except (OSError, ValueError):
+        return None
+    return file_hash(path)
+
+
+def _head(path: str, size: int = 256) -> bytes:
+    """The first bytes of a program, as the kernel reads them to choose how to run it."""
+    try:
+        with _open(path, "rb") as f:
+            return f.read(size)
+    except (OSError, ValueError):
+        return b""
+
+
+def _elf_interpreter(path: str) -> str | None:
+    """The ELF interpreter a program names in its PT_INTERP header, which the kernel opens
+    with no call a trace shows; None for a program that names none. ValueError when the
+    headers cannot be read."""
+    import struct
+    with _open(path, "rb") as f:
+        head = f.read(64)
+        if head[:4] != b"\x7fELF":
+            return None
+        if len(head) < 64 or head[4] not in (1, 2) or head[5] not in (1, 2):
+            raise ValueError("an ELF header the recorder cannot read")
+        end = "<" if head[5] == 1 else ">"
+        wide = head[4] == 2
+        if wide:
+            (phoff,) = struct.unpack(end + "Q", head[32:40])
+            phentsize, phnum = struct.unpack(end + "HH", head[54:58])
+        else:
+            (phoff,) = struct.unpack(end + "I", head[28:32])
+            phentsize, phnum = struct.unpack(end + "HH", head[42:46])
+        if phentsize < (56 if wide else 32) or phnum > 4096:
+            raise ValueError("an ELF header the recorder cannot read")
+        for i in range(phnum):
+            f.seek(phoff + i * phentsize)
+            ph = f.read(phentsize)
+            if len(ph) < phentsize:
+                raise ValueError("an ELF header the recorder cannot read")
+            if struct.unpack(end + "I", ph[:4])[0] != 3:  # PT_INTERP
+                continue
+            if wide:
+                (offset,) = struct.unpack(end + "Q", ph[8:16])
+                (size,) = struct.unpack(end + "Q", ph[32:40])
+            else:
+                (offset,) = struct.unpack(end + "I", ph[4:8])
+                (size,) = struct.unpack(end + "I", ph[16:20])
+            f.seek(offset)
+            raw = f.read(min(size, MAX_TEXT)).split(b"\0")[0]
+            if not raw:
+                raise ValueError("an ELF interpreter with no name")
+            return os.fsdecode(raw)
+    return None
+
+
+def _script_interpreter(head: bytes) -> str | None:
+    """The interpreter a ``#!`` line names, as the kernel reads it: the first word after
+    ``#!`` and any blanks, in the first line."""
+    if not head.startswith(b"#!"):
+        return None
+    line = head[2:].split(b"\n")[0].lstrip(b" \t")
+    word = re.split(rb"[ \t\0]", line)[0]
+    return os.fsdecode(word) if word else None
+
+
+def _program_key(r: Recorder, absolute: str) -> str | None:
+    """A program's key, relative to the root inside it and absolute elsewhere; None for one
+    the run made or holds as its own, which is no input. Unlike a read, a program under the
+    interpreter's prefixes is keyed too."""
+    n = _norm(absolute)
+    if n in r.written or any(_under(n, c) for c in r.created) \
+            or any(_under(n, i) for i in r.ignore) or _under(n, r.top):
+        return None
+    if _under(n, r.nroot):
+        rel = absolute[len(r.root):].lstrip("\\/").replace(os.sep, "/")
+        return rel or "."
+    if len(absolute) > MAX_TEXT or not _absolute(absolute):
+        r.refuse("starts a program at a path no manifest holds")
+        return None
+    return absolute
+
+
+def _note_program(r: Recorder, path: str, cwd: str, depth: int = 0) -> None:
+    """Record a program started, by its path and the SHA-256 of what the path reaches, with
+    its ``#!`` interpreter, followed again, and its ELF interpreter."""
+    absolute = os.path.normpath(os.path.join(cwd, path))
+    if depth > MAX_INTERPRETERS:
+        r.refuse("starts a program through more #! interpreters than the kernel follows")
+        return
+    digest = _program_hash(absolute)
+    if digest is None:
+        r.refuse(f"starts {r.shown(absolute)}, which is not a regular file")
+        return
+    key = _program_key(r, absolute)
+    if key is not None:
+        if r.programs.get(key, digest) != digest:
+            r.refuse(f"starts {r.shown(absolute)}, which changed while the run ran")
+            return
+        r.note("programs", key, digest)
+    head = _head(absolute)
+    script = _script_interpreter(head)
+    if script is not None:
+        _note_program(r, script, cwd, depth + 1)
+        return
+    if head.startswith(b"#!"):
+        r.refuse(f"starts {r.shown(absolute)}, whose #! line names no interpreter")
+        return
+    if not head.startswith(b"\x7fELF"):
+        # The kernel hands any other format to a handler it registered, which no call in
+        # the log names, as WSL runs a Windows program.
+        r.refuse(f"starts {r.shown(absolute)}, which is neither a script nor an ELF program")
+        return
+    try:
+        interpreter = _elf_interpreter(absolute)
+    except (OSError, ValueError):
+        r.refuse(f"starts {r.shown(absolute)}, whose ELF headers the recorder cannot read")
+        return
+    if interpreter is not None:
+        _note_program(r, interpreter, cwd, depth + 1)
+
+
+def _found_program(r: Recorder, program: str, final: dict, cwd: str) -> str | None:
+    """The file ``program`` names, as subprocess finds it on POSIX: a name with a directory
+    from the child's working directory, any other along PATH, the first regular file that
+    may be executed; each one before it is recorded as probed, whatever its place, so a
+    program planted on PATH runs the module again."""
+    if os.path.dirname(program):
+        candidates = [program]
+    else:
+        value = final.get("PATH")
+        value = os.defpath if value is None else os.fsdecode(value)
+        candidates = [os.path.join(d or ".", program) for d in value.split(os.pathsep)]
+    for candidate in candidates:
+        absolute = os.path.normpath(os.path.join(cwd, candidate))
+        try:
+            st = _stat(absolute)
+            found = stat.S_ISREG(st.st_mode) and st.st_mode & 0o111
+        except (OSError, ValueError):
+            found = False
+        if found:
+            return absolute
+        key = _program_key(r, absolute)
+        if key is not None:
+            r.note("probes", key, kind(absolute))
+    return None
+
+
+def _whole_environment(r: Recorder, env, final: dict) -> None:
+    """Record every variable that reaches a known program, inherited or given, as a hash,
+    less the recorder's own, those the run set, and those whose value the run gave it in
+    ``env``, as the recorder treats them, so a path the run made is never part of a key."""
+    here = {_name(k): v for k, v in _environment()}
+    for name, value in sorted(final.items()):
+        if name in OWN or name in r.env_set:
+            continue
+        if env is not None and here.get(name) != value:
+            continue  # a value the run put in the mapping is its own
+        text = os.fsdecode(value) if isinstance(value, bytes) else str(value)
+        r.note("environment", name, hashlib.sha256(
+            r.placeholder(text).encode("utf-8", "surrogateescape")).hexdigest())
+
+
+def _strace_start(r: Recorder, argv: list[str], program: str, env, final: dict,
+                  cwd: str, shell, preexec_fn, close_fds, pass_fds,
+                  ) -> tuple[str | None, _Trace | None, str | None]:
+    """Why a start of strace is refused, or None with what its log is taken with and the
+    path it is executed by: strace is let through only when the module's own process is
+    test_record_trace's, with exactly ``-f -y -s 4096 -qq -o LOG COMMAND...``, LOG new and
+    under a directory the run made, and strace a regular ELF file outside the repository and
+    the run's own directories, executed by the path it was found at. Its path and hash, its
+    ELF interpreter's and the whole environment are recorded as it starts
+    (COMP_KNOWN_PROGRAMS, DEC_0037)."""
+    if shell:
+        return "runs strace through a shell", None, None
+    if r.config.get(MODULE_KEY) != STRACE_MODULE:
+        return "runs strace, which only test_record_trace's own process may start", None, None
+    if len(argv) < 9 or tuple(argv[1:7]) != STRACE_FORM or argv[8].startswith("-"):
+        return "runs strace with arguments other than -f -y -s 4096 -qq -o LOG", None, None
+    if preexec_fn is not None or not close_fds or pass_fds:
+        return "runs strace with code before it starts or descriptors it inherits", None, None
+    if PARENT_ENV in final:
+        return f"runs strace with {PARENT_ENV} already set", None, None
+    found = _found_program(r, program, final, cwd)
+    if found is None:
+        return "runs strace, which is not found", None, None
+    resolved = _realpath(found)
+    if _program_key(r, resolved) is None or _under(_norm(resolved), r.nroot):
+        return "runs a strace under the repository or one the run made", None, None
+    if _head(resolved, 4) != b"\x7fELF":
+        return "runs a strace that is not an ELF program", None, None
+    log = os.path.normpath(os.path.join(cwd, argv[7]))
+    made = lambda p: any(_under(_norm(p), c) for c in r.created)
+    try:
+        parent = _realpath(os.path.dirname(log))
+    except (OSError, ValueError):
+        parent = None
+    if not made(log) or parent is None or not made(parent) or r.in_top(log) \
+            or r.lands(log, r.prefixes):
+        return "runs strace with its log outside a directory the run made", None, None
+    if kind(log) != "absent":
+        return "runs strace with a log that is already there", None, None
+    _note_program(r, resolved, cwd)
+    _whole_environment(r, env, final)
+    return None, _Trace(log, cwd), resolved
+
+
+#: The calls a traced command makes that name no path, or name one only through a
+#: descriptor whose open the log holds: memory, time, signals, descriptors, waits.
+TRACE_HARMLESS = frozenset({
+    "read", "write", "pread64", "pwrite64", "readv", "writev", "preadv", "pwritev",
+    "preadv2", "pwritev2", "close", "close_range", "fstat", "fstat64", "fstatfs",
+    "fstatfs64", "lseek", "_llseek", "mmap", "mmap2", "mprotect", "munmap", "mremap",
+    "madvise", "mlock", "munlock", "msync", "mincore", "brk", "rt_sigaction",
+    "rt_sigprocmask", "rt_sigreturn", "rt_sigsuspend", "rt_sigtimedwait",
+    "sigaltstack", "ioctl", "fcntl", "fcntl64", "dup", "dup2", "dup3", "pipe", "pipe2",
+    "poll", "ppoll", "select", "pselect6", "epoll_create", "epoll_create1", "epoll_ctl",
+    "epoll_wait", "epoll_pwait", "epoll_pwait2", "eventfd", "eventfd2", "futex",
+    "futex_waitv", "set_robust_list", "get_robust_list", "set_tid_address", "rseq",
+    "arch_prctl", "prlimit64", "getrlimit", "setrlimit", "getpid", "gettid", "getppid",
+    "getuid", "geteuid", "getgid", "getegid", "getgroups", "getresuid", "getresgid",
+    "getpgrp", "getpgid", "setpgid", "getsid", "setsid", "clock_gettime", "clock_getres",
+    "clock_nanosleep", "nanosleep", "gettimeofday", "time", "times", "getrusage",
+    "getrandom", "getcwd", "umask", "sched_getaffinity", "sched_setaffinity",
+    "sched_yield", "sched_getparam", "sched_getscheduler", "sched_get_priority_max",
+    "sched_get_priority_min", "getpriority", "setpriority", "wait4", "waitid", "kill",
+    "tkill", "tgkill", "exit", "exit_group", "restart_syscall", "prctl", "capget",
+    "membarrier", "memfd_create", "timerfd_create", "timerfd_settime", "timerfd_gettime",
+    "timer_create", "timer_settime", "timer_delete", "setitimer", "getitimer", "alarm",
+    "pause", "signalfd", "signalfd4", "flock", "fsync", "fdatasync", "fadvise64",
+    "readahead", "sendfile", "sendfile64", "copy_file_range", "splice", "tee",
+    "recvfrom", "recvmsg", "recvmmsg", "shutdown", "getsockname", "getpeername",
+    "getsockopt", "setsockopt", "listen", "accept", "accept4", "get_mempolicy",
+    "set_mempolicy", "mbind", "personality", "sysinfo", "getcpu",
+    "pidfd_open", "pidfd_send_signal", "ioprio_get", "ioprio_set", "kcmp",
+    # The host name the kernel gives native code is DES_0008's native-code risk, as
+    # COMP_HOST_NAME states for uuid.getnode; the other fields are the run's uname section.
+    "uname",
+})
+#: Calls that open a path: (directory descriptor, path, flags), by argument index.
+_TRACE_OPENS = {"open": (None, 0, 1), "openat": (0, 1, 2), "creat": (None, 0, None),
+                "openat2": (0, 1, 2)}
+#: Calls that report a path's status: (directory descriptor, path, flags).
+_TRACE_STATS = {"stat": (None, 0, None), "stat64": (None, 0, None),
+                "lstat": (None, 0, None), "lstat64": (None, 0, None),
+                "newfstatat": (0, 1, 3), "fstatat64": (0, 1, 3), "statx": (0, 1, 2)}
+_TRACE_ACCESS = {"access": (None, 0, None), "faccessat": (0, 1, None),
+                 "faccessat2": (0, 1, 3)}
+_TRACE_READLINK = {"readlink": (None, 0), "readlinkat": (0, 1)}
+#: Other calls that learn of a path: (directory descriptor, path).
+_TRACE_LEARN = {"getxattr": (None, 0), "lgetxattr": (None, 0), "listxattr": (None, 0),
+                "llistxattr": (None, 0), "statfs": (None, 0), "statfs64": (None, 0),
+                "inotify_add_watch": (None, 1)}
+#: Calls that change a path: (directory descriptor, path) pairs, by argument index.
+_TRACE_WRITES = {
+    "mkdir": [(None, 0)], "mkdirat": [(0, 1)], "rmdir": [(None, 0)],
+    "unlink": [(None, 0)], "unlinkat": [(0, 1)], "rename": [(None, 0), (None, 1)],
+    "renameat": [(0, 1), (2, 3)], "renameat2": [(0, 1), (2, 3)],
+    "link": [(None, 1)], "linkat": [(2, 3)], "symlink": [(None, 1)],
+    "symlinkat": [(1, 2)], "chmod": [(None, 0)], "fchmodat": [(0, 1)],
+    "fchmodat2": [(0, 1)], "chown": [(None, 0)], "lchown": [(None, 0)],
+    "fchownat": [(0, 1)], "truncate": [(None, 0)], "truncate64": [(None, 0)],
+    "utime": [(None, 0)], "utimes": [(None, 0)], "futimesat": [(0, 1)],
+    "utimensat": [(0, 1)], "setxattr": [(None, 0)], "lsetxattr": [(None, 0)],
+    "removexattr": [(None, 0)], "lremovexattr": [(None, 0)],
+}
+#: The source a hard link is made from, which the run reads: (directory descriptor, path).
+_TRACE_LINK_FROM = {"link": (None, 0), "linkat": (0, 1)}
+#: Calls that change what a descriptor names.
+_TRACE_FD_WRITES = {"fchmod", "fchown", "ftruncate", "ftruncate64", "fsetxattr",
+                    "fremovexattr", "fallocate"}
+#: Calls that reach what no trace follows, or the network.
+_TRACE_REFUSED = {
+    "connect": "makes a connection", "bind": "binds a socket",
+    "io_uring_setup": "works through io_uring, which no trace follows",
+    "io_uring_enter": "works through io_uring, which no trace follows",
+    "io_uring_register": "works through io_uring, which no trace follows",
+    "open_by_handle_at": "opens a file by its handle",
+    "name_to_handle_at": "opens a file by its handle",
+    "mknod": "makes a special file", "mknodat": "makes a special file",
+    "chroot": "changes its root", "pivot_root": "changes its root",
+    "mount": "mounts a file system", "umount2": "mounts a file system",
+    "unshare": "changes its namespaces", "setns": "changes its namespaces",
+    "ptrace": "traces a process", "process_vm_readv": "reads another process",
+    "process_vm_writev": "writes another process",
+    "fanotify_init": "watches the file system", "fanotify_mark": "watches the file system",
+    "uselib": "loads a library by an old call", "sethostname": "sets the host name",
+}
+_CLONES = ("clone", "clone3", "fork", "vfork")
+#: A line of strace's log, ``PID text``; a call; a call resumed.
+_TRACE_LINE = re.compile(r"(\d+) +(.*)")
+_TRACE_CALL = re.compile(r"([a-z_0-9]+)\(")
+_TRACE_RESUMED = re.compile(r"<\.\.\. ([a-z_0-9]+) resumed>")
+_UNFINISHED = " <unfinished ...>"
+_ESCAPES = {"n": b"\n", "t": b"\t", "r": b"\r", "v": b"\v", "f": b"\f", "a": b"\a",
+            "b": b"\b", "\\": b"\\", '"': b'"', "'": b"'"}
+
+
+class _Unreadable(Exception):
+    """A line of strace's log the recorder cannot read."""
+
+
+def _unescape(text: str) -> str:
+    """A string strace printed, its C escapes decoded, as the system's file name."""
+    out, i = bytearray(), 0
+    while i < len(text):
+        c = text[i]
+        if c != "\\":
+            out += c.encode("utf-8", "surrogateescape")
+            i += 1
+            continue
+        e = text[i + 1:i + 2]
+        if e in _ESCAPES:
+            out += _ESCAPES[e]
+            i += 2
+        elif e == "x" and re.match(r"[0-9a-fA-F]{2}", text[i + 2:i + 4]):
+            out.append(int(text[i + 2:i + 4], 16))
+            i += 4
+        elif e and e in "01234567":
+            digits = re.match(r"[0-7]{1,3}", text[i + 1:]).group(0)
+            out.append(int(digits, 8) & 0xFF)
+            i += 1 + len(digits)
+        else:
+            raise _Unreadable("an escape strace does not write")
+    return os.fsdecode(bytes(out))
+
+
+def _arguments(text: str) -> tuple[list[str], str]:
+    """A call's arguments, split where no string, structure, comment or descriptor's path
+    holds the comma, and what follows the closing parenthesis."""
+    args, depth, start, i = [], 0, 0, 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            if i >= len(text):
+                raise _Unreadable("a string with no end")
+        elif c == "<" and i > 0 and (text[i - 1].isdigit() or text[i - 1] == "D"):
+            # A descriptor's path, which -y prints with its own < and > escaped.
+            end = text.find(">", i)
+            if end < 0:
+                raise _Unreadable("a descriptor's path with no end")
+            i = end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i)
+            if end < 0:
+                raise _Unreadable("a comment with no end")
+            i = end + 1
+        elif c in "([{":
+            depth += 1
+        elif c in "}]":
+            depth -= 1
+        elif c == ")":
+            if depth == 0:
+                if text[start:i].strip():
+                    args.append(text[start:i].strip())
+                return args, text[i + 1:]
+            depth -= 1
+        elif c == "," and depth == 0:
+            args.append(text[start:i].strip())
+            start = i + 1
+        i += 1
+    raise _Unreadable("a call with no end")
+
+
+def _string_arg(token: str) -> str | None:
+    """The path a quoted argument holds, or None when it is no string, as NULL is not; a
+    string strace cut short cannot be read."""
+    if not token.startswith('"'):
+        return None
+    end = 1
+    while end < len(token) and token[end] != '"':
+        end += 2 if token[end] == "\\" else 1
+    if end >= len(token) or token[end + 1:].strip():
+        raise _Unreadable("a path strace cut short")
+    return _unescape(token[1:end])
+
+
+def _fd_path(token: str) -> tuple[str, str | None]:
+    """A descriptor argument, ``N``, ``AT_FDCWD`` or either with ``<path>``: the descriptor
+    and its path, if strace gave one."""
+    m = re.fullmatch(r"(-?\d+|AT_FDCWD)(?:<(.*)>)?", token.strip())
+    if not m:
+        return token.strip(), None
+    path = m.group(2)
+    return m.group(1), None if path is None else _unescape(path)
+
+
+class _TraceReader:
+    """Strace's log, followed call by call into the recorder (COMP_KNOWN_PROGRAMS): every
+    path read, probed or listed outside the run's own directories, as the recorder records
+    the run's own, each failed one as what is there, which for a path not found is absence;
+    each program started with its interpreters; and every path written, which must be the
+    run's own. A read under /proc or /dev outside the allowed list, a connection, a socket
+    of a network family and a call the recorder does not list refuse the run."""
+
+    def __init__(self, r: Recorder, trace: _Trace):
+        self.r, self.trace = r, trace
+        #: Each traced process's working directory, one list shared between processes
+        #: that share it, as threads do.
+        self.cwd: dict[int, list[str]] = {}
+        #: Each process with a clone, fork or vfork not yet returned, with its arguments.
+        self.cloning: dict[int, str] = {}
+        self.pending: dict[int, str] = {}
+        self.seen: set = set()
+
+    def take(self, path: str) -> None:
+        with _open(path, "rb") as f:
+            for raw in f:
+                self.line(raw.decode("utf-8", "surrogateescape").rstrip("\n"))
+        if self.pending:
+            raise _Unreadable("a call that never ended")
+
+    # -- lines --
+
+    def line(self, text: str) -> None:
+        m = _TRACE_LINE.fullmatch(text)
+        if not m:
+            raise _Unreadable("a line with no process")
+        pid, body = int(m.group(1)), m.group(2)
+        if body.startswith(("---", "+++")):
+            return  # a signal, or a process's end
+        if body.endswith(_UNFINISHED):
+            body = body[:-len(_UNFINISHED)]
+            call = _TRACE_CALL.match(body)
+            if call is None or pid in self.pending:
+                raise _Unreadable("an unfinished call the recorder cannot read")
+            self.known(pid)
+            self.pending[pid] = body
+            if call.group(1) in _CLONES:
+                self.cloning[pid] = body
+            return
+        resumed = _TRACE_RESUMED.match(body)
+        if resumed:
+            begun = self.pending.pop(pid, None)
+            if begun is None or not begun.startswith(resumed.group(1) + "("):
+                raise _Unreadable("a resumed call that never began")
+            body = begun + body[resumed.end():]
+        call = _TRACE_CALL.match(body)
+        if call is None:
+            raise _Unreadable("a line that is no call")
+        args, rest = _arguments(body[call.end():])
+        result = re.match(r"\s*=\s*(.*)", rest)
+        self.call(pid, call.group(1), args, result.group(1) if result else "?")
+
+    def known(self, pid: int) -> None:
+        """Give a process seen for the first time the working directory it inherited: the
+        command's own for the first, else that of the process cloning it."""
+        if pid in self.cwd:
+            return
+        if not self.cwd:
+            self.cwd[pid] = [self.trace.cwd]
+            return
+        parents = [p for p in self.cloning if p != pid]
+        if len(parents) == 1:
+            self.inherit(pid, parents[0], self.cloning[parents[0]])
+            return
+        # Several clone at once: only a directory they all hold, shared by none, is told.
+        values = {self.cwd[p][0] for p in parents if p in self.cwd}
+        if len(values) != 1 or any("CLONE_FS" in self.cloning[p] for p in parents):
+            raise _Unreadable("a process whose working directory cannot be told")
+        self.cwd[pid] = [values.pop()]
+
+    def inherit(self, child: int, parent: int, flags: str) -> None:
+        if parent not in self.cwd:
+            raise _Unreadable("a process whose working directory cannot be told")
+        self.cwd[child] = self.cwd[parent] if "CLONE_FS" in flags else [self.cwd[parent][0]]
+
+    # -- paths --
+
+    def path(self, pid: int, args: list[str], dirfd: int | None, at: int) -> str | None:
+        """The absolute path a call names, from its descriptor's path or the process's
+        working directory; None for no path, as NULL or an empty path with a descriptor,
+        or for one refused."""
+        if at >= len(args) or dirfd is not None and dirfd >= len(args):
+            raise _Unreadable("a call with fewer arguments than it takes")
+        raw = _string_arg(args[at])
+        if raw is None or raw == "":
+            return None
+        if os.path.isabs(raw):
+            base = "/"
+        elif dirfd is None:
+            base = self.cwd[pid][0]
+        else:
+            fd, base = _fd_path(args[dirfd])
+            if base is None:
+                if fd != "AT_FDCWD":
+                    raise _Unreadable("a path relative to a descriptor strace did not name")
+                base = self.cwd[pid][0]
+        joined = os.path.join(base, raw)
+        normal = os.path.normpath(joined)
+        if ".." in raw.split("/") and _realpath(joined) != _realpath(normal):
+            self.r.refuse("names a path whose .. passes through a link")
+            return None
+        return normal
+
+    def special(self, path: str, op: str) -> bool:
+        """Judge a path under /proc or /dev, or strace's own log: True when it is one,
+        allowed or refused. ``op`` is ``read``, ``write``, ``probe``, ``list``,
+        ``directory`` or ``readlink``."""
+        r = self.r
+        if _norm(path) == _norm(self.trace.log):
+            r.refuse("opens the log strace writes")
+            return True
+        if path in TRACE_DEVICES and op in ("read", "write", "probe"):
+            return True
+        parts = path.split("/")
+        if parts[1:2] == ["dev"]:
+            # Named with no leading slash, which a reason's cleaning would cut away.
+            r.refuse(f"reaches the device {'/'.join(parts[2:]) or 'directory'}")
+            return True
+        if parts[1:2] != ["proc"]:
+            return False
+        who = parts[2] if len(parts) > 2 else ""
+        rest = parts[3:]
+        if who.isdigit() and rest[:1] == ["task"]:
+            rest = rest[2:]
+        own = who in ("self", "thread-self") or who.isdigit() and int(who) in self.cwd
+        allowed = (rest == ["fd"] and op in ("list", "directory")
+                   or rest == ["exe"] and op == "readlink")
+        if not (own and allowed):
+            # A process's own entries by "self", another's never by its number, which
+            # differs in every run.
+            head = "self" if own else "another process" if who.isdigit() else who
+            shown = "/".join([head, *rest]) if who else "its directory"
+            r.refuse(f"reaches the proc entry {shown}")
+        return True
+
+    # -- calls --
+
+    def call(self, pid: int, name: str, args: list[str], result: str) -> None:
+        self.known(pid)
+        r = self.r
+        ok = not result.startswith(("-1", "?"))
+        if name in TRACE_HARMLESS:
+            return
+        if name in _CLONES:
+            flags = self.cloning.pop(pid, None) or ",".join(args)
+            child = re.match(r"(\d+)", result)
+            if ok and child and int(child.group(1)) not in self.cwd:
+                self.inherit(int(child.group(1)), pid, flags)
+            return
+        if name in _TRACE_REFUSED:
+            r.refuse(_TRACE_REFUSED[name])
+        elif name in ("socket", "socketpair"):
+            if not args or args[0] not in ("AF_UNIX", "AF_LOCAL"):
+                r.refuse("opens a socket of a network family")
+        elif name in ("sendto", "sendmsg", "sendmmsg"):
+            if "sa_family=" in ",".join(args):
+                r.refuse("sends to an address")
+        elif name in _TRACE_OPENS:
+            self.open(pid, name, args, result, ok)
+        elif name in _TRACE_STATS:
+            dirfd, at, flags = _TRACE_STATS[name]
+            path = self.path(pid, args, dirfd, at)
+            if path is not None:
+                follows = not name.startswith("lstat") and (
+                    flags is None or flags >= len(args)
+                    or "AT_SYMLINK_NOFOLLOW" not in args[flags])
+                self.probe(path, follows, hashes=ok)
+        elif name in _TRACE_ACCESS:
+            dirfd, at, flags = _TRACE_ACCESS[name]
+            path = self.path(pid, args, dirfd, at)
+            if path is not None:
+                self.probe(path, flags is None or flags >= len(args)
+                           or "AT_SYMLINK_NOFOLLOW" not in args[flags])
+        elif name in _TRACE_READLINK:
+            path = self.path(pid, args, *_TRACE_READLINK[name])
+            if path is not None and not self.special(path, "readlink"):
+                self.probe(path, True)  # a link's target is learned, as by following it
+        elif name in _TRACE_LEARN:
+            path = self.path(pid, args, *_TRACE_LEARN[name])
+            if path is not None:
+                self.probe(path, name not in ("lgetxattr", "llistxattr"))
+        elif name in ("getdents", "getdents64"):
+            self.listing(args)
+        elif name in ("execve", "execveat"):
+            self.execute(pid, name, args, ok)
+        elif name == "chdir":
+            path = self.path(pid, args, None, 0)
+            if path is not None:
+                self.probe(path, True)
+                if ok:
+                    self.cwd[pid][0] = _realpath(path)
+        elif name == "fchdir":
+            path = _fd_path(args[0])[1] if args else None
+            if path is None:
+                raise _Unreadable("a change of directory strace did not name")
+            if ok:
+                self.cwd[pid][0] = path
+        elif name in _TRACE_WRITES:
+            self.change(pid, name, args, ok)
+        elif name in _TRACE_FD_WRITES:
+            path = _fd_path(args[0])[1] if args else None
+            if path is None:
+                raise _Unreadable("a change through a descriptor strace did not name")
+            if ok:
+                self.write(path)
+        else:
+            r.refuse(f"makes a call the recorder does not list: {name}")
+
+    def open(self, pid: int, name: str, args: list[str], result: str, ok: bool) -> None:
+        dirfd, at, flags_at = _TRACE_OPENS[name]
+        path = self.path(pid, args, dirfd, at)
+        if path is None:
+            return
+        flags = "O_WRONLY|O_CREAT|O_TRUNC" if name == "creat" else (
+            args[flags_at] if flags_at < len(args) else "")
+        writes = any(f in flags for f in ("O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC",
+                                           "O_APPEND", "O_TMPFILE"))
+        follows = "O_NOFOLLOW" not in flags
+        # What was opened is the path -y gives, the kernel's, its links resolved.
+        opened = _fd_path(result)[1] if ok else None
+        if ok and opened is None:
+            raise _Unreadable("an open strace did not name")
+        for place in dict.fromkeys(p for p in (path, opened) if p is not None):
+            directory = "O_DIRECTORY" in flags or ok and kind(place) == "directory"
+            op = "write" if writes else "directory" if directory else "read"
+            if self.special(place, op):
+                return
+        if writes:
+            if ok:
+                # Where it landed too, as through a link the run made.
+                for place in dict.fromkeys((path, opened)):
+                    self.write(place)
+            else:
+                self.probe(path, follows)
+        elif ok and "O_PATH" not in flags and kind(opened) == "file":
+            self.once(("read", path), lambda: self.r.read(path))
+        else:
+            self.probe(path, follows)
+
+    def listing(self, args: list[str]) -> None:
+        path = _fd_path(args[0])[1] if args else None
+        if path is None:
+            raise _Unreadable("a listing of a descriptor strace did not name")
+        if not self.special(path, "list"):
+            self.once(("list", path), lambda: self.r.list(path))
+
+    def execute(self, pid: int, name: str, args: list[str], ok: bool) -> None:
+        path = self.path(pid, args, 0 if name == "execveat" else None,
+                         1 if name == "execveat" else 0)
+        if path is None:
+            raise _Unreadable("a program started by a descriptor")
+        if self.special(path, "probe"):
+            return
+        r = self.r
+        if ok:
+            cwd = self.cwd[pid][0]
+            self.once(("program", path), lambda: _note_program(r, path, cwd))
+            return
+        key = _program_key(r, path)  # a search along PATH, wherever it looked
+        if key is not None:
+            r.note("probes", key, kind(path))
+
+    def change(self, pid: int, name: str, args: list[str], ok: bool) -> None:
+        for dirfd, at in _TRACE_WRITES[name]:
+            path = self.path(pid, args, dirfd, at)
+            if path is None:
+                continue
+            if ok:
+                self.write(path)
+            else:
+                self.probe(path, False)
+        if name in _TRACE_LINK_FROM and ok:
+            path = self.path(pid, args, *_TRACE_LINK_FROM[name])
+            if path is not None and not self.special(path, "read"):
+                self.once(("read", path), lambda: self.r.read(path))
+
+    def once(self, key, action) -> None:
+        if key not in self.seen:
+            self.seen.add(key)
+            action()
+
+    def probe(self, path: str, follows: bool, hashes: bool = False) -> None:
+        """A path probed, as the recorder's wrapped probes record it: a status call that
+        succeeds on a file reads it, since it reports its size."""
+        if self.special(path, "probe"):
+            return
+        r = self.r
+
+        def note():
+            r.probe(path, follows=follows)
+            k = kind(path)
+            if hashes and (k == "file" or k == "link" and follows):
+                r.read(path)
+        self.once(("probe", path, follows, hashes), note)
+
+    def write(self, path: str) -> None:
+        """A path the traced command changed: it must be the run's own, under a directory
+        the run made or a file it wrote, and in no directory a recorder prepared and not
+        under the interpreter's prefixes."""
+        if self.special(path, "write"):
+            return
+        r, n = self.r, _norm(path)
+        own = n in r.written or any(_under(n, c) for c in r.created)
+        if not own or r.in_top(path) or r.lands(path, r.prefixes):
+            r.refuse(f"writes {r.shown(path)}, outside the run's own directories")
+
+
+def _take_trace(r: Recorder, trace: _Trace, returncode) -> None:
+    """Take a strace's log into the run's inputs once strace has ended, each reason it
+    gives named for strace."""
+    r.local.process = STRACE
+    try:
+        if not isinstance(returncode, int) or returncode < 0:
+            r.refuse("strace did not finish")
+            return
+        try:
+            _TraceReader(r, trace).take(trace.log)
+        except _Unreadable as exc:
+            r.refuse(f"its log holds {exc}")
+        except OSError as exc:
+            r.refuse(f"its log cannot be read: {type(exc).__name__}")
+    finally:
+        r.local.process = None
+
+
 def _watch_children(r: Recorder) -> None:
-    """Give each Python child a fresh directory to record into; any other program, or a
-    Python child that cannot record itself, makes the run unstorable."""
+    """Give each Python child a fresh directory to record into; let a known program through
+    on its terms, taking strace's log once it has ended; any other program, or a Python
+    child that cannot record itself, makes the run unstorable."""
     import secrets
     import subprocess
 
@@ -1650,6 +2426,8 @@ def _watch_children(r: Recorder) -> None:
     names = list(inspect.signature(original).parameters)
     env_at, shell_at = names.index("env") - 1, names.index("shell") - 1  # less self
     cwd_at = names.index("cwd") - 1
+    executable_at, preexec_at = names.index("executable") - 1, names.index("preexec_fn") - 1
+    close_at, pass_at = names.index("close_fds") - 1, names.index("pass_fds") - 1
     executable = _norm(os.path.abspath(sys.executable))
 
     def execute_child(self, *args):
@@ -1688,15 +2466,54 @@ def _watch_children(r: Recorder) -> None:
             else:
                 args[env_at] = _prepare_child(r, env, final, _child_name(
                     decoded, os.fsdecode(program)), secrets.token_hex(8), entries or None)
+        trace = None
+        if not python and not r.quiet() and os.name == "posix" and argv and not isinstance(
+                argv, (str, bytes)):
+            named = os.fsdecode(program_arg if program_arg is not None else argv[0])
+            if os.path.basename(named) == STRACE:
+                trace = _known(self, args, named)
         r.local.child, r.local.popen = python, True
+        r.local.known = trace is not None
         try:
-            return original(self, *args)
+            result = original(self, *args)
         finally:
-            r.local.child, r.local.popen = False, False
+            r.local.child, r.local.popen, r.local.known = False, False, False
+        if isinstance(trace, _Trace):
+            with r.lock:
+                r.traces[id(self)] = (self, trace)
+        return result
+
+    def _known(popen, args: list, named: str):
+        """Judge a start of a known program: its _Trace, with the executable pinned in
+        ``args`` to the path it was found at, when let through; False when refused, its
+        reason given."""
+        r.local.busy = True  # judging the start is the recorder's own work
+        try:
+            env = args[env_at]
+            final = {_name(k): v for k, v in (_environment() if env is None
+                                              else env.items())}
+            cwd = _text(args[cwd_at])
+            cwd = _getcwd() if cwd is None else os.path.join(_getcwd(), cwd)
+            argv = [os.fsdecode(a) for a in args[0]]
+            with r.lock:
+                why, trace, resolved = _strace_start(
+                    r, argv, named, env, final, cwd, args[shell_at], args[preexec_at],
+                    args[close_at], args[pass_at])
+        except Exception as exc:
+            why = f"the recorder failed on a start of strace: {type(exc).__name__}"
+        finally:
+            r.local.busy = False
+        r.guarded(r.check_intact)
+        if why is not None:
+            r.refuse(why)
+            return False
+        args[executable_at] = resolved
+        return trace
 
     # The original's signature, which a recorder started after this one reads.
     execute_child.__wrapped__ = original
     r.install(subprocess.Popen, "_execute_child", execute_child, "Popen._execute_child")
+    _watch_exits(r, subprocess)
     try:
         import _posixsubprocess
     except ImportError:
@@ -1712,6 +2529,26 @@ def _watch_children(r: Recorder) -> None:
 
     guarded_fork_exec.__wrapped__ = fork_exec
     r.install(_posixsubprocess, "fork_exec", guarded_fork_exec, "fork_exec")
+
+
+def _watch_exits(r: Recorder, subprocess) -> None:
+    """Take a strace's log as soon as the run reaps it, before the run can learn it ended:
+    the log is the key of what it traced, and the run may remove it."""
+    original = getattr(subprocess.Popen, "_handle_exitstatus", None)
+    if original is None:
+        return  # Windows, where no strace starts
+
+    def handle_exitstatus(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        with r.lock:
+            entry = r.traces.pop(id(self), None)
+        if entry is not None and entry[0] is self:
+            r.guarded(lambda: _take_trace(r, entry[1], self.returncode))
+        return result
+
+    handle_exitstatus.__wrapped__ = original
+    r.install(subprocess.Popen, "_handle_exitstatus", handle_exitstatus,
+              "Popen._handle_exitstatus")
 
 
 def _watch_rmtree(r: Recorder) -> None:
