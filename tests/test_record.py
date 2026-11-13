@@ -487,8 +487,10 @@ class HostName(unittest.TestCase):
             "module_from_spec": "import importlib.util; spec = importlib.util.find_spec("
                                 "'posix'); posix = importlib.util.module_from_spec(spec); "
                                 "spec.loader.exec_module(posix)",
+            # Made and not run, the module crashes the interpreter when used.
             "create_builtin": "import _imp, posix; "
-                              "posix = _imp.create_builtin(posix.__spec__)",
+                              "posix = _imp.create_builtin(posix.__spec__); "
+                              "_imp.exec_builtin(posix)",
             "_load": "import importlib._bootstrap as b, posix; "
                      "posix = b._load(posix.__spec__)",
         }
