@@ -473,9 +473,11 @@ def run_child(root: Path, module: str, leave_out: list[str], child: list[str] | 
         plan.write_text(json.dumps({"modules": [module], "leave_out": leave_out}),
                         encoding="utf-8")
         # -B and an empty pycache_prefix: no byte code in the tree is read or written, so
-        # every module compiles from the source the recorder hashes. A recorded child gets
-        # the prefix from its recorder, which refuses the option (COMP_NESTED_RECORDER).
-        prefix = [] if recorded else ["-X", f"pycache_prefix={tmp_path / 'pycache'}"]
+        # every module compiles from the source the recorder hashes. A recorded child, as
+        # any child of a recorded process is, gets the prefix from its recorder, which
+        # refuses the option (COMP_NESTED_RECORDER).
+        prefix = [] if recorded or record.recording() else [
+            "-X", f"pycache_prefix={tmp_path / 'pycache'}"]
         command = child or [sys.executable, "-E", "-B", "-X", "utf8", *prefix,
                             "-c", BOOT, package_parent]
         env = child_environment()
@@ -583,7 +585,7 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
         shelf = None
     elif store_at is not None:
         shelf = store.Store(store_at, root)
-    elif not any(name in sys.modules for name in record.MODULES):
+    elif not record.recording():
         shelf = store.Store(store.location(root), root)
     else:
         shelf = None

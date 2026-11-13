@@ -155,6 +155,12 @@ def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
     _write(os.path.join(directory, START), PARENT_START_SOURCE if parent else START_SOURCE)
 
 
+def recording() -> bool:
+    """Whether a recorder runs in this process, so every Python child it starts is
+    recorded too."""
+    return any(name in sys.modules for name in MODULES)
+
+
 def _prefixes() -> list[str]:
     """This interpreter's prefixes, which a child it starts must share."""
     return sorted({os.path.abspath(p) for p in (sys.prefix, sys.base_prefix,

@@ -138,10 +138,10 @@ def _run(root: Path, recorded_into: Path | None, pycache: Path) -> tuple[int, st
     env = environment()
     # A recorded build gets an empty pycache_prefix from its recorder, which refuses the
     # option (COMP_NESTED_RECORDER).
-    prefix = ["-X", f"pycache_prefix={pycache}"]
+    prefix = [] if recorded_into is not None or record.recording() else [
+        "-X", f"pycache_prefix={pycache}"]
     if recorded_into is not None:
         env[record.ENV] = str(recorded_into)
-        prefix = []
     proc = subprocess.run(
         [sys.executable, "-B", "-P", *prefix, "-m", "trifecta.record", "sphinx", *ARGS],
         cwd=root / "docs", capture_output=True, encoding="utf-8", errors="replace", env=env,
@@ -156,7 +156,7 @@ def run_build(root: Path, fresh: bool = False, store_at: Path | None = None,
     process uses no store unless ``store_at`` names one."""
     if store_at is not None:
         shelf = store.Store(store_at, root)
-    elif not any(name in sys.modules for name in record.MODULES):
+    elif not record.recording():
         shelf = store.Store(store.location(root), root)
     else:
         shelf = None
