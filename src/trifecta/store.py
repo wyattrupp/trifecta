@@ -216,7 +216,10 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
         if hashes.program(key if os.path.isabs(key) else at(key)) != digest:
             return f"program {key}"
     for key, kind in manifest["probes"].items():
-        if record.kind(key if os.path.isabs(key) else at(key)) != kind:
+        path = key if os.path.isabs(key) else at(key)
+        now = record.link_target(path) if kind.startswith(record.LINK_TO) else \
+            record.kind(path)
+        if now != kind:
             return f"path {key}"
     for key, entries in manifest["listings"].items():
         if record.listing(key if os.path.isabs(key) else at(key)) != entries:

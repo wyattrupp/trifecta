@@ -106,6 +106,9 @@ CHECK_EVENT = "trifecta.record.check"
 SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname",
             "programs")
 KINDS = ("file", "directory", "link", "absent")
+#: What a probe of one of the interpreter's own links holds in a trace (DEC_0045): this
+#: prefix, then the link's target as it reads, which a lookup reads again.
+LINK_TO = "link:"
 #: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
 #: in place of the machine's (COMP_HOST_NAME). DEC_0039 rules a fixed host name; this
 #: value is the design's, not ruled.
@@ -220,6 +223,54 @@ def _python_trees() -> list[str]:
         paths = sysconfig.get_paths(vars=given)
         trees.update(os.path.abspath(paths[name]) for name in PYTHON_TREES if name in paths)
     return sorted(trees)
+
+
+def _link_chain(path: str, limit: int = 40) -> list[str]:
+    """Every link met resolving ``path``, component by component, each link's target
+    resolved in turn, as the kernel resolves it."""
+    found: list[str] = []
+    pending = os.path.normpath(os.path.abspath(path))
+    for _ in range(limit):
+        parts = [part for part in pending.split(os.sep) if part]
+        current, moved = os.sep, False
+        for i, part in enumerate(parts):
+            candidate = os.path.join(current, part)
+            try:
+                is_link = stat.S_ISLNK(_lstat(candidate).st_mode)
+                target = os.readlink(candidate) if is_link else None
+            except (OSError, ValueError):
+                return found
+            if not is_link:
+                current = candidate
+                continue
+            found.append(candidate)
+            pending = os.path.normpath(os.path.join(current, target, *parts[i + 1:]))
+            moved = True
+            break
+        if not moved:
+            return found
+    return found
+
+
+def _venv_home() -> str | None:
+    """The ``home`` a virtual environment's ``pyvenv.cfg`` names, if any."""
+    try:
+        with _open(os.path.join(sys.prefix, "pyvenv.cfg"), encoding="utf-8") as f:
+            for line in f:
+                key, _, value = line.partition("=")
+                if key.strip() == "home" and value.strip():
+                    return value.strip()
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _interpreter_links() -> list[str]:
+    """Each link met resolving the interpreter's executable, its prefixes and its venv's
+    home (DEC_0045)."""
+    starts = [sys.executable, sys.prefix, sys.base_prefix, sys.exec_prefix,
+              sys.base_exec_prefix, _venv_home()]
+    return sorted({link for start in starts if start for link in _link_chain(start)})
 
 
 def _prefixes() -> list[str]:
@@ -466,6 +517,7 @@ class Recorder:
         self.uname: dict[str, str] = {}
         self.programs: dict[str, str] = {}
         self._trees: list[str] | None = None
+        self._links: set[str] | None = None
         #: The names of the variables the process started with, which a lookup's
         #: environment is: what NAMES digests. None until ``start`` takes them.
         self.start_names: list[str] | None = None
@@ -669,10 +721,26 @@ class Recorder:
         unseen. None when refused."""
         if kind(absolute) != "link":
             return absolute
-        if self.where(absolute) is not None:
-            self.refuse(f"{what} through a link: {self.shown(self.where(absolute)[1])}")
+        found = self.where(absolute)
+        if found is not None and getattr(self.local, "tracing", False) \
+                and _norm(absolute) in self.interpreter_links():
+            # The interpreter's own link, as a venv's home names one (DEC_0045): held
+            # with its target, which a lookup reads again, and followed.
+            target = link_target(absolute)
+            if target is not None:
+                self.note("probes", found[1], target)
+                return _realpath(absolute)
+        if found is not None:
+            self.refuse(f"{what} through a link: {self.shown(found[1])}")
             return None
         return _realpath(absolute)
+
+    def interpreter_links(self) -> set[str]:
+        """The interpreter's own links: each link met resolving ``sys.executable``, the
+        prefixes and the ``home`` a virtual environment's ``pyvenv.cfg`` names (DEC_0045)."""
+        if self._links is None:
+            self._links = {_norm(link) for link in _interpreter_links()}
+        return self._links
 
     def note(self, name: str, key: str, value) -> None:
         """Record an input once, with when it was first seen; none once the run is
@@ -1084,6 +1152,23 @@ _HEX = frozenset("0123456789abcdef")
 _SPECIAL = ("(namespace)", "(elsewhere)")
 
 
+def _link_to(v) -> bool:
+    """A probe's value that holds a link's target: LINK_TO and a target, within bounds."""
+    return (isinstance(v, str) and v.startswith(LINK_TO) and len(v) > len(LINK_TO)
+            and len(v) <= MAX_TEXT and "\0" not in v)
+
+
+def link_target(path: str) -> str | None:
+    """A probe's value for an interpreter's link at ``path`` as it is now: LINK_TO and its
+    target, or None when ``path`` is no link."""
+    if kind(path) != "link":
+        return None
+    try:
+        return LINK_TO + os.readlink(path)
+    except (OSError, ValueError):
+        return None
+
+
 def _digest(v) -> bool:
     return isinstance(v, str) and len(v) == 64 and set(v) <= _HEX
 
@@ -1163,7 +1248,8 @@ def valid(data) -> bool:
                       and "\0" not in k)
     return (all(_relative(k) and _digest(v) for k, v in data["files"].items())
             and all(_absolute(k) and _digest(v) for k, v in data["outside"].items())
-            and all(_path(k) and v in KINDS for k, v in data["probes"].items())
+            and all(_path(k) and (v in KINDS or _link_to(v))
+                    for k, v in data["probes"].items())
             and all(_path(k) and isinstance(v, list) and all(map(entry, v))
                     for k, v in data["listings"].items())
             and all(_lookup_key(k) and found(v) for k, v in data["lookups"].items())
