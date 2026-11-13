@@ -916,11 +916,14 @@ class Shape(unittest.TestCase):
             {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},
             {"programs": {"strace": "not a hash"}}, {"programs": {"../strace": "0" * 64}},
             {"programs": {"//share/strace": "0" * 64}}, {"programs": []},
+            {"probes": {"a": record.LINK_TO}}, {"probes": {"a": "link:x\0y"}},
         ]
         for change in bad:
             with self.subTest(change=change):
                 self.assertFalse(record.valid({**GOOD, **change}))
         self.assertFalse(record.valid({**GOOD, "storable": False, "why": 3}))
+        # An interpreter's link held with its target, as a trace holds one (DEC_0045).
+        self.assertTrue(record.valid({**GOOD, "probes": {"/py": record.LINK_TO + "/py-3"}}))
         git = [{"process": None, "why": "runs git"}]
         self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git",
                                       "reasons": git}))

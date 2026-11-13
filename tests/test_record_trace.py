@@ -606,6 +606,64 @@ class Links(TracedTree):
         self.assertEqual(whys(self.take('100 symlink("start", "MADE/own") = 0\n')), [])
 
 
+class InterpreterLinks(TracedTree):
+    """The interpreter's own links, as a venv's home names one, are held with their targets
+    in a trace (DEC_0045); any other read through a link stays refused."""
+
+    def setUp(self):
+        super().setUp()
+        out = self.tmp / "outside"
+        (out / "python-3.12.16" / "lib").mkdir(parents=True)
+        (out / "python-3.12.16" / "lib" / "os.py").write_text("x", encoding="utf-8")
+        (out / "python-3.12.20" / "lib").mkdir(parents=True)
+        (out / "python-3.12.20" / "lib" / "os.py").write_text("x", encoding="utf-8")
+        self.home = out / "python-3.12"
+        self.home.symlink_to(out / "python-3.12.16")
+        (out / "elsewhere").symlink_to(out / "python-3.12.16")
+        # The interpreter's links, as a venv whose home is the link names them.
+        patcher = mock.patch.object(record, "_interpreter_links",
+                                    return_value=[str(self.home)])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    LOG = ('100 readlink("OUTSIDE/python-3.12", "OUTSIDE/python-3.12.16", 4096) = 30\n'
+           '100 stat("OUTSIDE/python-3.12/lib/os.py", {st_mode=S_IFREG|0644, ...}) = 0\n')
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_venv_home_that_is_a_link_is_held_with_its_target(self):
+        r = self.take(self.LOG)
+        self.assertEqual(whys(r), [])
+        self.assertEqual(r.probes[str(self.home)],
+                         record.LINK_TO + str(self.tmp / "outside" / "python-3.12.16"))
+        self.assertTrue(record._link_to(r.probes[str(self.home)]))
+        self.assertIsNone(self.differs(r))
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_retargeted_interpreter_link_reruns(self):
+        r = self.take(self.LOG)
+        self.home.unlink()
+        self.home.symlink_to(self.tmp / "outside" / "python-3.12.20")
+        self.assertEqual(self.differs(r), f"path {self.home}")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_another_link_under_the_prefix_is_refused(self):
+        r = self.take('100 readlink("OUTSIDE/elsewhere", "OUTSIDE/python-3.12.16", 4096) = 30\n')
+        self.assertTrue(any("through a link" in w for w in whys(r)), whys(r))
+
+    @proves("REQ_KNOWN_PROGRAM")
+    @only_on("posix")
+    def test_the_links_met_resolving_a_path_are_the_chain(self):
+        out = self.tmp / "outside"
+        (out / "bin").symlink_to(self.home)
+        # bin -> python-3.12 -> python-3.12.16: both links are met on the way to lib.
+        self.assertEqual(record._link_chain(str(out / "bin" / "lib" / "os.py")),
+                         [str(out / "bin"), str(self.home)])
+        self.assertEqual(record._link_chain(str(out / "python-3.12.16" / "lib")), [])
+
+
 class HeldLog(TracedTree):
     """The log is read through the descriptor the recorder opened before strace started,
     so no name given to it later stands for it."""
