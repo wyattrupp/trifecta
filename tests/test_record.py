@@ -44,8 +44,10 @@ def run(root: Path, code: str, *flags: str, env: dict | None = None) -> dict:
     """Run ``code`` as a recorded child in ``root``; its manifest."""
     directory = root.parent / f"record-{len(list(root.parent.glob('record-*')))}"
     record.prepare(str(directory), str(root))
+    # Without the search path this process has, as the fixture runner gives it, unless the
+    # test gives one: its entries lie in the repository, outside the root given here.
     environment = {k: v for k, v in (env if env is not None else os.environ).items()
-                   if k not in record.OWN}
+                   if k not in record.OWN and (env is not None or k.upper() != record.PATH_ENV)}
     environment[record.ENV] = str(directory)
     subprocess.run([sys.executable, *flags, "-c", textwrap.dedent(code)], cwd=root,
                    env=environment, check=True, capture_output=True)

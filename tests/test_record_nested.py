@@ -39,8 +39,10 @@ def nested(root: Path, inner: str, ignore=(), env: dict | None = None,
     code = (f"import os, subprocess, sys\n{textwrap.dedent(before)}\n"
             f"os.environ[{record.ENV!r}] = {str(own)!r}\n"
             f"subprocess.run([sys.executable, '-c', {textwrap.dedent(inner)!r}], check=True)\n")
+    # Without the search path this process has, as the fixture runner gives it: its entries
+    # lie in the repository, which is outside the root this test gives both recorders.
     environment = {k: v for k, v in (env if env is not None else os.environ).items()
-                   if k not in record.OWN}
+                   if k not in record.OWN and k.upper() != record.PATH_ENV}
     environment[record.ENV] = str(outer)
     subprocess.run([sys.executable, "-c", code], cwd=root, env=environment, check=True,
                    capture_output=True)
