@@ -133,7 +133,7 @@ further program started, a host-name read, or a connection.
 :::{component} Nested recorder
 :id: COMP_NESTED_RECORDER
 :satisfies: REQ_NESTED_RECORDING
-:constrained_by: DEC_0035
+:constrained_by: DEC_0035, DEC_0041, DEC_0042
 A second recorder, the parent's, loaded from a `.pth` file of its own whose name sorts
 before the test recorder's, so `site` runs it first, and a start source under a module
 name of its own, `_trifecta_record_parent`, when `TRIFECTA_RECORD_PARENT` names
@@ -159,13 +159,21 @@ A write is judged by where it lands, not by how it is spelled: once its links an
 are resolved, and by the device and file number of each directory above it, so a link, a
 `/proc` path, a long-path prefix or a share that reaches the prepared directory is
 refused, and so is opening for writing another name of a file in it. Moving, copying or
-hard-linking anything out of it is refused too. A Python child whose final environment
-sets `PYTHONPATH`, `PYTHONHOME`, `PYTHONPLATLIBDIR`, `PYTHONSTARTUP` or
+hard-linking anything out of it is refused too. Under {need}`DEC_0042`, a Python child
+whose final environment sets `PYTHONHOME`, `PYTHONPLATLIBDIR`, `PYTHONSTARTUP` or
 `PYTHON_FROZEN_MODULES` without `-E` or `-I`, or that is started with
 `-X frozen_modules=off`, is refused, since it can run code before `site` starts the
-recorder; a recorder that starts under prefixes other than its parent's, which its
-directory's configuration names, or after a module from outside them was loaded, refuses
-its run. A callback that `shutil.rmtree` calls on an error is recorded as the run's own
+recorder; so is one whose `PYTHONPATH` has an entry, its links resolved and an empty one
+read as the child's working directory, outside the repository root and the interpreter's
+prefixes, or one outside the prefixes that holds a name of the standard library, which
+would load in place of a module the interpreter or the recorder imports as it starts. The
+variable is recorded, and each entry in the repository is listed as an input. A recorder
+that starts under prefixes other than its parent's, which its directory's configuration
+names, or after a module was loaded from outside the repository and the prefixes, or a
+module of the standard library's name from outside the prefixes, refuses its run. These
+checks see what was loaded and what the entries hold as the recorder starts: a module
+that ran before it and then removed both its file and its entry in `sys.modules` is not
+found, a limit {need}`DEC_0042` records. A callback that `shutil.rmtree` calls on an error is recorded as the run's own
 code. At each child start and at exit the parent's recorder checks that its audit hook
 still sees an event and that each wrapper it installed is still reached from its
 attribute through `__wrapped__`, each step a wrapper some recorder in the process
@@ -174,11 +182,10 @@ installed, so a function that only names a wrapper is a replacement.
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`
 and its closure, `os._Environ.__getitem__` past the recording mapping, and
-`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless. To
-these wyatt added, for the same tests, tampering with a recorder's own state from inside
-the process, through `sys.modules`, `gc`, frames or a trace function (wyatt,
-2026-11-13: "Accept and list it (Recommended)"). A way the list does not hold, found
-later, reopens that decision.
+`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless; and
+{need}`DEC_0041` adds, for the same tests, tampering with a recorder's own state from
+inside the process, through `sys.modules`, `gc`, frames or a trace function. A way the
+list does not hold, found later, reopens those decisions.
 :::
 
 :::{component} Host name
