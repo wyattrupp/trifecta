@@ -243,8 +243,13 @@ path read to its SHA-256; `probes`, mapping each path probed to its kind, `file`
 `directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
 entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
-path replaced, or null when it is unset; and `outside`, mapping
-each file read outside the repository and the interpreter's prefixes to its SHA-256.
+path replaced, or null when it is unset; `outside`, mapping
+each file read outside the repository and the interpreter's prefixes to its SHA-256; and
+`uname`, mapping each field of `os.uname` but the host name, `sysname`, `release`,
+`version` and `machine`, to the SHA-256 of its value, taken when the run starts where
+`os.uname` exists and empty where it does not, which a lookup takes again to match.
+Inside a recorded run, `os.uname`, `posix.uname` and `platform` give the fixed host name
+`localhost` in place of the machine's, so no manifest holds a host name.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
 :::
