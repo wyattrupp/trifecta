@@ -180,6 +180,20 @@ six of those; the rest keep the reasons they had. WSL lacks `make` and a venv pa
 so `test_adoption` fails there as it did before the task, and the Linux fixture runner
 and profiles come from CI.
 
+CI, the fixture runner's profile, before (main at ecb9ce5, push run 43392968986) and
+after (this task's run 43393062415), seconds; both runs read main's store, so the same
+module runs were reused:
+
+| Job | Total before | Total after | Control before | Control after | Summed before | Summed after | Reused |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Linux | 1895.7 | 1562.1 | 51.7 | 41.0 | 7291 | 6052 | 1424 |
+| Windows | 2853.6 | 2043.0 | 84.4 | 60.4 | 10803 | 7669 | 1492 |
+
+The control stored the same modules before and after, on Linux `test_ci_cache`,
+`test_fast_tests`, `test_profile`, `test_proofs`, `test_release` and `test_store`, and on
+Windows those and `test_adoption` and `test_record_trace`; all 123 fixtures passed in
+both jobs. The spread between runs is wider than the change.
+
 ### Task 2 (2026-11-13)
 
 The recorder keeps every distinct reason in a `reasons` list, the run's own in the order
