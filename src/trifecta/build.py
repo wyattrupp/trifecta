@@ -141,6 +141,7 @@ def _run(root: Path, recorded_into: Path | None, pycache: Path) -> tuple[int, st
     prefix = [] if recorded_into is not None or record.recording() else [
         "-X", f"pycache_prefix={pycache}"]
     if recorded_into is not None:
+        env = record.carry_search_path(str(recorded_into), env)
         env[record.ENV] = str(recorded_into)
     proc = subprocess.run(
         [sys.executable, "-B", "-P", *prefix, "-m", "trifecta.record", "sphinx", *ARGS],

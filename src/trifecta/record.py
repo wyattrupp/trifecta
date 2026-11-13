@@ -119,6 +119,9 @@ WARNINGS_ENV = "PYTHONWARNINGS"
 #: The search path's variable, whose entries a Python child may take only from inside the
 #: repository or the interpreter's prefixes, each a directory (DEC_0042).
 PATH_ENV = "PYTHONPATH"
+#: The configuration's keys for a child's PYTHONPATH, carried there in place of the
+#: environment until its recorder has started: the resolved entries and the value.
+SEARCH_PATH, SEARCH_PATH_ENV = "search_path", "search_path_value"
 #: Modules other than the standard library's that may be loaded when a recorder starts.
 BEFORE_START = frozenset({"__main__"})
 #: How many directories above a written path the identity check walks.
@@ -529,6 +532,9 @@ class Recorder:
             return "repo", rel or ".", absolute
         if _under(self.nroot, n):
             return None  # an ancestor of the root is a directory wherever the root is
+        if len(absolute) > MAX_TEXT:
+            self.refuse("reaches a path longer than a manifest holds")
+            return None
         if not _absolute(absolute):
             # A share or a device namespace, as a long-path prefix spells: no manifest
             # holds such a key, and a lookup would reach out to it.
@@ -1549,10 +1555,14 @@ def _child_name(argv: list[str], program: str) -> str:
     return name
 
 
-def _prepare_child(r: Recorder, env, final: dict, name: str, token: str):
+def _prepare_child(r: Recorder, env, final: dict, name: str, token: str,
+                   search_path: list[str] | None = None):
     """Make a Python child's directory and give it the environment that names it: under
     PARENT_ENV when the run named one of its own under ENV, which this recorder leaves to
-    the run's, and under ENV otherwise. Returns the environment the child starts with."""
+    the run's, and under ENV otherwise. ``search_path``, the resolved PYTHONPATH entries
+    the start was judged on, goes into the child's configuration in place of the variable,
+    which the child's recorder puts back once it has started. Returns the environment the
+    child starts with."""
     r.local.busy = True
     try:
         child = os.path.join(r.directory, "children", token)
@@ -1563,6 +1573,11 @@ def _prepare_child(r: Recorder, env, final: dict, name: str, token: str):
             config["ignore"] = sorted({*config.get("ignore", ()), *r.created, *r.written})
         config["top"] = r.config.get("top") or r.directory
         config["prefixes"] = _prefixes()
+        config.pop(SEARCH_PATH, None)
+        config.pop(SEARCH_PATH_ENV, None)
+        given = {_name(k): v for k, v in final.items()}.get(PATH_ENV)
+        if search_path is not None and given:
+            config[SEARCH_PATH], config[SEARCH_PATH_ENV] = search_path, os.fsdecode(given)
         os.makedirs(child)
         _write(os.path.join(child, CONFIG), json.dumps(config))
         _write(os.path.join(child, START), PARENT_START_SOURCE if nested else START_SOURCE)
@@ -1573,6 +1588,8 @@ def _prepare_child(r: Recorder, env, final: dict, name: str, token: str):
                 r.child_env.update(n for n in set(final) | set(here)
                                    if final.get(n) != here.get(n))
         env = dict(_environment()) if env is None else dict(env)
+        if SEARCH_PATH in config:
+            env = _without_search_path(env)
         env[PARENT_ENV if nested else ENV] = child
         with r.lock:
             r.children.append((child, r.seq, name))
@@ -1586,6 +1603,41 @@ def _prepare_child(r: Recorder, env, final: dict, name: str, token: str):
         return env
     finally:
         r.local.busy = False
+
+
+def _without_search_path(env: dict) -> dict:
+    """``env`` without PYTHONPATH, however its name is spelled."""
+    return {k: v for k, v in env.items() if _name(k) != PATH_ENV}
+
+
+def carry_search_path(directory: str, env: dict) -> dict:
+    """``env`` for a recorded Python child that honours the environment, started by a
+    process no recorder runs in, with PYTHONPATH taken out into the configuration of
+    ``directory``, which ``prepare`` made: the child's recorder puts it back once it has
+    started, so nothing on it runs before the recorder (COMP_NESTED_RECORDER)."""
+    value = {_name(k): v for k, v in env.items()}.get(PATH_ENV)
+    if not value:
+        return env
+    path = os.path.join(directory, CONFIG)
+    with _open(path, encoding="utf-8") as f:
+        config = json.load(f)
+    config[SEARCH_PATH] = _search_path(value, None)
+    config[SEARCH_PATH_ENV] = os.fsdecode(value)
+    _write(path, json.dumps(config))
+    return _without_search_path(env)
+
+
+def _restore_search_path(config: dict) -> None:
+    """Put back the PYTHONPATH a parent's recorder took out of this process's start: its
+    entries, as the parent resolved them, where the interpreter would have put them, ahead
+    of the standard library, and the variable, for the run's own children, set past any
+    recording mapping, since this is the recorder's act; the run reads it as before."""
+    entries, value = config.get(SEARCH_PATH), config.get(SEARCH_PATH_ENV)
+    if sys.flags.ignore_environment or not isinstance(entries, list) \
+            or not isinstance(value, str):
+        return
+    sys.path[0:0] = [e for e in entries if isinstance(e, str)]
+    os._Environ.__setitem__(os.environ, PATH_ENV, value)
 
 
 def _watch_children(r: Recorder) -> None:
@@ -1617,11 +1669,14 @@ def _watch_children(r: Recorder) -> None:
             final = {_name(k): v for k, v in (_environment() if env is None
                                               else env.items())}
             cwd = _text(args[cwd_at])
+            cwd = None if cwd is None else os.path.join(_getcwd(), cwd)
+            flags = _interpreter_options(decoded)[0]
             r.local.busy = True  # resolving the search path is the recorder's own work
             try:
-                why = _python_child(decoded, final, r.inside,
-                                    None if cwd is None else os.path.join(_getcwd(), cwd),
-                                    r.prefixes)
+                why = _python_child(decoded, final, r.inside, cwd, r.prefixes)
+                # The entries as judged, carried to the child in place of the variable.
+                entries = None if "E" in flags or "I" in flags else _search_path(
+                    final.get(PATH_ENV), cwd)
             finally:
                 r.local.busy = False
             if why is None and PARENT_ENV in final:
@@ -1632,7 +1687,7 @@ def _watch_children(r: Recorder) -> None:
                 r.refuse(why)
             else:
                 args[env_at] = _prepare_child(r, env, final, _child_name(
-                    decoded, os.fsdecode(program)), secrets.token_hex(8))
+                    decoded, os.fsdecode(program)), secrets.token_hex(8), entries or None)
         r.local.child, r.local.popen = python, True
         try:
             return original(self, *args)
@@ -1923,8 +1978,16 @@ def _modules_before_start(r: Recorder) -> None:
         if name.partition(".")[0] not in standard:
             r.refuse(f"ran {name}, which is not of the standard library, before the "
                      f"recorder started")
-        elif origin is not None and not any(
-                _under(_norm(_realpath(origin)), p) for p in r.prefixes):
+            continue
+        if origin is None:
+            continue
+        try:
+            resolved = _norm(_realpath(origin))
+        except (OSError, ValueError):
+            r.refuse(f"could not tell where {name} was loaded from before the recorder "
+                     f"started")
+            continue
+        if not any(_under(resolved, p) for p in r.prefixes):
             r.refuse(f"ran {name} from outside the standard library before the recorder "
                      f"started")
 
@@ -1954,6 +2017,7 @@ def start(directory: str, config: dict) -> Recorder:
         return _recorder
     _bind_long()
     r = _recorder = Recorder(directory, config)
+    _restore_search_path(config)
     _started_clean(r, config)
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.

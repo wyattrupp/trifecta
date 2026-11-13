@@ -178,10 +178,19 @@ prefixes, that is not a directory, as a zip is, or that lies outside the prefixe
 holds a name of the standard library, which would load in place of a module the
 interpreter or the recorder imports as it starts. The check and the Sphinx build start
 a recorded child without `-X pycache_prefix`, since its recorder sets the prefix itself.
-The variable is recorded. A recorder refuses its run when it starts under prefixes other
+A recorded child that honours the environment gets no `PYTHONPATH` in it: the parent's
+recorder, as it judges the start, or the check, for the build it starts, writes the
+entries it judged, resolved, and the variable's value into the child's configuration, and
+the child's recorder, once it has started, puts the entries into `sys.path` ahead of the
+standard library, where the variable would have put them, and the variable back into the
+environment for the run's own children; so an entry swapped or written after the judgment
+runs nothing before the recorder, and what is imported from it later is recorded as any
+import is. The variable is recorded. A recorder refuses its run when it starts under prefixes other
 than its parent's, which its directory's configuration names; when a module is loaded
 that is not of the standard library, the recorders' own and `__main__` aside, or one of
-the standard library's name from outside the prefixes; or when its `PYTHONPATH` fails
+the standard library's name from outside the prefixes, a check that holds while the
+recorders' `.pth` files sort first, so a `.pth` file of another package named to sort
+before them that imports a module refuses every run; or when its `PYTHONPATH` fails
 the checks above, an entry swapped since its start was judged among them; and it lists
 each entry in its repository as an input. The test's recorder in a process the parent's
 records too counts the parent's repository as inside as well, since the test chose its

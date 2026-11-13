@@ -707,6 +707,13 @@ class Warnings(_TmpRepo):
                                     "pass"], env={{**os.environ, {env}}})
                     """)
                 self.assertEqual(m["why"], why)
+        with self.subTest("PYTHONWARNINGS set by the run itself"):
+            m = run(self.root, """
+                import os, subprocess, sys
+                os.environ["PYTHONWARNINGS"] = "error::wmod.W"
+                subprocess.run([sys.executable, "-c", "pass"])
+                """)
+            self.assertEqual(m["why"], why)
         m = run(self.root, """
             import subprocess, sys
             subprocess.run([sys.executable, "-W", "error::DeprecationWarning",
@@ -806,3 +813,148 @@ class Namespaces(_TmpRepo):
         m = run(self.root, f"open({path!r}).read()")
         self.assertEqual(m["why"], "reaches a path through a share or a device namespace")
         self.assertTrue(record.valid(m))
+
+
+#: An ``encodings`` that, run before the recorder, reads a file outside and leaves.
+SHADOW = """import sys, _io
+sys.LEAK = _io.FileIO({secret!r}).read().decode()
+del sys.modules['encodings']
+sys.path_importer_cache.clear()
+{cleanup}
+import encodings
+"""
+#: A child that says what it read before its recorder started.
+LEAKED = "import sys; open('out.txt', 'w').write(getattr(sys, 'LEAK', 'none'))"
+
+
+class CarriedSearchPath(_TmpRepo):
+    """A recorded child's PYTHONPATH reaches it in its configuration, not its
+    environment, until its recorder has started, so an entry changed after the parent
+    judged it runs nothing before the recorder."""
+
+    def setUp(self):
+        super().setUp()
+        self.secret = self.tmp / "outside" / "secret.txt"
+        self.secret.parent.mkdir()
+        self.secret.write_text("S5", encoding="utf-8")
+
+    def leaked(self, before: str) -> tuple[dict, str]:
+        out = self.root / "out.txt"
+        out.unlink(missing_ok=True)
+        outer, _ = nested(self.root, LEAKED, before=before)
+        return outer, out.read_text(encoding="utf-8")
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_a_shadow_written_after_the_check_runs_nothing_first(self):
+        real = self.root / "real"
+        shadow = SHADOW.format(secret=str(self.secret), cleanup=(
+            f"import shutil; shutil.rmtree({str(real / 'encodings')!r})"))
+        for delay in (0, 0.001, 0.005, 0.02):
+            with self.subTest(delay=delay):
+                shutil.rmtree(real, ignore_errors=True)
+                outer, out = self.leaked(f"""
+                    import threading, time
+                    os.makedirs({str(real)!r})
+                    os.environ["PYTHONPATH"] = {str(real)!r}
+                    def plant():
+                        time.sleep({delay})
+                        os.makedirs({str(real / 'encodings')!r}, exist_ok=True)
+                        with open({str(real / 'encodings' / '__init__.py')!r}, "w") as f:
+                            f.write({shadow!r})
+                    threading.Thread(target=plant).start()
+                    """)
+                self.assertFalse(out == "S5" and outer["storable"], processes(outer))
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_link_swapped_after_the_check_runs_nothing_first(self):
+        real, evil, link = self.root / "real", self.root / "evil", self.root / "lib"
+        shadow = SHADOW.format(secret=str(self.secret), cleanup=(
+            f"import posix; posix.symlink({str(real)!r}, {str(self.root / 't2')!r}); "
+            f"posix.rename({str(self.root / 't2')!r}, {str(link)!r})"))
+        for delay in (0, 0.001, 0.005, 0.02):
+            with self.subTest(delay=delay):
+                for path in (real, evil):
+                    shutil.rmtree(path, ignore_errors=True)
+                if os.path.lexists(link):
+                    os.unlink(link)
+                outer, out = self.leaked(f"""
+                    import threading, time
+                    os.makedirs({str(real)!r}); os.makedirs({str(evil / 'encodings')!r})
+                    with open({str(evil / 'encodings' / '__init__.py')!r}, "w") as f:
+                        f.write({shadow!r})
+                    os.symlink({str(real)!r}, {str(link)!r})
+                    os.environ["PYTHONPATH"] = {str(link)!r}
+                    def swap():
+                        time.sleep({delay})
+                        os.symlink({str(evil)!r}, {str(self.root / 't1')!r})
+                        os.replace({str(self.root / 't1')!r}, {str(link)!r})
+                    threading.Thread(target=swap).start()
+                    """)
+                self.assertFalse(out == "S5" and outer["storable"], processes(outer))
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_the_child_sees_its_search_path_once_its_recorder_has_started(self):
+        lib = self.root / "lib"
+        lib.mkdir()
+        (lib / "helper_here.py").write_text("VALUE = 2\n", encoding="utf-8")
+        m = run(self.root, f"""
+            import os, subprocess, sys
+            subprocess.run([sys.executable, "-c",
+                            "import os, helper_here; "
+                            "open('seen.txt', 'w').write(os.environ['PYTHONPATH'])"],
+                           check=True, env={{**os.environ, "PYTHONPATH": {str(lib)!r}}})
+            """)
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertEqual((self.root / "seen.txt").read_text(encoding="utf-8"), str(lib))
+        self.assertIn("lib/helper_here.py", m["files"])
+
+    @proves("REQ_NESTED_RECORDING")
+    def test_a_child_started_without_a_recorder_keeps_its_search_path(self):
+        lib = self.root / "lib"
+        lib.mkdir()
+        env = {k: v for k, v in os.environ.items() if k not in record.OWN}
+        env["PYTHONPATH"] = str(lib)
+        out = subprocess.run([sys.executable, "-c", "import os, sys; "
+                              "print(os.environ['PYTHONPATH'] in sys.path)"],
+                             env=env, capture_output=True, encoding="utf-8", check=True)
+        self.assertEqual(out.stdout.strip(), "True")
+        directory = self.tmp / "record-carried"
+        record.prepare(str(directory), str(self.root))
+        carried = record.carry_search_path(str(directory), env)
+        self.assertNotIn("PYTHONPATH", carried)
+        config = json.loads((directory / record.CONFIG).read_text(encoding="utf-8"))
+        self.assertEqual(config[record.SEARCH_PATH_ENV], str(lib))
+
+
+class ParentsRoot(_TmpRepo):
+    """A nested test's recorder counts its parent's repository as inside, and nothing
+    outside both."""
+
+    def inner(self, entry: Path) -> dict:
+        parent = self.tmp / "parent"
+        outer = self.tmp / f"outer-{entry.name}"
+        own = self.tmp / f"own-{entry.name}"
+        record.prepare(str(own), str(self.root))
+        record.prepare(str(outer), str(parent), ignore=[str(own)])
+        code = (f"import os, subprocess, sys\n"
+                f"os.environ[{record.ENV!r}] = {str(own)!r}\n"
+                f"subprocess.run([sys.executable, '-c', 'pass'], check=True,\n"
+                f"               env={{**os.environ, 'PYTHONPATH': {str(entry)!r}}})\n")
+        env = {k: v for k, v in os.environ.items()
+               if k not in record.OWN and k.upper() != record.PATH_ENV}
+        env[record.ENV] = str(outer)
+        subprocess.run([sys.executable, "-c", code], cwd=self.root, env=env, check=True,
+                       capture_output=True)
+        return json.loads((own / record.MANIFEST).read_text(encoding="utf-8"))
+
+    @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
+    def test_an_entry_in_the_parents_repository_is_inside(self):
+        (self.tmp / "parent" / "lib").mkdir(parents=True)
+        (self.tmp / "elsewhere").mkdir()
+        outside = ("PYTHONPATH names a directory outside the repository and the "
+                   "interpreter")
+        m = self.inner(self.tmp / "parent" / "lib")
+        self.assertNotIn(outside, whys(m))
+        m = self.inner(self.tmp / "elsewhere")
+        self.assertIn(outside, whys(m))
