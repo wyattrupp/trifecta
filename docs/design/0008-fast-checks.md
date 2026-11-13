@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Fast checks

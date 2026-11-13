@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 authors: [claude]
 created: 2026-11-10
 ---
@@ -87,8 +87,8 @@ The last task, so it also closes the design.
 
 - [x] **5.1** Have setup keep the Vale archive and check its SHA-256 before every extraction, and cache pip's downloaded archives and that archive in both jobs with `actions/cache/restore` and `actions/cache/save`, pinned by SHA, never `bin/`.
 - [x] **5.2** Run the check step with `--fresh`, in the Makefile and the Windows job; in push runs on main, run the fixtures from an empty store and upload it, named for `runner.os`; in pull request runs, add `actions: read` and fetch main's store by run ID.
-- [ ] **5.3** Record in the As built entry both jobs' times from the workflow and from the profile, before and after, for a pull request that changes only a document and one that changes a test.
-- [ ] **5.4** Mark DES_0008 implemented, check that every requirement of RFC_0008 has its proving test, and review this plan's As built k=2.
+- [x] **5.3** Record in the As built entry both jobs' times from the workflow and from the profile, before and after, for a pull request that changes only a document and one that changes a test.
+- [x] **5.4** Mark DES_0008 implemented, check that every requirement of RFC_0008 has its proving test, and review this plan's As built k=2.
 :::
 
 ## Review
@@ -442,3 +442,82 @@ stored and every copy runs it: 4,852 s of the Linux sum and 8,903 s of the Windo
 Without it the sums would be 9,043 s and 11,351 s. It joins the modules RFC_0009 proposes
 to make storable. As with task 3, the times are recorded, not judged, on wyatt's ruling
 (2026-11-11): "we're establishing a measured baseline here. keep going".
+
+### Task 5 (2026-11-12)
+
+Both jobs cache pip's downloaded archives and setup's Vale archive under one key per
+system. The push run on main that followed this task's merge, CI run 43324206942, found
+no entry and saved one; both probe pull requests, #36 and #37, restored it, and setup
+checked every hash as before. Setup took 8 to 14 s with the cache and 9 to 16 s without
+it: the downloads were never the cost.
+
+The same push run started the fixtures from an empty store and uploaded it, about 0.85 MB
+for each system, holding the control's results. Each probe fetched it by that run's ID.
+Two probe pull requests measured the after: #36 adds a comment to `docs/index.md`, #37
+adds one to `tests/test_store.py`. Neither is merged.
+
+Times in seconds. The job and the check step are the workflow's; check, tests, the
+fixture step, control and summed are the profile's. Before is PR #34's run 43171407888, which
+changed the package and the tests, so no run changes only a document before this task.
+
+| Run | Job | Check step | Check | Tests | Fixture step | Control | Summed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Linux, before (#34) | 1839 | 49 | 48.4 | 39.8 | 1770.9 | 47.1 | 6819 |
+| Linux, #35, no store | 2461 | 67 | 65.6 | 54.8 | 2364.4 | 64.6 | 9134 |
+| Linux, main, empty store | 1836 | 48 | 47.5 | 39.3 | 1766.0 | 47.2 | 6816 |
+| Linux, after, document | 2404 | 63 | 62.6 | 52.1 | 2312.0 | 63.1 | 8930 |
+| Linux, after, test | 2447 | 64 | 63.4 | 52.5 | 2363.0 | 53.8 | 9168 |
+| Windows, before (#34) | 2800 | 85 | 83.6 | 69.0 | 2675.5 | 80.4 | 10140 |
+| Windows, #35, no store | 2830 | 80 | 80.1 | 65.8 | 2694.3 | 81.1 | 10148 |
+| Windows, main, empty store | 1625 | 51 | 50.9 | 41.4 | 1538.2 | 48.4 | 5804 |
+| Windows, after, document | 2806 | 81 | 79.7 | 65.7 | 2678.1 | 79.9 | 10134 |
+| Windows, after, test | 2799 | 82 | 81.2 | 66.2 | 2674.0 | 84.5 | 10108 |
+
+The check step runs with `--fresh` and reuses nothing, so it measures the runner: the same
+work took 48 s and 67 s on Linux, 51 s and 85 s on Windows. Single runs compare only
+within that spread.
+
+Main's store saved almost nothing. It holds 7 stages for Linux and 9 for Windows. In the
+document probe the control reused one of the 7 on Linux, `test_release`, and rebuilt the
+documents, which the probe changed; in the test probe it reused `test_release` and the
+build. On Windows it reused none: no identity in main's store matched the probe's. The
+Linux misses name two causes, and the stored manifests show a third:
+- **The whole environment.** The test children start with a copy of the environment, so
+  a manifest holds every variable, among them `ACTIONS_ORCHESTRATION_ID`,
+  `GITHUB_RUN_ID` and `RUNNER_NAME`, which differ in every run. Four modules missed on
+  `ACTIONS_ORCHESTRATION_ID`.
+- **Temporary paths.** A stored manifest probes a temporary directory under a random
+  name, which no later run can match.
+- **Compiled files.** `test_store` missed on
+  `src/trifecta/__pycache__/__init__.cpython-312.pyc`, compiled again in every checkout.
+
+The Windows identities differ for a reason not found; the environment key holds the
+installed distributions' records and the site directories' listings, either of which may
+differ between runs. Within one run the copies already share the control's store, so
+main's store can save only the control's time. The control's modules run side by side, and
+`test_build_reuse`, never stored, sets the tests stage's time: 51 s on Linux and 65 s on
+Windows. So the most main's store can save is the build, 9 s on Linux and 11 s on Windows;
+the Linux control took 63.1 s in the document probe and 53.8 s in the test probe, which
+restored it. The time is in the modules never stored, which RFC_0009 takes up, and
+in the runner. The results are recorded, not fixed, on wyatt's ruling (2026-11-12):
+"Record and close".
+
+Review, k=2 (correctness; security), three rounds, the last after the rebase onto PR #34.
+Applied: the NamedStore test's stub takes PR #34's `tests` argument and checks that the
+control's kept reports stay out of the named store; the first-parent check reads all of
+`git rev-list`'s output, since the Windows job's `pipefail` turns `grep -q`'s early exit
+into a SIGPIPE failure once main's history passes about 64 KB. Security found nothing to
+change; it noted that a manifest holds an unsalted SHA-256 of each variable's value in
+an artifact anyone can download, so a secret later put in the fixture step's environment
+could be guessed from its hash. None is there now: `GH_TOKEN` is set only on the Store
+step.
+
+Every requirement of {need}`RFC_0008` has its proving test: `REQ_PROFILED` in
+`tests/test_profile.py`, `REQ_REUSE_SOUND` in six modules and `REQ_REUSE_SCOPED` in three.
+{need}`DES_0008` is implemented.
+
+This entry was reviewed k=2 (correctness; security), one round, against the downloaded
+profiles, stores and workflow logs. Applied: setup's range with the cache, the fixture
+step's source, the count of stored stages, the temporary paths as read from the manifests,
+and the bound on what main's store can save, which first summed modules that run side by
+side.
