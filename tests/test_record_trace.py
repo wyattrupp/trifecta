@@ -293,6 +293,8 @@ class TracedTree(unittest.TestCase):
         self.made = self.tmp / "made"
         self.made.mkdir()
         self.log = self.made / "trace.log"
+        # The command a synthetic log starts first, as strace's does: one the run made.
+        elf(self.made / "start")
         # A program of the repository's own, with an ELF interpreter of its own.
         (self.root / "bin").mkdir()
         self.loader = elf(self.root / "bin" / "loader")
@@ -302,19 +304,34 @@ class TracedTree(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def take(self, text: str, r: record.Recorder | None = None) -> record.Recorder:
-        """Take ``text``, a log in which ROOT, MADE and LOG stand for those paths, into
-        ``r``, as the recorder takes strace's log once strace has ended."""
+        """Take ``text``, a log in which ROOT, MADE, LOG and OUTSIDE stand for those paths,
+        into ``r``, as the recorder takes strace's log once strace has ended: through the
+        descriptor it opened the log with. A log that does not start its command first is
+        given the start strace writes first."""
         r = r or recorder(self.root, [self.made])
-        for holder, path in (("ROOT", self.root), ("MADE", self.made), ("LOG", self.log)):
-            text = text.replace(holder, str(path))
-        self.log.write_text(textwrap.dedent(text).lstrip(), encoding="utf-8")
-        record._take_trace(r, record._Trace(str(self.log), str(self.root)), 0)
+        text = textwrap.dedent(text).lstrip()
+        if not text.startswith("100 execve("):
+            text = START + text
+        self.write_log(text)
+        record._take_trace(r, self.trace(r), 0)
         return r
+
+    def write_log(self, text: str) -> None:
+        for holder, path in (("ROOT", self.root), ("MADE", self.made), ("LOG", self.log),
+                             ("OUTSIDE", self.tmp / "outside")):
+            text = text.replace(holder, str(path))
+        self.log.write_text(text, encoding="utf-8")
+
+    def trace(self, r: record.Recorder, fd: int | None = None) -> record._Trace:
+        fd = os.open(self.log, os.O_RDONLY) if fd is None else fd
+        return record._Trace(str(self.log), str(self.root), fd, r.written, r.created)
 
     def differs(self, r: record.Recorder, environ: dict | None = None) -> str | None:
         return store.mismatch(manifest_of(r), self.root, environ or {}, store.Hashes())
 
 
+#: What strace writes first: its command's start, here a program the run made.
+START = '100 execve("MADE/start", ["start"], 0x7ffd /* 0 vars */) = 0\n'
 LOG = '''\
     100 execve("ROOT/bin/program", ["program"], 0x7ffd5 /* 3 vars */) = 0
     100 openat(AT_FDCWD<ROOT>, "docs/a.md", O_RDONLY|O_CLOEXEC) = 3<ROOT/docs/a.md>
@@ -499,9 +516,163 @@ class TraceLog(TracedTree):
     @only_on("posix")
     def test_strace_ended_by_a_signal_is_refused(self):
         r = recorder(self.root, [self.made])
-        self.log.write_text(LOG, encoding="utf-8")
-        record._take_trace(r, record._Trace(str(self.log), str(self.root)), -9)
+        self.write_log(textwrap.dedent(LOG))
+        record._take_trace(r, self.trace(r), -9)
         self.assertEqual(whys(r), ["strace did not finish"])
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_log_that_does_not_start_its_command_is_refused(self):
+        r = recorder(self.root, [self.made])
+        self.write_log('100 openat(AT_FDCWD, "ROOT/docs/a.md", O_RDONLY) = 3<ROOT/docs/a.md>\n')
+        record._take_trace(r, self.trace(r), 0)
+        self.assertEqual(whys(r), ["its log holds no start of the traced command first"])
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_signals_reach_only_what_is_traced(self):
+        for line in ('100 kill(0, SIGTERM) = 0', '100 kill(100, SIGTERM) = 0',
+                     '100 tgkill(100, 100, SIGABRT) = 0', '100 pidfd_open(100, 0) = 3'):
+            with self.subTest(line=line):
+                self.assertEqual(whys(self.take(line + "\n")), [])
+        for line in ('100 kill(1, SIGTERM) = 0', '100 kill(-1, SIGKILL) = 0',
+                     '100 kill(-77, SIGTERM) = 0', '100 tkill(77, SIGTERM) = 0',
+                     '100 tgkill(1, 1, SIGTERM) = 0', '100 pidfd_open(1, 0) = 3'):
+            with self.subTest(line=line):
+                self.assertEqual(whys(self.take(line + "\n")),
+                                 ["signals a process it does not trace"])
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_of_what_the_run_wrote_while_strace_ran_is_refused(self):
+        r = recorder(self.root, [self.made])
+        self.write_log(START + '100 openat(AT_FDCWD, "ROOT/docs/a.md", O_RDONLY) = '
+                       '3<ROOT/docs/a.md>\n')
+        trace = self.trace(r)
+        # The run writes docs/a.md, and makes a directory, after strace started.
+        r.written.add(record._norm(str(self.root / "docs" / "a.md")))
+        record._take_trace(r, trace, 0)
+        self.assertTrue(any("which the run wrote while strace ran" in w for w in whys(r)),
+                        whys(r))
+
+
+class Links(TracedTree):
+    """A link the run made reaches only what it made; a read is keyed by the path the
+    kernel opened too, and one whose name no longer reaches it is refused."""
+
+    def setUp(self):
+        super().setUp()
+        self.outside = self.tmp / "outside"
+        self.outside.mkdir()
+        (self.outside / "secret.txt").write_text("secret", encoding="utf-8")
+        elf(self.outside / "prog")
+        # A link the run would have made, had it been let: the recorder refuses making it.
+        (self.made / "d").symlink_to(self.outside)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_through_a_link_is_keyed_on_what_was_opened(self):
+        r = self.take('100 openat(AT_FDCWD, "MADE/d/secret.txt", O_RDONLY) = '
+                      '3<OUTSIDE/secret.txt>\n')
+        self.assertEqual(whys(r), [])
+        secret = str(self.outside / "secret.txt")
+        self.assertEqual(r.outside, {secret: record.file_hash(secret)})
+        (self.outside / "secret.txt").write_text("changed", encoding="utf-8")
+        self.assertEqual(self.differs(r), f"file {secret}")
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_program_through_a_link_is_keyed_where_it_lands(self):
+        r = self.take('100 execve("MADE/d/prog", ["prog"], 0x7ffd /* 0 vars */) = 0\n')
+        self.assertIn(str(self.outside / "prog"), r.programs)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_what_a_link_cannot_carry_is_refused(self):
+        cases = {
+            '100 stat("MADE/d/secret.txt", {st_mode=S_IFREG|0644, ...}) = 0':
+                "through a link the run made",
+            # The name now reaches another file than the kernel opened.
+            '100 openat(AT_FDCWD, "ROOT/docs/b.md", O_RDONLY) = 3<ROOT/docs/a.md>':
+                "whose links changed while strace ran",
+            '100 symlink("OUTSIDE", "MADE/l") = 0': "makes a link to outside what the run made",
+            '100 symlinkat("OUTSIDE/secret.txt", AT_FDCWD<MADE>, "l") = 0':
+                "makes a link to outside what the run made",
+        }
+        for line, why in cases.items():
+            with self.subTest(line=line):
+                r = self.take(line + "\n")
+                self.assertTrue(any(why in w for w in whys(r)), whys(r))
+        self.assertEqual(whys(self.take('100 symlink("start", "MADE/own") = 0\n')), [])
+
+
+class HeldLog(TracedTree):
+    """The log is read through the descriptor the recorder opened before strace started,
+    so no name given to it later stands for it."""
+
+    def strace_wrote(self) -> int:
+        fd = record.open_log(str(self.log))
+        self.write_log(START + '100 openat(AT_FDCWD, "ROOT/docs/a.md", O_RDONLY) = '
+                       '3<ROOT/docs/a.md>\n')
+        return fd
+
+    def forged(self) -> str:
+        return START.replace("MADE", str(self.made))
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_log_unlinked_and_made_again_is_not_read(self):
+        fd = self.strace_wrote()
+        self.log.unlink()
+        self.log.write_text(self.forged(), encoding="utf-8")
+        r = recorder(self.root, [self.made])
+        record._take_trace(r, self.trace(r, fd), 0)
+        self.assertIn("docs/a.md", r.files)
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_log_whose_directory_was_moved_is_not_read_by_its_name(self):
+        fd = self.strace_wrote()
+        try:
+            self.made.rename(self.tmp / "moved")
+        except PermissionError:
+            os.close(fd)
+            self.skipTest("this system moves no directory that holds an open file")
+        self.made.mkdir()
+        self.log.write_text(self.forged(), encoding="utf-8")
+        r = recorder(self.root, [self.made])
+        record._take_trace(r, self.trace(r, fd), 0)
+        self.assertIn("docs/a.md", r.files)
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_what_would_write_the_log_is_refused(self):
+        cases = {
+            '100 unlink("LOG") = 0': "opens the log strace writes",
+            '100 openat(AT_FDCWD, "LOG", O_WRONLY|O_TRUNC) = 3<LOG>':
+                "opens the log strace writes",
+            '100 rename("MADE", "MADE2") = 0':
+                "moves or removes the directory that holds strace's log",
+            '100 symlink("MADE", "MADE/alias") = 0\n'
+            '100 openat(AT_FDCWD, "MADE/alias/trace.log", O_WRONLY) = 3<LOG>':
+                "opens the log strace writes",
+        }
+        for line, why in cases.items():
+            with self.subTest(line=line):
+                r = self.take(line + "\n")
+                self.assertTrue(any(why in w for w in whys(r)), whys(r))
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_run_writing_the_log_by_any_name_is_refused(self):
+        fd = self.strace_wrote()
+        r = recorder(self.root, [self.made])
+        r.traces[1] = (object(), self.trace(r, fd))
+        other = self.made / "other"
+        os.link(self.log, other)
+        r.wrote(str(other))
+        self.assertIn("writes the log of a strace still running", whys(r))
+        os.close(fd)
 
 
 class FollowedLink(TracedTree):
@@ -658,6 +829,9 @@ class StraceTerms(TracedTree):
         self.assertEqual(r.programs[resolved], record.file_hash(resolved))
         self.assertEqual(trace.log, str(self.log))
         self.assertEqual(whys(r), [])
+        # The recorder made the log, new, and holds it open.
+        self.assertEqual(trace.identity, (os.stat(self.log).st_dev, os.stat(self.log).st_ino))
+        os.close(trace.fd)
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     @only_on("posix")
@@ -681,6 +855,8 @@ class StraceTerms(TracedTree):
             "-s 1024": ([*form[:4], "1024", *form[5:]], {}),
             "an option for a command": ([*form[:8], "-p", "1"], {}),
             "no command": (form[:8], {}),
+            "a command along PATH": ([*form[:8], "true"], {}),
+            "the log piped into a command": (self.form("|cat"), {}),
             "the log elsewhere": (self.form(elsewhere / "x.log"), {}),
             "the log through a link": (self.form(self.made / "out" / "x.log"), {}),
             "the log already there": (self.form(self.made / "there.log"), {}),
@@ -775,11 +951,13 @@ class StraceTerms(TracedTree):
     @only_on("posix")
     def test_the_log_is_the_runs_to_touch_only_once_taken(self):
         r = recorder(self.root, [self.made])
-        r.traces[1] = (object(), record._Trace(str(self.log), str(self.root)))
+        r.traces[1] = (object(), record._Trace(str(self.log), str(self.root),
+                                               record.open_log(str(self.log))))
         r.wrote(str(self.log))
         self.assertIn("writes the log of a strace still running", whys(r))
         r = recorder(self.root, [self.made])
-        r.traces[1] = (object(), record._Trace(str(self.log), str(self.root)))
+        r.traces[1] = (object(), record._Trace(str(self.log), str(self.root),
+                                               os.open(self.log, os.O_RDONLY)))
         r.refuse("an earlier reason")
         self.assertIn({"process": None, "why": "starts strace and does not wait for it"},
                       r.manifest()["reasons"])
@@ -805,13 +983,17 @@ class StraceRuns(TracedTree):
         env["LC_ALL"] = "C"
         out = self.strace([str(script)], env)
         self.assertEqual(out.stdout, "asub/x.txt\n")
+        # The system's own files are left out here: what they hold is the module's own
+        # recorder's to key, and resolving their links in this process would reach them.
         r = recorder(self.root, [self.made])
+        r.ignore += [record._norm(p) for p in ("/usr", "/lib", "/lib32", "/lib64", "/etc",
+                                               "/bin", "/sbin")]
         started = []
         # The system's programs are reached through links, which this module's own recorder
         # would refuse it for hashing: here they are only named; TracePrograms hashes them.
         with mock.patch.object(record, "_note_program",
                                lambda r, path, cwd, depth=0: started.append(path)):
-            record._take_trace(r, record._Trace(str(self.log), str(self.root)), 0)
+            record._take_trace(r, self.trace(r), 0)
         self.assertEqual(whys(r), [])
         self.assertIn("docs/a.md", r.files)
         self.assertEqual(r.probes["docs/gone"], "absent")
@@ -823,6 +1005,28 @@ class StraceRuns(TracedTree):
         self.assertIsNone(self.differs(r, env))
         (self.root / "docs" / "a.md").write_text("changed", encoding="utf-8")
         self.assertEqual(self.differs(r, env), "file docs/a.md")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_recorder_of_this_module_takes_stracess_log(self):
+        # This module's own recorder, which the check starts it under, named by proofs.
+        own = getattr(sys.modules.get(record.MODULE), "_recorder", None)
+        if own is None:
+            self.skipTest("this process is not recorded")
+        self.assertEqual(own.config.get(record.MODULE_KEY), record.STRACE_MODULE)
+        before = len(own.reasons)
+        script = self.root / "read.sh"
+        script.write_text("#!/bin/sh\ncat docs/a.md\n", encoding="utf-8")
+        script.chmod(0o755)
+        env = {k: v for k, v in os.environ.items() if k not in record.OWN}
+        env["LC_ALL"] = "C"
+        self.strace([str(script)], env)
+        # The wrapper let strace through and recorded it; the reap took its log, whose
+        # programs the command started are recorded too; no trace is left untaken.
+        self.assertEqual(own.reasons[before:], [])
+        self.assertTrue(any(os.path.basename(p) == "strace" for p in own.programs))
+        self.assertIn("/bin/sh", own.programs)
+        self.assertEqual(own.traces, {})
 
     @proves("REQ_HOST_READS", "REQ_KNOWN_PROGRAM")
     @only_on("posix")

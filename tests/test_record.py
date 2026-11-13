@@ -243,15 +243,37 @@ class Inputs(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
-    def test_a_read_through_a_link_the_run_made_reads_its_target(self):
+    def test_a_link_the_run_makes_reaches_only_what_it_made(self):
         m = run(self.root, """
             import os, tempfile
-            link = os.path.join(tempfile.mkdtemp(), "link")
-            os.symlink(os.path.abspath("b.txt"), link)
+            made = tempfile.mkdtemp()
+            with open(os.path.join(made, "a.txt"), "w") as f:
+                f.write("a")
+            link = os.path.join(made, "link")
+            os.symlink("a.txt", link)
             open(link).read()
             """)
         self.assertTrue(m["storable"], m.get("why"))
-        self.assertIn("b.txt", m["files"])
+        # A link to what the run did not make would let a read under a directory it made
+        # reach a file no key holds, as through a linked directory: refused.
+        for target in ("os.path.abspath('b.txt')", "os.path.abspath('sub')"):
+            with self.subTest(target=target):
+                why = self.refused_in(self.root, f"""
+                    import os, tempfile
+                    made = tempfile.mkdtemp()
+                    os.symlink({target}, os.path.join(made, "link"))
+                    open(os.path.join(made, "link", "x.txt") if 'sub' in {target!r}
+                         else os.path.join(made, "link")).read()
+                    """)
+                self.assertIn("makes a link to outside what the run made", why)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_device_is_held_by_its_kind_never_read(self):
+        m = run(self.root, "import os; os.stat('/dev/urandom'); os.lstat('/dev/zero')")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertNotIn("/dev/urandom", m["outside"])
+        self.assertEqual(m["probes"]["/dev/urandom"], "file")
 
     @proves("REQ_REUSE_SOUND")
     def test_environment_reads_and_iteration(self):
