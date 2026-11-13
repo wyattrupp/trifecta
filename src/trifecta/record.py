@@ -24,6 +24,7 @@ import inspect
 import io
 import json
 import os
+import re
 import stat
 import sys
 import threading
@@ -44,6 +45,9 @@ START = "start.py"
 VERSION = 1
 #: Stands for the repository root in recorded values, so a copy elsewhere matches.
 ROOT = "<root>"
+#: What a reason holds in place of the home directory, the temporary directory and the
+#: interpreter's prefixes (COMP_REFUSAL_REASONS); these names are the design's, not ruled.
+HOME, TEMP, PREFIX, BASE_PREFIX = "<home>", "<tmp>", "<prefix>", "<base_prefix>"
 #: What the .pth line runs when ENV is set: loads the recorder its parent named, once.
 START_SOURCE = """\
 import sys
@@ -182,6 +186,50 @@ def _root_forms(root: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((root, root.replace("\\", "/"))))
 
 
+def _replace_paths(text: str, places: list[tuple[str, str]]) -> str:
+    """``text`` with each path in ``places`` replaced by its placeholder, the longest
+    first, in either slash form, ignoring case where the system does."""
+    forms = sorted({(form, holder) for path, holder in places for form in _root_forms(path)},
+                   key=lambda fh: -len(fh[0]))
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    for form, holder in forms:
+        text = re.sub(re.escape(form), lambda _, h=holder: h, text, flags=flags)
+    return text
+
+
+#: An absolute path in a reason, of either system: from a slash no word, dot or
+#: placeholder precedes, or a drive or a share, to the next space or quote.
+_ABSOLUTE = re.compile(r"(?<![\w.<>~/\\-])(?:/|[A-Za-z]:[\\/]|\\\\)[^\s'\"]*")
+#: A placeholder a reason holds, which no later replacement reaches into.
+_PLACEHOLDER = re.compile(r"(<[^<>\s]*>)")
+#: The shortest environment value a reason is searched for: a shorter one, as ``1`` or
+#: ``on``, is a word or a digit any reason may hold. The bound is the design's, not ruled.
+MIN_VALUE = 4
+
+
+def _base_name(path: str) -> str:
+    return re.split(r"[\\/]", path.rstrip("\\/"))[-1] or path
+
+
+def _environment() -> list[tuple[str, str]]:
+    """The process environment, read past the recording mapping, so nothing is noted."""
+    env = os.environ
+    out = []
+    for key, value in list(getattr(env, "_data", {}).items()):
+        try:
+            out.append((env.decodekey(key), env.decodevalue(value)))
+        except (AttributeError, UnicodeError, TypeError):
+            continue
+    return out
+
+
+def _environment_values() -> list[tuple[str, str]]:
+    """Each variable's name with its value, the longest first, but the recorder's own."""
+    return sorted(((_name(k), v) for k, v in _environment()
+                   if _name(k) not in OWN and len(v.strip()) >= MIN_VALUE),
+                  key=lambda nv: -len(nv[1]))
+
+
 #: The system's time zone, which belongs with the clock that RFC_0008 leaves out of scope,
 #: as the Windows registry's time-zone key does.
 _ZONES = () if os.name == "nt" else tuple(
@@ -219,6 +267,10 @@ class Recorder:
         self.lock = threading.RLock()
         self.local = threading.local()
         self.why: str | None = None
+        #: Every distinct reason the run was refused, in the order raised, the first of
+        #: which is ``why``: each ``{"process": None or a child's name, "why": text}``.
+        self.reasons: list[dict] = []
+        self._raised: set[tuple] = set()
         self.files: dict[str, str] = {}
         self.outside: dict[str, str] = {}
         self.probes: dict[str, str] = {}
@@ -246,13 +298,59 @@ class Recorder:
 
     # -- state ------------------------------------------------------------------
 
-    def refuse(self, why: str) -> None:
+    def refuse(self, why: str, process: str | None = None) -> None:
+        """Refuse the run: the first reason is ``why``, and every distinct one is kept with
+        the process that raised it, None for this one, bounded as ``why`` is
+        (COMP_REFUSAL_REASONS). Naming a reason changes nothing about storing the run."""
+        if (process, why) in self._raised:
+            return
+        self._raised.add((process, why))
+        reason = {"process": None if process is None else self.sanitize(process)[:MAX_TEXT],
+                  "why": self.sanitize(why)[:MAX_TEXT]}
         if self.why is None:
-            self.why = why
+            self.why = reason["why"]
+        if len(self.reasons) < MAX_REASONS and reason not in self.reasons:
+            self.reasons.append(reason)
+
+    def refused(self) -> bool:
+        """Whether the run is refused: from then on only reasons are noted, never inputs."""
+        return self.why is not None
 
     def quiet(self) -> bool:
-        """True while the recorder itself is at work, or once nothing more need be noted."""
-        return getattr(self.local, "busy", False) or self.why is not None
+        """True while the recorder itself is at work."""
+        return getattr(self.local, "busy", False)
+
+    def sanitize(self, text: str) -> str:
+        """A reason as a manifest holds it: the root, the home directory, the temporary
+        directory and the interpreter's prefixes replaced by their placeholders, any other
+        absolute path cut to its base name, and any environment value replaced by the
+        variable's name, so a reason holds no value (REQ_REFUSALS_NAMED)."""
+        text = _replace_paths(text, self._places())
+        text = _ABSOLUTE.sub(lambda m: _base_name(m.group(0)), text)
+        values = _environment_values()
+        parts = _PLACEHOLDER.split(text)
+        for i in range(0, len(parts), 2):  # never inside a placeholder
+            for name, value in values:
+                parts[i] = re.sub(r"(?<!\w)" + re.escape(value) + r"(?!\w)",
+                                  lambda _, name=name: f"<env:{name}>", parts[i])
+        return "".join(parts)
+
+    def _places(self) -> list[tuple[str, str]]:
+        """Each path a reason holds a placeholder for, with its placeholder."""
+        places = [(self.root, ROOT)]
+        places += [(p, PREFIX) for p in (sys.prefix, sys.exec_prefix)]
+        places += [(p, BASE_PREFIX) for p in (sys.base_prefix, sys.base_exec_prefix)]
+        env = dict(_environment())
+        places += [(env[n], HOME) for n in ("HOME", "USERPROFILE") if env.get(n)]
+        temp = [env[n] for n in ("TMPDIR", "TEMP", "TMP") if env.get(n)]
+        tempfile = sys.modules.get("tempfile")
+        if isinstance(getattr(tempfile, "tempdir", None), str):
+            temp.append(tempfile.tempdir)  # taken only when the run has computed it
+        if os.name != "nt":
+            temp += ["/tmp", "/var/tmp"]
+        places += [(p, TEMP) for p in temp]
+        return [(p, h) for p, h in places
+                if isinstance(p, str) and os.path.isabs(p) and os.path.dirname(p) != p]
 
     def placeholder(self, text: str) -> str:
         """``text`` with the root's absolute path replaced, ignoring case where the system
@@ -299,7 +397,7 @@ class Recorder:
         if absolute is None:
             return
         found = self.where(absolute)
-        if found is None:
+        if found is None or self.refused():
             return
         section, key, absolute = found
         name = "files" if section == "repo" else "outside"
@@ -323,7 +421,10 @@ class Recorder:
         return _realpath(absolute)
 
     def note(self, name: str, key: str, value) -> None:
-        """Record an input once, with when it was first seen."""
+        """Record an input once, with when it was first seen; none once the run is
+        refused."""
+        if self.refused():
+            return
         section = getattr(self, name)
         if key not in section:
             section[key] = value
@@ -339,7 +440,7 @@ class Recorder:
             absolute = self.through(absolute, "probes")
             if absolute is None:
                 return
-        found = self.where(absolute)
+        found = None if self.refused() else self.where(absolute)
         if found is not None:
             self.note("probes", found[1], kind(found[2]))
 
@@ -354,7 +455,7 @@ class Recorder:
             self.refuse("lists a directory that holds the repository")
             return
         followed = self.through(os.path.abspath(os.path.join(_getcwd(), path)), "lists")
-        found = None if followed is None else self.where(followed)
+        found = None if followed is None or self.refused() else self.where(followed)
         if found is None:
             return
         _, key, absolute = found
@@ -423,34 +524,40 @@ class Recorder:
                     origin = getattr(getattr(module, "__spec__", None), "origin", None)
                     if isinstance(origin, str) and os.path.isabs(origin):
                         self.read(origin)
-            for child, started in self.children:
-                self._merge(child, started)
+            for child, started, process in self.children:
+                self._merge(child, started, process)
             data = {"version": VERSION, "storable": self.why is None}
             if self.why is not None:
                 data["why"] = self.why
+                data["reasons"] = list(self.reasons)
             for name in SECTIONS:
                 data[name] = dict(sorted(getattr(self, name).items()))
             return data
 
-    def _merge(self, child: str, started: int) -> None:
+    def _merge(self, child: str, started: int, process: str) -> None:
+        """Take in a child's manifest: its reasons under its name, a reason its own child
+        raised under both names, and its inputs."""
         try:
             with _open(os.path.join(child, MANIFEST), encoding="utf-8") as f:
                 data = json.load(f)
         except (OSError, ValueError):
-            self.refuse("a Python child left no manifest")
+            self.refuse("a Python child left no manifest", process)
             return
         if not valid(data):
-            self.refuse("a Python child left a malformed manifest")
+            self.refuse("a Python child left a malformed manifest", process)
             return
         if not data["storable"]:
-            self.refuse(data.get("why") or "a Python child was not storable")
+            for reason in data.get("reasons") or [{"process": None, "why": data.get(
+                    "why") or "a Python child was not storable"}]:
+                inner = reason["process"]
+                self.refuse(reason["why"], process if inner is None else f"{process} > {inner}")
         try:
             with _open(os.path.join(child, MADE), encoding="utf-8") as f:
                 made = json.load(f)
             created = {str(p) for p in made["created"]}
             written = {str(p) for p in made["written"]}
         except (OSError, ValueError, KeyError, TypeError):
-            self.refuse("a Python child left no record of what it made")
+            self.refuse("a Python child left no record of what it made", process)
             return
         self._drop_made(created, written, started)
         for name in SECTIONS:
@@ -458,7 +565,8 @@ class Recorder:
                 if name == "environment" and key in self.env_set | self.child_env:
                     continue  # a variable the run set is its own, in its children too
                 if getattr(self, name).get(key, value) != value:
-                    self.refuse(f"a Python child and its parent saw {key} differently")
+                    self.refuse(f"a Python child and its parent saw {key} differently",
+                                process)
                 self.note(name, key, value)
 
     def _drop_made(self, created: set, written: set, started: int) -> None:
@@ -478,7 +586,10 @@ class Recorder:
         data = self.manifest()
         target = os.path.join(self.directory, MANIFEST)
         if os.path.exists(target):  # another process wrote here: whose reads is unknown
-            data = {**data, "storable": False, "why": "two processes recorded into one place"}
+            why = "two processes recorded into one place"
+            data = {**data, "storable": False, "why": why,
+                    "reasons": [{"process": None, "why": why},
+                                *data.get("reasons", [])][:MAX_REASONS]}
         _write(os.path.join(self.directory, MADE),
                json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
@@ -487,6 +598,8 @@ class Recorder:
 
 #: Bounds on what a manifest read from a store may hold, which is data from another run.
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
+#: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
+MAX_REASONS = 64
 _HEX = frozenset("0123456789abcdef")
 _SPECIAL = ("(namespace)", "(elsewhere)")
 
@@ -531,6 +644,17 @@ def _lookup_key(key) -> bool:
     return name.replace("-", "_").isidentifier() and _path(directory)
 
 
+def _reasons(reasons, why: str) -> bool:
+    """A refused manifest's reasons: at most MAX_REASONS, each a process, None for the
+    run's own, and a text within MAX_TEXT, the first of which is ``why``."""
+    text = lambda v: isinstance(v, str) and 0 < len(v) <= MAX_TEXT and "\0" not in v
+    return (isinstance(reasons, list) and 0 < len(reasons) <= MAX_REASONS
+            and all(isinstance(r, dict) and set(r) == {"process", "why"}
+                    and (r["process"] is None or text(r["process"])) and text(r["why"])
+                    for r in reasons)
+            and reasons[0]["why"] == why)
+
+
 def valid(data) -> bool:
     """Whether ``data`` has exactly the shape IF_MANIFEST states, within bounds: what a
     store holds came from another run, so it is checked before anything reads it. The
@@ -538,11 +662,15 @@ def valid(data) -> bool:
     every field is required."""
     if not (isinstance(data, dict) and type(data.get("version")) is int
             and data["version"] == VERSION and type(data.get("storable")) is bool
-            and set(data) <= {"version", "storable", "why", *SECTIONS}
+            and set(data) <= {"version", "storable", "why", "reasons", *SECTIONS}
             and all(isinstance(data.get(s), dict) for s in SECTIONS)):
         return False
     if "why" in data and (data["storable"] or not isinstance(data["why"], str)
                           or len(data["why"]) > MAX_TEXT):
+        return False
+    if ("why" in data) != ("reasons" in data):
+        return False
+    if "reasons" in data and not _reasons(data["reasons"], data["why"]):
         return False
     if sum(len(data[s]) for s in SECTIONS) + sum(
             len(v) if isinstance(v, list) else 0 for v in data["listings"].values()) \
@@ -889,6 +1017,8 @@ def _watch_imports(r: Recorder) -> None:
         spec = original(self, fullname, target)
 
         def note():
+            if r.refused():
+                return
             found = r.where(self.path)
             if found is None:
                 return
@@ -925,6 +1055,35 @@ def _python_child(argv: list[str]) -> str | None:
     return None
 
 
+def _child_name(argv: list[str], program: str) -> str:
+    """A Python child as its reasons name it: its executable's base name, and ``-m`` with
+    the module when it was started so; nothing else of its command."""
+    name = os.path.basename(program)
+    name = name[:-4] if name.lower().endswith(".exe") else name
+    module = None
+    options = iter(argv[1:])
+    for a in options:
+        if a in ("-c", "-") or not a.startswith("-"):
+            break
+        if a in ("-X", "-W", "--check-hash-based-pycs"):
+            next(options, None)
+            continue
+        if a.startswith("--"):
+            continue
+        rest = a[1:]
+        for i, c in enumerate(rest):
+            if c in "XWc":
+                break
+            if c == "m":
+                module = rest[i + 1:] or next(options, None)
+                break
+        if module is not None or any(c in rest for c in "XWc"):
+            break
+    if module and all(part.isidentifier() for part in module.split(".")):
+        return f"{name} -m {module}"
+    return name
+
+
 def _watch_children(r: Recorder) -> None:
     """Give each Python child a fresh directory to record into; any other program, or a
     Python child that cannot record itself, makes the run unstorable."""
@@ -944,6 +1103,7 @@ def _watch_children(r: Recorder) -> None:
             program = program_arg if program_arg is not None else argv[0]
             python = _norm(os.path.abspath(os.fsdecode(program))) == executable
         if python and not r.quiet():
+            # A child of a run already refused records too: its reasons are named.
             env = args[env_at]
             why = _python_child([os.fsdecode(a) for a in argv])
             if env is not None and ENV in env:
@@ -974,7 +1134,8 @@ def _watch_children(r: Recorder) -> None:
                     env[ENV] = child
                     args[env_at] = env
                     with r.lock:
-                        r.children.append((child, r.seq))
+                        r.children.append((child, r.seq, _child_name(
+                            [os.fsdecode(a) for a in argv], os.fsdecode(program))))
                 finally:
                     r.local.busy = False
         r.local.child, r.local.popen = python, True
@@ -1109,7 +1270,7 @@ def _recording_environ(r: Recorder, base: type) -> type:
 
     def note(self, key) -> None:
         name = _name(key)
-        if name in OWN or name in r.env_set or name in r.environment:
+        if r.refused() or name in OWN or name in r.env_set or name in r.environment:
             return
         try:
             value = base.__getitem__(self, key)
