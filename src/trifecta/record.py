@@ -6,7 +6,8 @@ directory's ``start.py``, which loads this file by its path and calls ``start`` 
 module of the run is imported. From then on the process notes, through Python's audit
 hooks and wrappers on the probing functions and ``os.environ``, every file it reads, path
 it probes, directory it lists, name the import system looks up and environment variable
-it reads, and at exit writes ``manifest.json`` into the directory. Anything it cannot
+it reads, with the fields of ``os.uname`` but the host name, which it fixes, and at exit
+writes ``manifest.json`` into the directory. Anything it cannot
 follow, from an audit event it does not list to a program other than the interpreter,
 makes the manifest unstorable: such a run is never reused, so a blind spot costs time,
 never soundness.
@@ -65,7 +66,7 @@ if "_trifecta_record" not in sys.modules:
 PTH_NAME = "00-trifecta-record.pth"
 PTH_LINE = ('import os; os.environ.get("TRIFECTA_RECORD") and exec(open(os.path.join('
             'os.environ["TRIFECTA_RECORD"], "start.py"), encoding="utf-8").read())\n')
-SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside")
+SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname")
 KINDS = ("file", "directory", "link", "absent")
 
 #: The functions the recorder itself calls, taken before any is wrapped.
@@ -218,6 +219,7 @@ class Recorder:
         self.listings: dict[str, list] = {}
         self.lookups: dict[str, str | None] = {}
         self.environment: dict[str, str | None] = {}
+        self.uname: dict[str, str] = {}
         self.env_set: set[str] = set()
         self.created: set[str] = set()   # directories the run made: nothing under them is read
         self.written: set[str] = set()   # files the run wrote, moved or removed
@@ -548,7 +550,8 @@ def valid(data) -> bool:
                     for k, v in data["listings"].items())
             and all(_lookup_key(k) and found(v) for k, v in data["lookups"].items())
             and all(name(k) and (v is None or _digest(v))
-                    for k, v in data["environment"].items()))
+                    for k, v in data["environment"].items())
+            and all(k in UNAME_FIELDS and _digest(v) for k, v in data["uname"].items()))
 
 
 # --- the events -----------------------------------------------------------------------
@@ -1120,6 +1123,45 @@ def _recording_environ(r: Recorder, base: type) -> type:
     return Recording
 
 
+#: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run
+#: (COMP_HOST_NAME, DEC_0039), in place of the machine's.
+HOST_NAME = "localhost"
+#: The ``uname`` fields a run records, each as a SHA-256: every one but the host name.
+UNAME_FIELDS = ("sysname", "release", "version", "machine")
+
+
+def uname_digests(result) -> dict[str, str]:
+    """The SHA-256 of each field of an ``os.uname`` result but the host name."""
+    return {field: hashlib.sha256(getattr(result, field).encode(
+        "utf-8", "surrogateescape")).hexdigest() for field in UNAME_FIELDS}
+
+
+def _fix_host_name(r: Recorder) -> None:
+    """``os.uname`` and ``posix.uname``, one function under two names, give the fixed host
+    name, and ``platform``'s cache is filled through them, so ``platform.node()`` gives it
+    whether or not ``platform.system()`` came first. The other fields are recorded here,
+    since what the cache holds is read with no call. On Windows there is no ``os.uname``,
+    and ``platform`` reads the host name through ``socket.gethostname``, which is refused."""
+    if not hasattr(os, "uname"):
+        return
+    import posix
+    original = posix.uname
+
+    def uname():
+        real = original()
+        return type(real)((real.sysname, HOST_NAME, real.release, real.version,
+                           real.machine))
+
+    uname.__wrapped__ = original
+    uname.__name__, uname.__doc__ = original.__name__, original.__doc__
+    os.uname = posix.uname = uname
+    r.guarded(lambda: [r.note("uname", field, digest)
+                       for field, digest in uname_digests(original()).items()])
+    import platform
+    platform._uname_cache = None
+    platform.uname()
+
+
 _recorder: Recorder | None = None
 
 
@@ -1167,6 +1209,8 @@ def start(directory: str, config: dict) -> Recorder:
     _watch_rmtree(r)
     _watch_open(r)
     _watch_scandir(r)
+    # After the import watch, so a platform module on PYTHONPATH is a lookup it records.
+    _fix_host_name(r)
     sys.addaudithook(r.hook)
     atexit.register(r.finish)
     return r

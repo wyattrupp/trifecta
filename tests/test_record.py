@@ -9,6 +9,7 @@ the virtual environment setup made.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -23,7 +24,7 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
-from trifecta import record
+from trifecta import record, store
 from trifecta import setup as setup_module
 from trifecta.testing import only_on, proves
 
@@ -369,10 +370,118 @@ class Unstorable(unittest.TestCase):
         self.assertIn("runs ", why)
 
 
+class HostName(unittest.TestCase):
+    """COMP_HOST_NAME: inside a recorded run the host name is a constant, the other
+    ``uname`` fields are recorded as hashes, and every other way to read the host's
+    identity is recorded or refused."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.root = repository(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def names(self, code: str) -> tuple[dict, list]:
+        """The manifest of a run of ``code``, and the host names it wrote to names.json."""
+        m = run(self.root, "import json, os, posix, platform\nnames = []\n"
+                + textwrap.dedent(code)
+                + "\nwith open('names.json', 'w') as f:\n    json.dump(names, f)\n")
+        return m, json.loads((self.root / "names.json").read_text(encoding="utf-8"))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_every_uname_gives_the_fixed_host_name_before_and_after_platform_system(self):
+        every = """
+            names += [os.uname().nodename, posix.uname().nodename, platform.node(),
+                      platform.uname().node, platform.uname()[1]]
+            """
+        for order in (f"{every}\nplatform.system()\n{every}",
+                      f"platform.system()\n{every}",
+                      # platform's cache emptied: filled again through the wrapper.
+                      f"platform._uname_cache = None\n{every}\nplatform.system()\n{every}"):
+            with self.subTest(order=order):
+                m, names = self.names(order)
+                self.assertTrue(m["storable"], m.get("why"))
+                self.assertTrue(names)
+                self.assertEqual(set(names), {record.HOST_NAME})
+                self.assertEqual(set(m["uname"]), set(record.UNAME_FIELDS))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_other_fields_are_held_only_as_hashes(self):
+        m, _ = self.names("platform.system(); platform.release(); platform.version()")
+        real = os.uname()
+        text = json.dumps(m)
+        for field in record.UNAME_FIELDS:
+            self.assertEqual(m["uname"][field], hashlib.sha256(getattr(real, field).encode(
+                "utf-8", "surrogateescape")).hexdigest(), field)
+        # Linux or x86_64 may occur in a path; the kernel's release and build do not.
+        for field in ("release", "version"):
+            self.assertNotIn(getattr(real, field), text, field)
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_change_to_another_field_reruns_the_module(self):
+        m, _ = self.names("platform.release()")
+        self.assertTrue(m["storable"], m.get("why"))
+        shelf = store.Store(self.tmp / "store", self.root)
+        ident = shelf.identity("tests", {"module": "tests.test_host", "leave_out": []})
+        self.assertTrue(shelf.put(ident, m, "result"))
+        lookup = lambda: shelf.lookup(ident, dict(os.environ), store.Hashes(),
+                                      lambda result: result == "result")
+        self.assertEqual(lookup(), ("result", ""))
+        real = os.uname()
+        for field in record.UNAME_FIELDS:
+            double = os.uname_result(tuple(
+                getattr(real, f) + ("-changed" if f == field else "")
+                for f in ("sysname", "nodename", "release", "version", "machine")))
+            with self.subTest(field=field), mock.patch.object(os, "uname",
+                                                              return_value=double):
+                self.assertEqual(lookup(), (None, f"uname {field}"))
+        # The host name is no input: another one matches.
+        double = os.uname_result((real.sysname, "another-host", real.release,
+                                  real.version, real.machine))
+        with mock.patch.object(os, "uname", return_value=double):
+            self.assertEqual(lookup(), ("result", ""))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_host_name_files_and_variable_are_recorded(self):
+        m = run(self.root, """
+            import os
+            for path in ("/etc/hostname", "/proc/sys/kernel/hostname"):
+                if os.path.exists(path):
+                    open(path).read()
+            os.environ.get("HOSTNAME")
+            """)
+        self.assertIn("HOSTNAME", m["environment"])
+        if not m["storable"]:
+            # A link the run did not make is refused, and named.
+            self.assertIn("/etc/hostname", m["why"])
+            return
+        self.assertIn("/proc/sys/kernel/hostname", m["outside"])
+        if os.path.exists("/etc/hostname"):
+            self.assertIn("/etc/hostname", m["outside"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_socket_gethostname_is_refused(self):
+        m = run(self.root, "import socket; socket.gethostname()")
+        self.assertFalse(m["storable"])
+        self.assertIn("host name", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_where_vale_lives_reads_nothing_of_the_host(self):
+        m = run(self.root, "from pathlib import Path\n"
+                           "from trifecta.toolchain import bin_vale\n"
+                           "bin_vale(Path('.'))\n")
+        self.assertTrue(m["storable"], m.get("why"))
+
+
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
-        "environment": {"HOME": None}, "outside": {}}
+        "environment": {"HOME": None}, "outside": {}, "uname": {"release": "0" * 64}}
 
 
 class Shape(unittest.TestCase):
@@ -387,6 +496,7 @@ class Shape(unittest.TestCase):
             {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
             {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
+            {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},
         ]
         for change in bad:
             with self.subTest(change=change):
