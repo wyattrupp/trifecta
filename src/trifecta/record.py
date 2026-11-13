@@ -132,10 +132,15 @@ MAX_DEPTH = 256
 #: examines of a path the run touched is its own work, not the run's.
 _lstat, _stat, _scandir, _getcwd, _open = os.lstat, os.stat, os.scandir, os.getcwd, io.open
 _realpath = os.path.realpath
+#: The one lock every recorder in a process takes. Each recorder's hook and wrappers run
+#: inside the other's work, as a path one resolves passes the other's wrapper of
+#: ``os.lstat`` and an event one raises reaches the other's hook: with a lock each, two
+#: threads could hold one and wait for the other.
+_LOCK = threading.RLock()
 if __name__ == MODULE and PARENT_MODULE in sys.modules:
-    _lstat, _stat, _scandir, _realpath = (getattr(sys.modules[PARENT_MODULE], name)
-                                          for name in ("_lstat", "_stat", "_scandir",
-                                                       "_realpath"))
+    _lstat, _stat, _scandir, _realpath, _LOCK = (
+        getattr(sys.modules[PARENT_MODULE], name)
+        for name in ("_lstat", "_stat", "_scandir", "_realpath", "_LOCK"))
 
 
 def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
@@ -383,7 +388,7 @@ class Recorder:
         self.ignore = [_norm(p) for p in config.get("ignore", ())] + [_norm(self.directory)]
         #: The interpreter's prefixes, as given and resolved: one source, ``_prefixes``.
         self.prefixes = _resolved_places(_prefixes())
-        self.lock = threading.RLock()
+        self.lock = _LOCK
         self.local = threading.local()
         self.why: str | None = None
         #: Every distinct reason the run was refused, in the order raised, the first of
