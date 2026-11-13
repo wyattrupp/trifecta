@@ -188,7 +188,7 @@ def _root_forms(root: str) -> tuple[str, ...]:
 
 #: The placeholders in the order a tie goes: where two places are one path, as the
 #: prefix and the base prefix outside a virtual environment, the first wins.
-_HOLDERS = ("<root>", "<prefix>", "<base_prefix>", "<home>", "<tmp>")
+_HOLDERS = (ROOT, PREFIX, BASE_PREFIX, HOME, TEMP)
 
 
 def _ordered(places: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -204,14 +204,14 @@ def _ordered(places: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def _replace_paths(text: str, places: list[tuple[str, str]]) -> str:
-    """``text`` with each path in ``places`` replaced by its placeholder where a slash or
-    the end of the text follows it, the longest first, in either slash form, ignoring case
+    """``text`` with each path in ``places`` replaced by its placeholder where no other
+    path character follows it, the longest first, in either slash form, ignoring case
     where the system does."""
     forms = [(form, holder) for path, holder in _ordered(places)
              for form in _root_forms(path)]
     flags = re.IGNORECASE if os.name == "nt" else 0
     for form, holder in sorted(forms, key=lambda fh: -len(fh[0])):
-        text = re.sub(re.escape(form) + r"(?=[\\/]|$)", lambda _, h=holder: h, text,
+        text = re.sub(re.escape(form) + r"(?![^\s'\"\\/])", lambda _, h=holder: h, text,
                       flags=flags)
     return text
 
@@ -329,18 +329,25 @@ class Recorder:
         """Refuse the run: the first reason is ``why``, and every distinct one is kept with
         the process that raised it, None for this one, bounded as ``why`` is
         (COMP_REFUSAL_REASONS). Naming a reason changes nothing about storing the run."""
-        if self.why is not None and len(self.reasons) >= MAX_REASONS:
-            return
-        if (process, why) in self._raised:
-            return
-        if len(self._raised) < MAX_RAISED:
-            self._raised.add((process, why))
-        reason = {"process": None if process is None else self.sanitize(process)[:MAX_TEXT],
-                  "why": self.sanitize(why)[:MAX_TEXT]}
-        if self.why is None:
-            self.why = reason["why"]
-        if len(self.reasons) < MAX_REASONS and reason not in self.reasons:
-            self.reasons.append(reason)
+        with self.lock:
+            if len(self.reasons) >= MAX_REASONS:
+                return  # full, and so already refused: nothing more is cleaned
+            if (process, why) in self._raised:
+                return
+            if len(self._raised) < MAX_RAISED:
+                self._raised.add((process, why))
+            try:
+                # A process is built from an executable's base name and a module name only:
+                # the value backstop is for a reason's text.
+                reason = {"process": None if process is None
+                          else self.sanitize(process, values=False)[:MAX_TEXT],
+                          "why": self.sanitize(why)[:MAX_TEXT]}
+            except Exception:  # naming a reason never raises out of the hook
+                reason = {"process": None, "why": "the recorder could not name a reason"}
+            if self.why is None:
+                self.why = reason["why"]
+            if reason not in self.reasons:
+                self.reasons.append(reason)
 
     def refused(self) -> bool:
         """Whether the run is refused: from then on only reasons are noted, never inputs."""
@@ -350,17 +357,18 @@ class Recorder:
         """True while the recorder itself is at work."""
         return getattr(self.local, "busy", False)
 
-    def sanitize(self, text: str) -> str:
+    def sanitize(self, text: str, values: bool = True) -> str:
         """A reason as a manifest holds it: the root, the home directory, the temporary
         directory and the interpreter's prefixes replaced by their placeholders, any other
         absolute path cut to its base name, and any environment value replaced by the
         variable's name, so a reason holds no value (REQ_REFUSALS_NAMED)."""
         text = _replace_paths(text, self._places())
         text = _ABSOLUTE.sub(lambda m: _base_name(m.group(0)), text)
-        values = _environment_values()
+        if not values:
+            return text
         parts = _PLACEHOLDER.split(text)
         for i in range(0, len(parts), 2):  # never inside a placeholder
-            for name, value in values:
+            for name, value in _environment_values():
                 parts[i] = re.sub(r"(?<!\w)" + re.escape(value) + r"(?!\w)",
                                   lambda _, name=name: f"<env:{name}>", parts[i])
         return "".join(parts)
@@ -370,15 +378,18 @@ class Recorder:
         the root as it is, an absolute one under the root, the interpreter's prefixes, the
         home or the temporary directory as its placeholder and the rest, and any other by
         its base name alone."""
-        if not os.path.isabs(key):
-            return key
-        n = _norm(key)
-        for path, holder in _ordered(self._places()):
-            if _under(n, _norm(path)):
-                rest = os.path.relpath(os.path.normpath(_long(key)), os.path.normpath(
-                    _long(path)))
-                return holder if rest == "." else f"{holder}/{rest.replace(os.sep, '/')}"
-        return _base_name(key)
+        try:
+            if not os.path.isabs(key):
+                return key
+            n = _norm(key)
+            for path, holder in _ordered(self._places()):
+                if _under(n, _norm(path)):
+                    rest = os.path.relpath(os.path.normpath(_long(key)), os.path.normpath(
+                        _long(path)))
+                    return holder if rest == "." else f"{holder}/{rest.replace(os.sep, '/')}"
+            return _base_name(key)
+        except Exception:  # naming a path never raises out of the hook
+            return "a path"
 
     def _places(self) -> list[tuple[str, str]]:
         """Each path a reason holds a placeholder for, with its placeholder."""
@@ -394,8 +405,9 @@ class Recorder:
         if os.name != "nt":
             temp += ["/tmp", "/var/tmp"]
         places += [(p, TEMP) for p in temp]
-        return [(p, h) for p, h in places
-                if isinstance(p, str) and os.path.isabs(p) and os.path.dirname(p) != p]
+        # A place's trailing separators are ignored, as a TMPDIR ending in a slash has.
+        places = [(p.rstrip("\\/") or p, h) for p, h in places if isinstance(p, str)]
+        return [(p, h) for p, h in places if os.path.isabs(p) and os.path.dirname(p) != p]
 
     def placeholder(self, text: str) -> str:
         """``text`` with the root's absolute path replaced, ignoring case where the system
@@ -592,6 +604,7 @@ class Recorder:
             self.refuse("a Python child left a malformed manifest", process)
             return
         if not data["storable"]:
+            # A refused manifest with no ``why`` and so no ``reasons``, which valid allows.
             for reason in data.get("reasons") or [{"process": None, "why": data.get(
                     "why") or "a Python child was not storable"}]:
                 inner = reason["process"]
@@ -1090,22 +1103,40 @@ def _watch_imports(r: Recorder) -> None:
     finder.find_spec = find_spec
 
 
-def _python_child(argv: list[str]) -> str | None:
-    """Why a child started with ``sys.executable`` cannot record itself, or None."""
+def _interpreter_options(argv: list[str]) -> tuple[str, str | None]:
+    """The one-letter options of an interpreter's command line, up to ``-c``, ``-m``, ``-``
+    or a script, and the module ``-m`` names, if any: ``-Bm kid`` and ``-mkid`` name
+    ``kid``, and a value given with ``-X`` or ``-W``, attached or not, is no option."""
+    flags = ""
     options = iter(argv[1:])
     for a in options:
-        if a in ("-c", "-m", "-") or not a.startswith("-"):
-            return None
+        if a in ("-c", "-") or not a.startswith("-"):
+            break
+        if a == "-m":
+            return flags, next(options, None)
         if a in ("-X", "-W", "--check-hash-based-pycs"):
             next(options, None)  # the option's value, in the next argument
             continue
         if a.startswith("--"):
             continue
-        for c in a[1:]:
+        rest = a[1:]
+        for i, c in enumerate(rest):
             if c in "XW":
-                break  # the rest is the option's value
-            if c == "S":
-                return "starts a Python child with -S, which runs no .pth file"
+                if i == len(rest) - 1:
+                    next(options, None)  # the value is the next argument
+                break  # or the rest of this one, as -Xutf8 has
+            if c == "c":
+                return flags, None
+            if c == "m":
+                return flags, rest[i + 1:] or next(options, None)
+            flags += c
+    return flags, None
+
+
+def _python_child(argv: list[str]) -> str | None:
+    """Why a child started with ``sys.executable`` cannot record itself, or None."""
+    if "S" in _interpreter_options(argv)[0]:
+        return "starts a Python child with -S, which runs no .pth file"
     return None
 
 
@@ -1114,28 +1145,7 @@ def _child_name(argv: list[str], program: str) -> str:
     the module when it was started so; nothing else of its command."""
     name = os.path.basename(program)
     name = name[:-4] if name.lower().endswith(".exe") else name
-    module = None
-    options = iter(argv[1:])
-    for a in options:
-        if a in ("-c", "-") or not a.startswith("-"):
-            break
-        if a in ("-X", "-W", "--check-hash-based-pycs"):
-            next(options, None)
-            continue
-        if a.startswith("--"):
-            continue
-        rest, stop = a[1:], False
-        for i, c in enumerate(rest):
-            if c in "XW":
-                break  # the rest is the option's value, as -Xutf8 has
-            if c == "c":
-                stop = True
-                break
-            if c == "m":
-                module, stop = rest[i + 1:] or next(options, None), True
-                break
-        if stop:
-            break
+    module = _interpreter_options(argv)[1]
     if module and all(part.isidentifier() for part in module.split(".")):
         return f"{name} -m {module}"
     return name
@@ -1162,13 +1172,13 @@ def _watch_children(r: Recorder) -> None:
         if python and not r.quiet():
             # A child of a run already refused records too: its reasons are named.
             env = args[env_at]
-            why = _python_child([os.fsdecode(a) for a in argv])
+            decoded = [os.fsdecode(a) for a in argv]
+            why = _python_child(decoded)
             if env is not None and ENV in env:
                 # The recorder took ENV out of the process: the run named one itself.
                 why = "starts a Python child that records into a directory of its own"
             if why:
-                with r.lock:
-                    r.refuse(why)
+                r.refuse(why)
             else:
                 r.local.busy = True
                 try:
@@ -1193,14 +1203,14 @@ def _watch_children(r: Recorder) -> None:
                     args[env_at] = env
                     with r.lock:
                         r.children.append((child, r.seq, _child_name(
-                            [os.fsdecode(a) for a in argv], os.fsdecode(program))))
+                            decoded, os.fsdecode(program))))
                 except (OSError, ValueError) as exc:
                     if not r.refused():
                         raise
-                    # A run already refused records its child only to name its reasons.
-                    with r.lock:
-                        r.refuse(f"the recorder could not prepare a Python child: "
-                                 f"{type(exc).__name__}")
+                    # A run already refused records its child only to name its reasons:
+                    # this child then starts unrecorded, and its own reasons go unnamed.
+                    r.refuse(f"the recorder could not prepare a Python child: "
+                             f"{type(exc).__name__}")
                 finally:
                     r.local.busy = False
         r.local.child, r.local.popen = python, True

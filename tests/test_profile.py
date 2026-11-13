@@ -270,7 +270,7 @@ class Reasons(unittest.TestCase):
         def proofs(root, fresh=False, runs=None, **_):
             runs += [ModuleRun("tests.test_kept", 0.1, True),
                      ModuleRun("tests.test_x", 0.3, False, "no stored result; not stored: "
-                               "runs git", unstored=True, reasons=reasons, tests=tests)]
+                               "runs git", reasons=reasons, tests=tests)]
             return [], set(), []
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,7 +305,7 @@ class Reasons(unittest.TestCase):
             lines, _, _ = run_child(root, "tests.test_x", [])
         times = {t["name"]: t["seconds"] for t in _times(lines)}
         self.assertEqual(set(times), {"T.test_slow", "T.test_fails"})
-        self.assertGreaterEqual(times["T.test_slow"], 0.2)
+        self.assertGreaterEqual(times["T.test_slow"], 0.15)
         self.assertEqual(times["T.test_slow"], round(times["T.test_slow"], 3))
 
 

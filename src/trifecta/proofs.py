@@ -522,9 +522,13 @@ class ModuleRun:
     why: str = ""
     #: For a module run and not stored for a reason named: every reason, each with its
     #: process, and each test's wall time (COMP_REFUSAL_REASONS). Only the profile reads them.
-    unstored: bool = False
-    reasons: list = field(default_factory=list)
-    tests: list = field(default_factory=list)
+    reasons: list[dict] = field(default_factory=list)
+    tests: list[dict] = field(default_factory=list)
+
+    @property
+    def unstored(self) -> bool:
+        """Run and not stored, for a reason named."""
+        return bool(self.reasons)
 
 
 def _map_lines(lines: list[str], change) -> list[str]:
@@ -622,8 +626,7 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
                 reasons = [{"process": None, "why": unstored}]
         reasons = [r for r in reasons if r.get("why")]
         return (lines, output), ModuleRun(module, seconds(time.perf_counter() - begin),
-                                          False, why[:store.MAX_WHY],
-                                          unstored=bool(reasons), reasons=reasons,
+                                          False, why[:store.MAX_WHY], reasons=reasons,
                                           tests=_times(lines) if reasons else [])
 
     # The modules run side by side, each in its own child; the results keep their order.

@@ -599,6 +599,13 @@ class HostName(unittest.TestCase):
         self.assertTrue(m["storable"], m.get("why"))
 
 
+def controlled_env() -> dict:
+    """An environment holding only what a child interpreter needs, so a reason compared
+    exactly does not depend on this machine's variables."""
+    keep = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE")
+    return {k: v for k, v in os.environ.items() if k.upper() in keep}
+
+
 def executable_name() -> str:
     """The interpreter's base name as a reason names a child: no ``.exe``."""
     name = os.path.basename(sys.executable)
@@ -628,7 +635,7 @@ class Reasons(unittest.TestCase):
             os.chdir("sub"); os.chdir("..")
             subprocess.run([sys.executable, "-E", "-m", "kid", "--secret-argument"],
                            check=True)
-            """)
+            """, env=controlled_env())
         self.assertFalse(m["storable"])
         python = executable_name()
         self.assertEqual(m["reasons"], [
@@ -648,7 +655,7 @@ class Reasons(unittest.TestCase):
             subprocess.run([sys.executable, "-m", "kid"], check=True)
             import socket; socket.gethostname()
             os.chdir("sub"); os.chdir("..")
-            """)
+            """, env=controlled_env())
         self.assertEqual(m["why"], "reads the host name")
         self.assertEqual([r["process"] for r in m["reasons"]],
                          [None, None, f"{executable_name()} -m kid",
@@ -713,11 +720,33 @@ class Reasons(unittest.TestCase):
         self.assertEqual(r.shown(os.path.join(sys.prefix, "lib", "x.py")), "<prefix>/lib/x.py")
 
     @proves("REQ_REFUSALS_NAMED")
-    def test_a_place_is_replaced_only_where_a_slash_or_the_end_follows(self):
+    def test_a_place_is_replaced_only_where_no_other_path_character_follows(self):
         r = self.recorder()
-        r.refuse(f"{self.root}less{os.sep}x and {self.root}")
+        r.refuse(f"{self.root}less{os.sep}x and {self.root} and '{self.root}' and {self.root}")
         self.assertNotIn(record.ROOT + "less", r.why)
-        self.assertTrue(r.why.endswith(f" and {record.ROOT}"), r.why)
+        self.assertTrue(r.why.endswith(
+            f"x and {record.ROOT} and '{record.ROOT}' and {record.ROOT}"), r.why)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_places_trailing_separator_is_ignored(self):
+        scratch = self.tmp / "scratch-dir"
+        env = {n: str(scratch) + os.sep for n in ("TMPDIR", "TEMP", "TMP")}
+        with mock.patch.dict(os.environ, env):
+            r = self.recorder()
+            r.refuse(f"made {scratch} and {scratch}{os.sep}x")
+            self.assertEqual(r.shown(str(scratch / "y")), "<tmp>/y")
+        self.assertEqual(r.why, f"made <tmp> and <tmp>{os.sep}x")
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_naming_a_reason_never_raises(self):
+        r = self.recorder()
+        with mock.patch.object(r, "sanitize", side_effect=RuntimeError("boom")), \
+                mock.patch.object(r, "_places", side_effect=RuntimeError("boom")):
+            r.refuse("runs git", "python -m kid")
+            self.assertEqual(r.shown(str(self.tmp / "elsewhere")), "a path")
+        self.assertEqual(r.reasons, [{"process": None,
+                                      "why": "the recorder could not name a reason"}])
+        self.assertEqual(r.why, "the recorder could not name a reason")
 
     @proves("REQ_REFUSALS_NAMED")
     def test_a_prefix_that_is_also_the_base_prefix_is_the_prefix(self):
@@ -751,10 +780,18 @@ class Reasons(unittest.TestCase):
                            (["-Wd", "-mkid"], "python -m kid"),
                            (["-c", "import kid"], "python"),
                            (["-m", "not a module"], "python"),
+                           (["-mSomeModule"], "python -m SomeModule"),
                            (["script.py", "-m", "kid"], "python")):
             with self.subTest(argv=argv):
                 self.assertEqual(record._child_name(["python", *argv],
                                                     os.path.join("bin", "python.exe")), name)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_module_named_after_m_is_no_option(self):
+        self.assertIsNone(record._python_child(["python", "-mSomeModule"]))
+        self.assertIsNone(record._python_child(["python", "-X", "S", "-c", "pass"]))
+        self.assertIsNotNone(record._python_child(["python", "-BS", "-m", "kid"]))
+        self.assertEqual(record._interpreter_options(["python", "-Bm", "kid"]), ("B", "kid"))
 
     @proves("REQ_REFUSALS_NAMED")
     def test_a_path_in_a_reason_holds_only_placeholders_or_its_base_name(self):
