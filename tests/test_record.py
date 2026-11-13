@@ -387,15 +387,16 @@ class HostName(unittest.TestCase):
         m = run(self.root, "import json, os, posix, platform\nnames = []\n"
                 + textwrap.dedent(code)
                 + "\nwith open('names.json', 'w') as f:\n    json.dump(names, f)\n")
-        return m, json.loads((self.root / "names.json").read_text(encoding="utf-8"))
+        out = self.root / "names.json"
+        names = json.loads(out.read_text(encoding="utf-8"))
+        out.unlink()  # the tree as it was, which the run probed
+        return m, names
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
     def test_every_uname_gives_the_fixed_host_name_before_and_after_platform_system(self):
-        every = """
-            names += [os.uname().nodename, posix.uname().nodename, platform.node(),
-                      platform.uname().node, platform.uname()[1]]
-            """
+        every = ("names += [os.uname().nodename, posix.uname().nodename, platform.node(), "
+                 "platform.uname().node, platform.uname()[1]]")
         for order in (f"{every}\nplatform.system()\n{every}",
                       f"platform.system()\n{every}",
                       # platform's cache emptied: filled again through the wrapper.
