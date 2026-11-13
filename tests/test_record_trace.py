@@ -344,6 +344,12 @@ LOG = '''\
 '''
 
 
+INET6 = '100 socket(AF_INET6, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_IP) = 3<socket:[2]>\n'
+BIND6 = ('100 bind(3<socket:[2]>, {{sa_family=AF_INET6, sin6_port=htons(0), '
+         'sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "{address}", &sin6_addr), '
+         'sin6_scope_id=0}}, 28) = 0\n')
+
+
 class TraceLog(TracedTree):
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     @only_on("posix")
@@ -387,10 +393,14 @@ class TraceLog(TracedTree):
     def test_what_the_trace_cannot_hold_refuses_the_run(self):
         (self.root / "docs" / "link.md").symlink_to(self.root / "docs" / "a.md")
         cases = {
-            '100 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY) = 3</proc/100/maps>':
+            # Beside what DEC_0043 allows: another entry of its own, another process's
+            # maps, and a probe of its own maps.
+            '100 openat(AT_FDCWD, "/proc/self/status", O_RDONLY) = 3</proc/100/status>':
+                "the proc entry self/status",
+            '100 openat(AT_FDCWD, "/proc/1/maps", O_RDONLY) = 3</proc/1/maps>':
+                "the proc entry another process/maps",
+            '100 stat("/proc/self/maps", {st_mode=S_IFREG|0444, ...}) = 0':
                 "the proc entry self/maps",
-            '100 openat(AT_FDCWD, "/proc/self/cgroup", O_RDONLY) = 3</proc/100/cgroup>':
-                "the proc entry self/cgroup",
             '100 openat(AT_FDCWD, "/proc/self/fd/3", O_RDONLY) = 4<ROOT/docs/a.md>':
                 "the proc entry self/fd/3",
             '100 readlink("/proc/self/cwd", "/", 4096) = 1': "the proc entry self/cwd",
@@ -406,7 +416,7 @@ class TraceLog(TracedTree):
             '100 connect(3<socket:[1]>, {sa_family=AF_UNIX, sun_path="/run/x"}, 110) = 0':
                 "makes a connection",
             '100 socket(AF_INET6, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_IP) = 3<socket:[2]>':
-                "a socket of a network family",
+                "binds to no loopback address",
             '100 socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE) = 3<socket:[3]>':
                 "a socket of a network family",
             '100 sendto(3<socket:[1]>, "x", 1, 0, {sa_family=AF_INET, '
@@ -431,6 +441,60 @@ class TraceLog(TracedTree):
                 self.assertTrue(any(why in w for w in whys(r)), whys(r))
                 self.assertEqual({reason["process"] for reason in r.reasons}, {"strace"})
 
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_what_dec_0043_allows_is_let_through_and_not_keyed(self):
+        allowed = {
+            "its own maps":
+                '100 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY) = 3</proc/100/maps>\n',
+            "its own cgroup, by its number":
+                '100 openat(AT_FDCWD, "/proc/100/cgroup", O_RDONLY|O_CLOEXEC) = '
+                '3</proc/100/cgroup>\n'
+                '100 statx(3</proc/100/cgroup>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, '
+                'STATX_ALL, 0x7ffd) = -1 ENOSYS (Function not implemented)\n',
+            "a socket bound to IPv6's loopback": INET6 + BIND6.format(address="::1"),
+            "a socket bound to IPv4's loopback":
+                '100 socket(AF_INET, SOCK_DGRAM, IPPROTO_IP) = 3<socket:[7]>\n'
+                '100 bind(3<socket:[7]>, {sa_family=AF_INET, sin_port=htons(0), '
+                'sin_addr=inet_addr("127.0.0.1")}, 16) = 0\n'
+                '100 close(3<socket:[7]>) = 0\n',
+        }
+        for name, log in allowed.items():
+            with self.subTest(name):
+                r = self.take(log)
+                self.assertEqual(whys(r), [])
+                self.assertEqual(manifest_of(r)["outside"], {})
+                self.assertEqual(manifest_of(r)["probes"], {})
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_loopback_socket_that_reaches_further_is_refused(self):
+        bound = INET6 + BIND6.format(address="::1")
+        cases = {
+            "bound elsewhere": (INET6 + BIND6.format(address="::"), "not loopback"),
+            "bound to another host": (INET6 + BIND6.format(address="2001:db8::1"),
+                                      "not loopback"),
+            "never bound": (INET6, "binds to no loopback address"),
+            "connects": (bound + '100 connect(3<socket:[2]>, {sa_family=AF_INET6, '
+                         'sin6_port=htons(80)}, 28) = 0\n', "makes a connection"),
+            "sends to an address": (bound + '100 sendto(3<socket:[2]>, "x", 1, 0, '
+                                    '{sa_family=AF_INET6, sin6_port=htons(53)}, 28) = 1\n',
+                                    "sends to an address"),
+            "sends": (bound + '100 sendmsg(3<socket:[2]>, {msg_name=NULL}, 0) = 1\n',
+                      "sends on a socket of a network family"),
+            "listens": (bound + '100 listen(3<socket:[2]>, 5) = 0\n',
+                        "listens on a socket of a network family"),
+            "accepts": (bound + '100 accept4(3<socket:[2]>, NULL, NULL, 0) = 4<socket:[9]>\n',
+                        "accepts on a socket of a network family"),
+            "a local socket bound": ('100 socket(AF_UNIX, SOCK_STREAM, 0) = 3<socket:[4]>\n'
+                                     '100 bind(3<socket:[4]>, {sa_family=AF_UNIX, '
+                                     'sun_path="MADE/s"}, 110) = 0\n', "binds a socket"),
+        }
+        for name, (log, why) in cases.items():
+            with self.subTest(name):
+                r = self.take(log)
+                self.assertTrue(any(why in w for w in whys(r)), whys(r))
+
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
     def test_strace_ended_by_a_signal_is_refused(self):
@@ -438,6 +502,63 @@ class TraceLog(TracedTree):
         self.log.write_text(LOG, encoding="utf-8")
         record._take_trace(r, record._Trace(str(self.log), str(self.root)), -9)
         self.assertEqual(whys(r), ["strace did not finish"])
+
+
+class FollowedLink(TracedTree):
+    """The one path read through a link the run did not make (DEC_0043), here a link
+    outside the repository and the run's own directories named in place of locale.alias."""
+
+    def setUp(self):
+        super().setUp()
+        etc, share = self.tmp / "etc", self.tmp / "share"
+        etc.mkdir()
+        share.mkdir()
+        self.target = etc / "locale.alias"
+        self.target.write_text("C.UTF-8 C.UTF-8\n", encoding="utf-8")
+        self.alias = share / "locale.alias"
+        self.alias.symlink_to(self.target)
+        self.other = share / "other.alias"
+        self.other.symlink_to(self.target)
+        patcher = mock.patch.object(record, "FOLLOWED_LINKS", frozenset({str(self.alias)}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def read(self, path: Path) -> record.Recorder:
+        return self.take(f'100 openat(AT_FDCWD, "{path}", O_RDONLY|O_CLOEXEC) = '
+                         f'3<{self.target}>\n')
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_its_link_and_target_are_held(self):
+        r = self.read(self.alias)
+        self.assertEqual(whys(r), [])
+        digest = record.file_hash(str(self.target))
+        self.assertEqual(r.probes[str(self.alias)], "link")
+        self.assertEqual(r.outside, {str(self.alias): digest, str(self.target): digest})
+        self.assertIsNone(self.differs(r))
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_change_to_its_content_reruns(self):
+        r = self.read(self.alias)
+        self.target.write_text("en_US en_US.UTF-8\n", encoding="utf-8")
+        self.assertEqual(self.differs(r), f"file {self.alias}")
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_change_to_its_target_reruns(self):
+        r = self.read(self.alias)
+        elsewhere = self.tmp / "etc" / "elsewhere.alias"
+        elsewhere.write_text("other\n", encoding="utf-8")
+        self.alias.unlink()
+        self.alias.symlink_to(elsewhere)
+        self.assertEqual(self.differs(r), f"file {self.alias}")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_another_file_through_a_link_is_refused(self):
+        r = self.read(self.other)
+        self.assertTrue(any("reads through a link" in w for w in whys(r)), whys(r))
 
 
 class TracePrograms(TracedTree):
@@ -516,6 +637,8 @@ class StraceTerms(TracedTree):
         final = {"PATH": path or str(self.bin)}
         if env:
             final.update(env)
+        # The process started with the environment the start inherits.
+        r.start_names = sorted(final)
         terms = {"shell": False, "preexec_fn": None, "close_fds": True, "pass_fds": (),
                  **given}
         why, trace, resolved = record._strace_start(
@@ -616,18 +739,26 @@ class StraceTerms(TracedTree):
             r = recorder(self.root, [self.made])
             r.env_set.add("SET_BY_RUN")
             record._whole_environment(r, None, dict(here))
+            names = record.names_digest(["HOME", "INHERITED", "GIVEN", "SET_BY_RUN"])
             self.assertEqual(r.environment, {"HOME": sha("/home/someone"),
-                                             "INHERITED": sha("one"), "GIVEN": sha("two")})
+                                             "INHERITED": sha("one"), "GIVEN": sha("two"),
+                                             record.NAMES: names})
             # Started with a mapping: a value the run gave is its own, and so is a variable
             # it added.
             given = {**dict(here), "GIVEN": "changed", "ADDED": "four"}
             r = recorder(self.root, [self.made])
             record._whole_environment(r, given, given)
-            self.assertEqual(set(r.environment), {"HOME", "INHERITED", "SET_BY_RUN"})
+            self.assertEqual(set(r.environment),
+                             {"HOME", "INHERITED", "SET_BY_RUN", record.NAMES})
         environ = {k: v for k, v in here if k not in record.OWN}
         self.assertIsNone(self.differs(r, environ))
         self.assertEqual(self.differs(r, {**environ, "INHERITED": "other"}),
                          "variable INHERITED")
+        # A variable that appears, or one that vanishes, reruns it too.
+        self.assertEqual(self.differs(r, {**environ, "LD_PRELOAD": "/x.so"}),
+                         "the environment's names")
+        self.assertEqual(self.differs(r, {k: v for k, v in environ.items() if k != "GIVEN"}),
+                         "the environment's names")
 
     @proves("REQ_KNOWN_PROGRAM")
     @only_on("posix")

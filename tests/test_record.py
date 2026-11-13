@@ -268,6 +268,24 @@ class Inputs(unittest.TestCase):
         self.assertNotIn("1", m["environment"].values(), "values are recorded as hashes")
 
     @proves("REQ_REUSE_SOUND")
+    def test_a_variable_that_appears_after_the_environment_was_read_whole_reruns(self):
+        # The environment the child started with, as a lookup's environment is.
+        env = {k: v for k, v in os.environ.items()
+               if k not in record.OWN and k.upper() != record.PATH_ENV}
+        m = run(self.root, "import os; dict(os.environ)", env=env)
+        self.assertEqual(m["environment"][record.NAMES], record.names_digest(
+            map(record._name, env)))
+        differs = lambda environ: store.mismatch(m, self.root, environ, store.Hashes())
+        self.assertIsNone(differs(env))
+        self.assertEqual(differs({**env, "LD_PRELOAD": "/x.so"}), "the environment's names")
+        gone = dict(env)
+        gone.pop(sorted(gone)[0])
+        self.assertIsNotNone(differs(gone))
+        # A run that reads one variable by name is keyed on that one alone.
+        m = run(self.root, "import os; os.environ.get('HOME')", env=env)
+        self.assertNotIn(record.NAMES, m["environment"])
+
+    @proves("REQ_REUSE_SOUND")
     def test_imported_module_sources_and_lookups(self):
         m = run(self.root, "import mod_here\ntry:\n    import not_here\nexcept ImportError:\n    pass")
         self.assertIn("mod_here.py", m["files"])
