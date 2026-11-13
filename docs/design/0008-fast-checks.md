@@ -83,7 +83,9 @@ directory, which its recorder makes and sets as it starts, so no `.pyc` in the t
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set
-the process environment as before; a variable the run set is its own. The locale's
+the process environment as before; a variable the run set is its own. Iterating or
+copying the mapping also records the digest of the names the process started with, so a
+variable that appears or vanishes runs the run again. The locale's
 variables, which the C library reads where the mapping cannot see, are recorded whether
 set or not. The recorder's own
 variables, `TRIFECTA_RECORD`, `TRIFECTA_RECORD_PARENT` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
@@ -249,7 +251,11 @@ mapping each path read to its SHA-256; `probes`, mapping each path probed to its
 `file`, `directory`, `link` or `absent`; `listings`, mapping each directory listed to its
 sorted entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
-path replaced, or null when it is unset; `outside`, mapping
+path replaced, or null when it is unset, and, under the key `=names`, which no
+variable's name can be, when the run read the whole environment, the SHA-256 of the
+names of the variables the process started with, sorted, joined by NUL and less the
+recorder's own, which a lookup takes again from its environment; a Python child's is its
+parent's, which records its own in its place; `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256; and
 `uname`, mapping each field of `os.uname` other than the host name (`sysname`,
 `release`, `version`, `machine`) to the SHA-256 of its value, taken when the run starts,

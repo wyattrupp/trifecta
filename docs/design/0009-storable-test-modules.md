@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -78,8 +78,11 @@ forms").
 Here and below, "the whole environment" is every variable that reaches the program,
 inherited through `env=None` or copied into its mapping, each recorded as a hash at the
 start, less the recorder's own and those whose values the run itself set, as
-{need}`DES_0008`'s recorder treats them, so a path the run made is never part of a key;
-a test starts a program with `env=None` and shows an inherited variable is recorded.
+{need}`DES_0008`'s recorder treats them, so a path the run made is never part of a key,
+with the digest of the names of the variables the process started with, which
+IF_MANIFEST states, so a variable that appears or vanishes reruns the module; a test
+starts a program with `env=None` and shows an inherited variable is recorded, and that
+one appearing reruns.
 The environment must hold `GIT_CEILING_DIRECTORIES` at the made
 directory's parent, `GIT_CONFIG_NOSYSTEM=1`, an empty `GIT_CONFIG_GLOBAL`, and `HOME`
 and `XDG_CONFIG_HOME` on directories the run made, which the tests set; any other
@@ -119,11 +122,17 @@ gives the traced command's inputs: every path read, probed or listed outside the
 own directories, each failed `open`, `stat`, `access` or `readlink` as an absence, each
 program it starts by path and SHA-256, with its `#!` interpreter, followed again, and its
 ELF interpreter, which the kernel opens with no call in the log, and the command's whole environment, which no
-trace sees read. `/dev/null` and `/dev/urandom` are allowed, and in the traced processes' own `/proc`
-entries only listing `fd` and reading the `exe` link; any other read under `/proc` or
-`/dev`, and any `connect` or socket of a network family, refuse the run. The
-traced command runs under the recorder too, so the host name it sees is the fixed one of
-COMP_HOST_NAME.
+trace sees read. `/dev/null` and `/dev/urandom` are allowed, and in the traced
+processes' own `/proc` entries, as `self` or by number, only listing `fd`, reading the
+`exe` link and, under {need}`DEC_0043`, reading `maps` and `cgroup`, none of them keyed;
+any other read under `/proc` or `/dev`, and any `connect`, refuse the run. A socket of a
+network family refuses it too, but one of `AF_INET` or `AF_INET6` that is bound to a
+loopback address and never connects, sends to an address, listens or accepts, under
+{need}`DEC_0043`. A read through a link the run did not make refuses the run, as the
+recorder's own does, but the C library's `/usr/share/locale/locale.alias`, which
+{need}`DEC_0043` names: it is recorded by the link, its target's content and the content
+the link reaches, which a lookup takes again following it. The traced command runs under
+the recorder too, so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
 `strace` and fails on a path opened, probed or listed outside its stated inputs, a
