@@ -609,7 +609,8 @@ class Recorder:
             for _ in range(MAX_CHAIN):
                 if current is wrapper or current is None:
                     break
-                current = getattr(current, "__wrapped__", None)
+                current = getattr(current, WRAPPED, None) or getattr(
+                    current, "__wrapped__", None)
             if current is not wrapper:
                 return name
         for owner, attribute, cls, name in self.mappings:
@@ -766,6 +767,8 @@ MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 MAX_REASONS = 64
 #: How many ``__wrapped__`` steps the check follows from an attribute to a wrapper.
 MAX_CHAIN = 64
+#: What a wrapper whose original ``inspect.unwrap`` must not reach names it by.
+WRAPPED = "_trifecta_wrapped"
 _HEX = frozenset("0123456789abcdef")
 _SPECIAL = ("(namespace)", "(elsewhere)")
 
@@ -1556,7 +1559,9 @@ def _fix_host_name(r: Recorder) -> None:
         return create(_Named(name, spec))
 
     create_builtin.__name__ = create.__name__
-    create_builtin.__wrapped__ = create
+    # Not ``__wrapped__``, which ``inspect.unwrap`` follows to an original that makes a
+    # fresh posix: the check that it stays in place follows this name too.
+    setattr(create_builtin, WRAPPED, create)
     r.install(_imp, "create_builtin", create_builtin, "_imp.create_builtin")
     import platform
     platform._uname_cache = None
