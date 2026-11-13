@@ -334,3 +334,19 @@ Reviewed with {need}`DES_0008`'s amendment in {need}`PLAN_0008`'s task 1. Folded
 manifest without the new sections is malformed and never reused, since a lookup requires
 every section, not read as before.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_4
+:k: 2
+:date: 2026-11-13
+:digest: 114d03f084b343c31825ae8f62a40702e94abc0c8b1e809616b5b47e1c097e46
+Four rounds, one reviewer per lens, on COMP_NESTED_RECORDER and COMP_LIFTED_REASONS as
+{need}`PLAN_0008`'s task 3 built them, the fourth narrowed to one finding past the usual
+three. Folded in: wyatt's rulings of 2026-11-13, recorded as {need}`DEC_0041` and
+{need}`DEC_0042`, and the move of `test_store_reuse`'s two tests; a write judged by where
+it lands, the prepared directory's and the prefixes'; the ways a child runs code before
+`site`, by environment, option, search path, warning filter and cache prefix, each
+refused; the search path carried in the configuration until the recorder starts, which
+the security pass found raceable; a wrapper reached only through recorders' wrappers;
+an `rmtree` callback recorded as the run's code.
+:::

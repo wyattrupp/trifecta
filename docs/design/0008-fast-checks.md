@@ -421,3 +421,13 @@ where home and the temporary directory are read; paths cut before a reason is fo
 and a place replaced only where no other path character follows; the bound reached before
 any cleaning; the design's choices labelled; a module with no reason not listed.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_9
+:k: 2
+:date: 2026-11-13
+:digest: 7ce082357bf9c981b54c53ebcb5277b57035a5dc4b27aaaf214ff1ae587ac769
+Reviewed with {need}`DES_0009`'s nested recorder in {need}`PLAN_0008`'s task 3. Folded in:
+`TRIFECTA_RECORD_PARENT` among the recorder's own variables; the store key holding both
+`.pth` files' hashes; a recorded child started without `-X pycache_prefix`.
+:::

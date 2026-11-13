@@ -135,6 +135,16 @@ document's tasks; this record marks it active, wyatt having asked on 2026-11-12 
 be run, "run in sdd", after {need}`PLAN_0007` was done.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0008_2
+:k: 2
+:date: 2026-11-13
+:digest: 5527093548db7c4c695b7df5afa26d4c25621f7c87cbe7ba16ecc5cce3e8a511
+Reviewed with {need}`DES_0009` in this plan's task 3. Folded in: task 5 moves
+`test_store_reuse`'s two tests that start a child reading the host name, as wyatt ruled
+on 2026-11-13, "Move them, in task 5 (Recommended)", and stores that module.
+:::
+
 ## As built
 
 ### Task 1 (2026-11-13)
