@@ -1,5 +1,5 @@
 ---
-status: draft
+status: active
 authors: [claude]
 created: 2026-11-11
 ---
@@ -124,5 +124,15 @@ Modules 6 and 7, and what is left of `test_adoption`. The last task, so it also 
 :::
 
 ## Review
+
+:::{review} Correctness; security
+:id: REV_PLAN_0008_1
+:k: 2
+:date: 2026-11-12
+:digest: 44f983054a914b16bba475e9d2668dace49a4372edbbbb80de09753c283c86b9
+The reviews recorded as {need}`REV_RFC_0009_5` and {need}`REV_RFC_0009_6` covered this
+document's tasks; this record marks it active, wyatt having asked on 2026-11-12 that it
+be run, "run in sdd", after {need}`PLAN_0007` was done.
+:::
 
 ## As built
