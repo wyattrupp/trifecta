@@ -49,6 +49,11 @@ PARENT_ENV = "TRIFECTA_RECORD_PARENT"
 #: The result store's variable: like ENV, the recorder's own, so never recorded.
 STORE_ENV = "TRIFECTA_STORE"
 OWN = frozenset({ENV, PARENT_ENV, STORE_ENV})
+#: The ``environment`` key of the digest of every variable's name a run's whole environment
+#: held, less the recorder's own: no variable's name holds ``=``, so none is this key.
+#: Recorded whenever the run reads the whole environment, by iterating it or by starting a
+#: known program, so a variable that appears or vanishes runs it again.
+NAMES = "=names"
 #: The names the recorder loads under: the test's, under ENV, and the parent's, under
 #: PARENT_ENV, which loads first.
 MODULE, PARENT_MODULE = "_trifecta_record", "_trifecta_record_parent"
@@ -134,6 +139,18 @@ STRACE_FORM = ("-f", "-y", "-s", "4096", "-qq", "-o")
 #: The files under /dev a traced command may open; in its own /proc entries it may only list
 #: ``fd`` and read the ``exe`` link (COMP_KNOWN_PROGRAMS).
 TRACE_DEVICES = ("/dev/null", "/dev/urandom")
+#: What a traced process may read of its own /proc entries without a key, besides listing
+#: ``fd`` and reading the ``exe`` link (DEC_0043): CPython reads ``maps`` as it starts, and
+#: a Rust library ``cgroup`` to count the processors it may use.
+TRACE_OWN_PROC = ("maps", "cgroup")
+#: The one path a traced command may read through a link the run did not make (DEC_0043):
+#: the C library's locale aliases, held by the link's target and what the link reaches,
+#: which a lookup takes again, following the link.
+FOLLOWED_LINKS = frozenset({"/usr/share/locale/locale.alias"})
+#: The families of a socket a traced command may open: a local one, and one of the
+#: network's only when it is bound to a loopback address and never connects, sends to an
+#: address, listens or accepts (DEC_0043).
+TRACE_INET = ("AF_INET", "AF_INET6")
 #: How deep a program's ``#!`` interpreters are followed, as the kernel follows them.
 MAX_INTERPRETERS = 5
 #: Modules other than the standard library's that may be loaded when a recorder starts.
@@ -416,6 +433,9 @@ class Recorder:
         self.environment: dict[str, str | None] = {}
         self.uname: dict[str, str] = {}
         self.programs: dict[str, str] = {}
+        #: The names of the variables the process started with, which a lookup's
+        #: environment is: what NAMES digests. None until ``start`` takes them.
+        self.start_names: list[str] | None = None
         #: Each strace started and not yet reaped, by its Popen's id: what its log is taken
         #: with once it has ended.
         self.traces: dict[int, tuple] = {}
@@ -463,6 +483,15 @@ class Recorder:
                 self.why = reason["why"]
             if reason not in self.reasons:
                 self.reasons.append(reason)
+
+    def note_names(self) -> None:
+        """Record the digest of the whole environment's names, as the process started:
+        the run read every variable, so one that appears or vanishes changes what it saw.
+        What the run itself set or gave a child is its own, and is not in it."""
+        names = self.start_names
+        if names is None:
+            names = [_name(k) for k, _ in _environment()]
+        self.note("environment", NAMES, names_digest(names))
 
     def refused(self) -> bool:
         """Whether the run is refused: from then on only reasons are noted, never inputs."""
@@ -868,6 +897,11 @@ class Recorder:
         self._drop_made(created, written, started)
         for name in SECTIONS:
             for key, value in data[name].items():
+                if name == "environment" and key == NAMES:
+                    # The child's environment is this one's, as this one gave it: what
+                    # appears or vanishes is seen in this one's names.
+                    self.note_names()
+                    continue
                 if name == "environment" and key in self.env_set | self.child_env:
                     continue  # a variable the run set is its own, in its children too
                 if getattr(self, name).get(key, value) != value:
@@ -1069,7 +1103,8 @@ def valid(data) -> bool:
             and all(_path(k) and isinstance(v, list) and all(map(entry, v))
                     for k, v in data["listings"].items())
             and all(_lookup_key(k) and found(v) for k, v in data["lookups"].items())
-            and all(name(k) and (v is None or _digest(v))
+            and all((name(k) or k == NAMES) and (v is None or _digest(v))
+                    and (k != NAMES or v is not None)
                     for k, v in data["environment"].items())
             and all(k in UNAME_FIELDS and _digest(v) for k, v in data["uname"].items())
             and all(_path(k) and _digest(v) for k, v in data["programs"].items())
@@ -1856,6 +1891,8 @@ def _whole_environment(r: Recorder, env, final: dict) -> None:
         text = os.fsdecode(value) if isinstance(value, bytes) else str(value)
         r.note("environment", name, hashlib.sha256(
             r.placeholder(text).encode("utf-8", "surrogateescape")).hexdigest())
+    # And which names it held, so a variable that appears or vanishes reruns the module.
+    r.note_names()
 
 
 def _strace_start(r: Recorder, argv: list[str], program: str, env, final: dict,
@@ -1968,7 +2005,6 @@ _TRACE_FD_WRITES = {"fchmod", "fchown", "ftruncate", "ftruncate64", "fsetxattr",
                     "fremovexattr", "fallocate"}
 #: Calls that reach what no trace follows, or the network.
 _TRACE_REFUSED = {
-    "connect": "makes a connection", "bind": "binds a socket",
     "io_uring_setup": "works through io_uring, which no trace follows",
     "io_uring_enter": "works through io_uring, which no trace follows",
     "io_uring_register": "works through io_uring, which no trace follows",
@@ -1991,6 +2027,27 @@ _TRACE_RESUMED = re.compile(r"<\.\.\. ([a-z_0-9]+) resumed>")
 _UNFINISHED = " <unfinished ...>"
 _ESCAPES = {"n": b"\n", "t": b"\t", "r": b"\r", "v": b"\v", "f": b"\f", "a": b"\a",
             "b": b"\b", "\\": b"\\", '"': b'"', "'": b"'"}
+
+
+#: The calls on a socket the reader judges, before the harmless and the refused.
+_SOCKET_REACHING = {"listen": "listens", "accept": "accepts", "accept4": "accepts",
+                    "sendto": "sends", "sendmsg": "sends", "sendmmsg": "sends"}
+_SOCKET_CALLS = frozenset({"socket", "socketpair", "connect", "bind", *_SOCKET_REACHING})
+
+
+def _loopback(address: str) -> bool:
+    """Whether a socket address strace printed is a loopback one, as ``127.0.0.1`` or
+    ``::1``, or IPv4's loopback mapped into IPv6."""
+    import ipaddress
+    m = re.search(r'(?:inet_addr|inet_pton)\((?:AF_INET6?, )?"([^"]+)"', address)
+    if m is None:
+        return False
+    try:
+        ip = ipaddress.ip_address(m.group(1))
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return ip.is_loopback or mapped is not None and mapped.is_loopback
 
 
 class _Unreadable(Exception):
@@ -2102,6 +2159,9 @@ class _TraceReader:
         self.cloning: dict[int, str] = {}
         self.pending: dict[int, str] = {}
         self.seen: set = set()
+        #: Each socket of a network family opened, by the path -y gives it, and whether it
+        #: was bound to a loopback address.
+        self.inet: dict[str, bool] = {}
 
     def take(self, path: str) -> None:
         with _open(path, "rb") as f:
@@ -2109,6 +2169,8 @@ class _TraceReader:
                 self.line(raw.decode("utf-8", "surrogateescape").rstrip("\n"))
         if self.pending:
             raise _Unreadable("a call that never ended")
+        if not all(self.inet.values()):
+            self.r.refuse("opens a socket of a network family it binds to no loopback address")
 
     # -- lines --
 
@@ -2215,8 +2277,11 @@ class _TraceReader:
         if who.isdigit() and rest[:1] == ["task"]:
             rest = rest[2:]
         own = who in ("self", "thread-self") or who.isdigit() and int(who) in self.cwd
-        allowed = (rest == ["fd"] and op in ("list", "directory")
-                   or rest == ["exe"] and op == "readlink")
+        # The fd directory opened for reading, as subprocess opens it with no O_DIRECTORY,
+        # gives nothing but its listing.
+        allowed = (rest == ["fd"] and op in ("list", "directory", "read")
+                   or rest == ["exe"] and op == "readlink"
+                   or len(rest) == 1 and rest[0] in TRACE_OWN_PROC and op == "read")
         if not (own and allowed):
             # A process's own entries by "self", another's never by its number, which
             # differs in every run.
@@ -2231,6 +2296,9 @@ class _TraceReader:
         self.known(pid)
         r = self.r
         ok = not result.startswith(("-1", "?"))
+        if name in _SOCKET_CALLS:
+            self.socket(name, args, result, ok)
+            return
         if name in TRACE_HARMLESS:
             return
         if name in _CLONES:
@@ -2241,12 +2309,6 @@ class _TraceReader:
             return
         if name in _TRACE_REFUSED:
             r.refuse(_TRACE_REFUSED[name])
-        elif name in ("socket", "socketpair"):
-            if not args or args[0] not in ("AF_UNIX", "AF_LOCAL"):
-                r.refuse("opens a socket of a network family")
-        elif name in ("sendto", "sendmsg", "sendmmsg"):
-            if "sa_family=" in ",".join(args):
-                r.refuse("sends to an address")
         elif name in _TRACE_OPENS:
             self.open(pid, name, args, result, ok)
         elif name in _TRACE_STATS:
@@ -2298,6 +2360,38 @@ class _TraceReader:
         else:
             r.refuse(f"makes a call the recorder does not list: {name}")
 
+    def socket(self, name: str, args: list[str], result: str, ok: bool) -> None:
+        """A socket's calls: a local one is the command's own; one of a network family is
+        let through only bound to a loopback address, and never connecting, sending to an
+        address, listening or accepting (DEC_0043)."""
+        r = self.r
+        key = _fd_path(args[0])[1] if args else None
+        if name in ("socket", "socketpair"):
+            family = args[0] if args else ""
+            if family in ("AF_UNIX", "AF_LOCAL"):
+                return
+            if name == "socket" and family in TRACE_INET:
+                opened = _fd_path(result)[1] if ok else None
+                if ok and opened is None:
+                    raise _Unreadable("a socket strace did not name")
+                if opened is not None:
+                    self.inet[opened] = False
+                return
+            r.refuse("opens a socket of a network family")
+        elif name == "connect":
+            r.refuse("makes a connection")
+        elif name == "bind":
+            if key not in self.inet:
+                r.refuse("binds a socket")
+            elif not _loopback(args[1] if len(args) > 1 else ""):
+                r.refuse("binds a socket to an address that is not loopback")
+            else:
+                self.inet[key] = self.inet[key] or ok
+        elif name in ("sendto", "sendmsg", "sendmmsg") and "sa_family=" in ",".join(args):
+            r.refuse("sends to an address")
+        elif key in self.inet and name in _SOCKET_REACHING:
+            r.refuse(f"{_SOCKET_REACHING[name]} on a socket of a network family")
+
     def open(self, pid: int, name: str, args: list[str], result: str, ok: bool) -> None:
         dirfd, at, flags_at = _TRACE_OPENS[name]
         path = self.path(pid, args, dirfd, at)
@@ -2312,9 +2406,10 @@ class _TraceReader:
         opened = _fd_path(result)[1] if ok else None
         if ok and opened is None:
             raise _Unreadable("an open strace did not name")
+        # Judged before anything examines it: a status of a device, as /dev/urandom, would
+        # read it as a file.
+        op = "write" if writes else "directory" if "O_DIRECTORY" in flags else "read"
         for place in dict.fromkeys(p for p in (path, opened) if p is not None):
-            directory = "O_DIRECTORY" in flags or ok and kind(place) == "directory"
-            op = "write" if writes else "directory" if directory else "read"
             if self.special(place, op):
                 return
         if writes:
@@ -2325,9 +2420,27 @@ class _TraceReader:
             else:
                 self.probe(path, follows)
         elif ok and "O_PATH" not in flags and kind(opened) == "file":
-            self.once(("read", path), lambda: self.r.read(path))
+            if path in FOLLOWED_LINKS and kind(path) == "link":
+                self.once(("followed", path), lambda: self.followed(path))
+            else:
+                self.once(("read", path), lambda: self.r.read(path))
         else:
             self.probe(path, follows)
+
+    def followed(self, path: str) -> None:
+        """A read of one of FOLLOWED_LINKS through its link: the link is held as one, its
+        target by its content, and the path by what the link reaches, which a lookup takes
+        again following it (DEC_0043)."""
+        r = self.r
+        if r.refused() or r.where(path) is None:
+            return
+        digest = _program_hash(path)
+        if digest is None:
+            r.refuse(f"reads {r.shown(path)} through a link to what is no file")
+            return
+        r.note("probes", path, "link")
+        r.note("outside", path, digest)
+        r.read(_realpath(path))
 
     def listing(self, args: list[str]) -> None:
         path = _fd_path(args[0])[1] if args else None
@@ -2691,7 +2804,11 @@ def _recording_environ(r: Recorder, base: type) -> type:
             r.placeholder(value).encode("utf-8", "surrogateescape")).hexdigest()
 
     def note_all(self) -> None:
-        r.guarded(lambda: [note(self, k) for k in list(base.__iter__(self))])
+        def every():
+            for k in list(base.__iter__(self)):
+                note(self, k)
+            r.note_names()  # a variable added later changes what the run saw
+        r.guarded(every)
 
     class Recording(base):
         def __getitem__(self, key):
@@ -2728,6 +2845,12 @@ def _recording_environ(r: Recorder, base: type) -> type:
 
     Recording.__name__ = base.__name__
     return Recording
+
+
+def names_digest(names) -> str:
+    """The SHA-256 of a set of variables' names, sorted, the recorder's own left out."""
+    return hashlib.sha256("\0".join(sorted(set(names) - OWN)).encode(
+        "utf-8", "surrogateescape")).hexdigest()
 
 
 def uname_digests(result) -> dict[str, str]:
@@ -2855,6 +2978,8 @@ def start(directory: str, config: dict) -> Recorder:
     _bind_long()
     r = _recorder = Recorder(directory, config)
     _restore_search_path(config)
+    # The names the process starts with, its search path put back: a lookup's environment.
+    r.start_names = sorted({_name(k) for k, _ in _environment()} - OWN)
     _started_clean(r, config)
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.

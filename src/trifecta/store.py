@@ -208,7 +208,9 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
         if hashes.file(at(key)) != digest:
             return f"file {key}"
     for key, digest in manifest["outside"].items():
-        if hashes.file(key) != digest:
+        # The one path read through a link the run did not make is taken following it.
+        now = hashes.program(key) if key in record.FOLLOWED_LINKS else hashes.file(key)
+        if now != digest:
             return f"file {key}"
     for key, digest in manifest["programs"].items():
         if hashes.program(key if os.path.isabs(key) else at(key)) != digest:
@@ -226,6 +228,10 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
             return f"import {key}"
     hold = placeholder(root)
     for name, digest in manifest["environment"].items():
+        if name == record.NAMES:
+            if record.names_digest(map(record._name, environ)) != digest:
+                return "the environment's names"
+            continue
         value = _get(environ, name)
         now = None if value is None else _sha(
             hold(value).encode("utf-8", "surrogateescape"))
