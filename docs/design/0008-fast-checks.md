@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Fast checks
@@ -83,9 +83,12 @@ directory the run creates, so no `.pyc` in the tree is read or written; at the e
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set
-the process environment as before; a variable the run set is its own. The recorder's own
+the process environment as before; a variable the run set is its own. The locale's
+variables, which the C library reads where the mapping cannot see, are recorded whether
+set or not. The recorder's own
 variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
-directory the run or one of its children created is not an input; the run's own control
+directory the run or one of its children created is not an input, and neither is that
+directory as an entry of a listing; the run's own control
 files, such as the test child's channel and plan, are not either.
 
 Children: a Python child the run starts with `sys.executable` records itself. The
@@ -145,7 +148,8 @@ runs it fresh, as `TRIFECTA_PROOF_CACHE` is removed today.
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
 The test stage runs each proof module it chose in a child of its own, under the recorder,
-and stores the module's records and its manifest; reading the
+the children side by side, as many at once as the machine has processors, and stores the
+module's records and its manifest; reading the
 declarations, matching results to them and judging them run every time, on the stored
 records or the fresh ones alike, against every module's name. A module is looked up by
 its own identity, so a fixture that adds a test module runs that module, and reuses every
@@ -153,20 +157,35 @@ other whose manifest holds neither the new file nor a lookup the new name answer
 `_content_key` and its claim that no test reads `docs/` go. {need}`DES_0004`'s
 COMP_TEST_PROOFS, which states one child for every module, is amended to one child per
 module, with its rules on the child's `os.name` and its end record holding per child.
+One path skips the store: the fixture runner's control keeps what its modules reported,
+and a copy whose fixture neither expects `REQ_PROVEN_BY_TEST` nor leaves its `tests/` or
+`src/` different from the base's in any byte, file or name judges those reports in place
+of running its modules (wyatt, 2026-11-11: "Yes, do those first"). No manifest is matched
+there: a copy whose mutation changes only what a test reads elsewhere, such as `docs/` or
+the lock, is judged on the control's reports, so {need}`REQ_REUSE_SOUND` holds for the
+store and not for this path. A run with `--fresh` takes nothing from it.
 :::
 
 :::{component} Build reuse
 :id: COMP_BUILD_REUSE
+:spec: src/trifecta/build.py#def run_build
 :satisfies: REQ_REUSE_SCOPED
 :constrained_by: DEC_0030
-The Sphinx stage runs `python -m trifecta.record sphinx` with the same arguments, which
-starts the recorder and then Sphinx in the same process, after the clean of `docs/_build`,
-so nothing under the build directory is an input. It stores the build's standard error
-and exit status, with the root replaced by a placeholder, and the output directory
-`docs/_build/html` as one archive, without `.doctrees`. A match restores the directory,
-refusing any member that is absolute, holds `..` or is a link, and puts the root back
-into the stored error stream before `from_sphinx` reads it, so the findings and their
-locations are those a fresh build gives. A fixture that changes no file the build read,
+The Sphinx stage runs `python -m trifecta.record sphinx` with the same options, which
+runs Sphinx in the process the recorder already watches, from `docs/`, since Sphinx
+changes into the configuration's directory to read `conf.py`. It runs after the clean,
+which empties `docs/_build` of all but the profiles and the store and leaves the
+directory in place, so the build sees the same tree whether a run before it left one or
+not, and nothing under the build directory is an input. It stores the build's standard
+error and exit status, with the root replaced by a placeholder, and the output directory
+`docs/_build/html` as one archive, without `.doctrees`, within the store's bound on an
+entry. A match restores the directory, refusing the whole archive, before writing any of
+it, when any member is absolute, holds `..`, is a link, names a Windows device or
+repeats another's name but for case, or it would unpack past a bound, and then builds
+instead; it unpacks beside the output directory and moves it into place whole. A build
+whose error stream already holds a placeholder is not stored. The build runs with `-P`,
+so nothing in `docs/` shadows a module; it puts the root back into the stored error stream before
+`from_sphinx` reads it, so the findings and their locations are those a fresh build gives. A fixture that changes no file the build read,
 such as one that edits the root `requirements.lock` or a test, restores the control's
 build; a change to any file of the package, its setup script and lock included, changes
 the identity and builds again.
@@ -175,19 +194,30 @@ the identity and builds again.
 :::{component} CI cache
 :id: COMP_CI_CACHE
 :constrained_by: DEC_0031
+:spec: .github/workflows/check.yml#name: Store
 In both jobs of the check workflow: setup runs in a virtual environment, so the recorder's
 `.pth` file has somewhere to go. `actions/cache/restore` and `actions/cache/save`, pinned
-by SHA, keep pip's downloaded archives and setup's Vale archive under a key holding
-`runner.os` and the hash of both locks and the setup script; `bin/` is never cached, and
-setup checks the Vale archive's SHA-256 before every extraction. The check step runs with
-`--fresh`, in the Makefile and the Windows job alike. In push runs on main, the fixture
-step starts from an empty store named in `TRIFECTA_STORE`, so every result in it was run
-by that commit, and uploads the store it wrote as an artifact named for `runner.os`. In pull request runs, a step finds the latest successful run of
-`.github/workflows/check.yml` whose event is `push` and whose branch is main in this
-repository and downloads that run's store artifact by its run ID, which needs
-`actions: read`, and the fixture step runs with `TRIFECTA_STORE` set to it; nothing a pull
-request run writes is ever read by another run. A last step that always runs uploads
-`docs/_build/profile/` and appends `trifecta profile` tables to the job summary.
+by SHA, keep pip's downloaded archives, under `PIP_CACHE_DIR`, and setup's Vale archive,
+which setup keeps under `TRIFECTA_DOWNLOADS` when that names a directory, under a key
+holding `runner.os` and the hash of both locks and the setup script; `bin/` is never
+cached. Setup checks the Vale archive's SHA-256 before every extraction, a kept one as a
+downloaded one, and downloads again in place of a kept archive with another hash; pip
+checks every archive against the lock's hashes. The check step runs with `--fresh`, in
+the Makefile and the Windows job alike. The fixture runner runs the control with the store
+`TRIFECTA_STORE` names, when set, and the copies with a copy of it taken after the
+control, so the results of mutated trees never prune the unmutated tree's from the store
+CI keeps. In push runs on main, the fixture step starts from an empty store named in
+`TRIFECTA_STORE`, so every result in it was run by that commit, and uploads the store,
+which holds the control's results, as an artifact named for `runner.os`. In pull request
+runs, a step finds the latest successful run of `.github/workflows/check.yml` whose event
+is `push` and whose branch is main in this repository, takes it only when its commit is on
+main's first-parent chain, since a tag named main gives the same branch and a merged
+branch's commits are on main without main ever having been at them, and downloads that
+run's store artifact by its run ID, which needs `actions: read`; the fixture step runs
+with `TRIFECTA_STORE` set to it. Where there is no such run, its commit is not on that
+chain or it has no artifact, the store starts empty. No result a pull request run writes
+is ever read by another run. A last step that always runs uploads `docs/_build/profile/`
+and appends `trifecta profile` tables to the job summary.
 :::
 
 ## Interfaces
@@ -277,4 +307,39 @@ repository; the environment key holds the site directories' entries; entries are
 a store reached through a link or holding a tracked file is not used, and a result is
 stored with the root replaced, only from a child that reported its end. Two rounds, one
 reviewer per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_4
+:k: 2
+:date: 2026-11-11
+:digest: 63f7d7ba6d9f3cd6ebe19260ecbff7a5c83ac9a2a72d801e944d6a4594891ab3
+{need}`PLAN_0007` task 4: the build runs from `docs/` with `-P` after a clean that leaves
+`docs/_build` in place; a restore refuses device names and names repeated but for case,
+unpacks beside the output and moves it into place; a directory the run made is no entry
+of a listing, and the locale's variables are recorded set or not. One round, one reviewer
+per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_5
+:k: 2
+:date: 2026-11-11
+:digest: deeb9951fe9160f3cf4d5918eaf5d39918c4ba909d06056c3a1123cc99b974bd
+COMP_PROOF_REUSE: the modules run side by side, and the fixture runner's path that
+takes the control's reports is named, with what it does not match. Three rounds,
+one reviewer per lens, with the code that builds it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_6
+:k: 2
+:date: 2026-11-12
+:digest: 1c0deb94234679f4e2f80d21dc7de135d6b7d8ea0afd21366070ce8e27c059b7
+{need}`PLAN_0007` task 5: setup keeps the Vale archive under `TRIFECTA_DOWNLOADS` and
+checks it as a download; the fixture copies share a copy of the named store, so CI keeps
+the control's results; a pull request takes main's store only from a push run whose
+commit is on main's first-parent chain. Three rounds, one reviewer per lens, with the
+workflow and the code that builds it, the last after the rebase onto the control's kept
+reports.
 :::

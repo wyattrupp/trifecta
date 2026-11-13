@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 authors: [claude]
 created: 2026-11-10
 ---
@@ -74,9 +74,9 @@ Replaces today's cache, keyed on every file but `docs/`, with one keyed on what 
 :gate: The tests show that a change to a document, to `docs/conf.py`, or to a module the build imported runs the build again, that a change to the root `requirements.lock` or to a test restores the stored build and a change to a package file builds again, that the check's findings and their locations are the same either way, including a failed build's, in a copy at another path, and that an archive member that is absolute, holds `..` or is a link is refused; the fixture runner gives the same findings for every fixture with `--fresh` and without.
 The second stage the profile measured.
 
-- [ ] **4.1** Run the Sphinx build under the recorder through `python -m trifecta.record sphinx`, and store and restore its warnings and output directory as COMP_BUILD_REUSE states.
-- [ ] **4.2** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED.
-- [ ] **4.3** Record in the As built entry the profiles before and after.
+- [x] **4.1** Run the Sphinx build under the recorder through `python -m trifecta.record sphinx`, and store and restore its warnings and output directory as COMP_BUILD_REUSE states.
+- [x] **4.2** Add the tests, declared for REQ_REUSE_SOUND and REQ_REUSE_SCOPED.
+- [x] **4.3** Record in the As built entry the profiles before and after.
 :::
 
 :::{task} CI cache
@@ -85,10 +85,10 @@ The second stage the profile measured.
 :gate: In both CI jobs, a second run of the same commit restores setup's downloads and setup still checks every hash; a push run on main runs the fixtures from an empty store and uploads it; a pull request's run fetches that store by the run ID of main's latest successful push run of `.github/workflows/check.yml`, never a pull request run from a branch named main, and saves no cache entry holding results; the check step runs with `--fresh`; the fixture step's profile shows which results were reused.
 The last task, so it also closes the design.
 
-- [ ] **5.1** Have setup keep the Vale archive and check its SHA-256 before every extraction, and cache pip's downloaded archives and that archive in both jobs with `actions/cache/restore` and `actions/cache/save`, pinned by SHA, never `bin/`.
-- [ ] **5.2** Run the check step with `--fresh`, in the Makefile and the Windows job; in push runs on main, run the fixtures from an empty store and upload it, named for `runner.os`; in pull request runs, add `actions: read` and fetch main's store by run ID.
-- [ ] **5.3** Record in the As built entry both jobs' times from the workflow and from the profile, before and after, for a pull request that changes only a document and one that changes a test.
-- [ ] **5.4** Mark DES_0008 implemented, check that every requirement of RFC_0008 has its proving test, and review this plan's As built k=2.
+- [x] **5.1** Have setup keep the Vale archive and check its SHA-256 before every extraction, and cache pip's downloaded archives and that archive in both jobs with `actions/cache/restore` and `actions/cache/save`, pinned by SHA, never `bin/`.
+- [x] **5.2** Run the check step with `--fresh`, in the Makefile and the Windows job; in push runs on main, run the fixtures from an empty store and upload it, named for `runner.os`; in pull request runs, add `actions: read` and fetch main's store by run ID.
+- [x] **5.3** Record in the As built entry both jobs' times from the workflow and from the profile, before and after, for a pull request that changes only a document and one that changes a test.
+- [x] **5.4** Mark DES_0008 implemented, check that every requirement of RFC_0008 has its proving test, and review this plan's As built k=2.
 :::
 
 ## Review
@@ -361,3 +361,163 @@ the modules never stored are most of the time. CI reused 470 of 1,386 module run
 Linux and 706 on Windows. This is the measured baseline the later tasks are compared
 with; it was merged on wyatt's ruling (2026-11-11): "we're establishing a measured
 baseline here. keep going".
+
+### Task 4 (2026-11-11)
+
+The build is `trifecta.build`: the Sphinx stage runs `python -m trifecta.record sphinx`
+from `docs/`, with `-B`, `-P` and an empty `pycache_prefix`, since Sphinx changes into the
+configuration's directory to read `conf.py` and the recorder refuses any other change of
+working directory; `-P` keeps a module in `docs/` from shadowing Sphinx. A recorded build
+of this repository is storable: 66 files, 87 probes, 6 listings and 165 lookups, none
+outside the repository. The store holds the exit status, the error stream with the root
+replaced, and `docs/_build/html` as a zip without `.doctrees`, 0.8 MB here. A restore
+checks every member from the archive's directory before reading any, refusing the whole
+archive for a member that is absolute, holds `..`, is a link, names a Windows device or
+repeats another's name but for case, or past 256 MB or 50,000 members; it unpacks beside
+the output and moves it into place, and a refusal or failure builds instead.
+
+Two changes the build needed to match itself:
+- The clean emptied `docs/_build` but removed it when nothing in it was kept, so the
+  build probed it absent on one run and present on the next. It now leaves the directory
+  in place.
+- The build lists `docs/_build` after making `html` in it. The recorder now leaves a
+  directory the run made out of a listing, as it already left out what is under one.
+
+DES_0008's COMP_BUILD_REUSE and COMP_RECORDER are amended, reviewed k=2 (correctness;
+security) and stamped REV_DES_0008_4.
+
+Review, one round. Applied:
+- Correctness:
+  - the locale's variables, which `setlocale` reads in C where the mapping cannot see,
+    are recorded set or not, so one set after a build was stored makes it build again;
+  - a result whose output already holds the store's placeholder is not stored;
+  - a restore unpacks beside the output, so a failure leaves no page behind;
+  - tests for a new and a removed document and a variable `conf.py` reads.
+- Security:
+  - Windows device names, names ending in a dot or space, and names repeated but for
+    case are refused;
+  - a link or junction under the output is neither followed nor archived;
+  - members are checked before any is read, then streamed, with a bound on their number;
+  - `-P`.
+
+Dropped:
+- **A root that is a prefix of a sibling's path.** As in task 3: a miss or a rewritten
+  sibling path in a message, never a reuse.
+- **A junction planted at `docs/_build/html` between the clean and the restore.** It
+  needs a writer running beside the check, which could change the package itself;
+  outside DES_0008's trust model.
+
+`trifecta fixtures` and `trifecta fixtures --fresh` both pass 123/123 locally, with
+identical standard output. The stored run restored the build in 35 of 123 copies; the
+others change a document, `conf.py` or the package, and build.
+
+The first CI run failed one test on Linux: with no locale variable set, Python sets
+`LC_CTYPE` itself (PEP 538), so the test of an unset locale now turns that off with
+`PYTHONCOERCECLOCALE=0`, and checks that a set variable is recorded.
+
+Profiles before and after, in seconds, after from CI run 43120488764:
+
+| Run | Check | Tests | Sphinx | Fixture step | Fixtures summed |
+|---|---:|---:|---:|---:|---:|
+| Linux CI, before (task 3) | 66.2 | 60.4 | 4.9 | 2825.6 | 10908 |
+| Linux CI, after | 78.3 | 72.4 | 5.2 | 3593.0 | 13895 |
+| Windows CI, before (task 3) | 63.4 | 56.0 | 4.7 | 2672.4 | 10229 |
+| Windows CI, after | 122.7 | 111.5 | 8.3 | 5265.8 | 20254 |
+| Local, after, built | 125.6 | 111.0 | 11.2 | 2104.3 | 42638 |
+| Local, after, restored | 67.9 | 62.4 | 0.3 | | |
+| Local, after, `--fresh` | | | | 2286.9 | 46802 |
+
+Locally the copies spent 2,336 s in the build, against 3,208 s with `--fresh`. The local
+fixture times ran beside another session's work, so they compare only with each other.
+
+In CI the build was restored in 44 of 123 copies on each system, at 0.12 s on Linux and
+0.44 s on Windows. A build run under the recorder costs more than one without it: 7.85 s
+became 9.02 s on Linux and 8.49 s became 13.74 s on Windows, means over the copies that
+built. Summed over the copies, the build fell from 965 s to 717 s on Linux and rose from
+1,044 s to 1,105 s on Windows.
+
+The fixture step is slower on both systems, and the build is not why. This task's own
+test module, `test_build_reuse`, starts recorded children of its own, so it is never
+stored and every copy runs it: 4,852 s of the Linux sum and 8,903 s of the Windows one.
+Without it the sums would be 9,043 s and 11,351 s. It joins the modules RFC_0009 proposes
+to make storable. As with task 3, the times are recorded, not judged, on wyatt's ruling
+(2026-11-11): "we're establishing a measured baseline here. keep going".
+
+### Task 5 (2026-11-12)
+
+Both jobs cache pip's downloaded archives and setup's Vale archive under one key per
+system. The push run on main that followed this task's merge, CI run 43324206942, found
+no entry and saved one; both probe pull requests, #36 and #37, restored it, and setup
+checked every hash as before. Setup took 8 to 14 s with the cache and 9 to 16 s without
+it: the downloads were never the cost.
+
+The same push run started the fixtures from an empty store and uploaded it, about 0.85 MB
+for each system, holding the control's results. Each probe fetched it by that run's ID.
+Two probe pull requests measured the after: #36 adds a comment to `docs/index.md`, #37
+adds one to `tests/test_store.py`. Neither is merged.
+
+Times in seconds. The job and the check step are the workflow's; check, tests, the
+fixture step, control and summed are the profile's. Before is PR #34's run 43171407888, which
+changed the package and the tests, so no run changes only a document before this task.
+
+| Run | Job | Check step | Check | Tests | Fixture step | Control | Summed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Linux, before (#34) | 1839 | 49 | 48.4 | 39.8 | 1770.9 | 47.1 | 6819 |
+| Linux, #35, no store | 2461 | 67 | 65.6 | 54.8 | 2364.4 | 64.6 | 9134 |
+| Linux, main, empty store | 1836 | 48 | 47.5 | 39.3 | 1766.0 | 47.2 | 6816 |
+| Linux, after, document | 2404 | 63 | 62.6 | 52.1 | 2312.0 | 63.1 | 8930 |
+| Linux, after, test | 2447 | 64 | 63.4 | 52.5 | 2363.0 | 53.8 | 9168 |
+| Windows, before (#34) | 2800 | 85 | 83.6 | 69.0 | 2675.5 | 80.4 | 10140 |
+| Windows, #35, no store | 2830 | 80 | 80.1 | 65.8 | 2694.3 | 81.1 | 10148 |
+| Windows, main, empty store | 1625 | 51 | 50.9 | 41.4 | 1538.2 | 48.4 | 5804 |
+| Windows, after, document | 2806 | 81 | 79.7 | 65.7 | 2678.1 | 79.9 | 10134 |
+| Windows, after, test | 2799 | 82 | 81.2 | 66.2 | 2674.0 | 84.5 | 10108 |
+
+The check step runs with `--fresh` and reuses nothing, so it measures the runner: the same
+work took 48 s and 67 s on Linux, 51 s and 85 s on Windows. Single runs compare only
+within that spread.
+
+Main's store saved almost nothing. It holds 7 stages for Linux and 9 for Windows. In the
+document probe the control reused one of the 7 on Linux, `test_release`, and rebuilt the
+documents, which the probe changed; in the test probe it reused `test_release` and the
+build. On Windows it reused none: no identity in main's store matched the probe's. The
+Linux misses name two causes, and the stored manifests show a third:
+- **The whole environment.** The test children start with a copy of the environment, so
+  a manifest holds every variable, among them `ACTIONS_ORCHESTRATION_ID`,
+  `GITHUB_RUN_ID` and `RUNNER_NAME`, which differ in every run. Four modules missed on
+  `ACTIONS_ORCHESTRATION_ID`.
+- **Temporary paths.** A stored manifest probes a temporary directory under a random
+  name, which no later run can match.
+- **Compiled files.** `test_store` missed on
+  `src/trifecta/__pycache__/__init__.cpython-312.pyc`, compiled again in every checkout.
+
+The Windows identities differ for a reason not found; the environment key holds the
+installed distributions' records and the site directories' listings, either of which may
+differ between runs. Within one run the copies already share the control's store, so
+main's store can save only the control's time. The control's modules run side by side, and
+`test_build_reuse`, never stored, sets the tests stage's time: 51 s on Linux and 65 s on
+Windows. So the most main's store can save is the build, 9 s on Linux and 11 s on Windows;
+the Linux control took 63.1 s in the document probe and 53.8 s in the test probe, which
+restored it. The time is in the modules never stored, which RFC_0009 takes up, and
+in the runner. The results are recorded, not fixed, on wyatt's ruling (2026-11-12):
+"Record and close".
+
+Review, k=2 (correctness; security), three rounds, the last after the rebase onto PR #34.
+Applied: the NamedStore test's stub takes PR #34's `tests` argument and checks that the
+control's kept reports stay out of the named store; the first-parent check reads all of
+`git rev-list`'s output, since the Windows job's `pipefail` turns `grep -q`'s early exit
+into a SIGPIPE failure once main's history passes about 64 KB. Security found nothing to
+change; it noted that a manifest holds an unsalted SHA-256 of each variable's value in
+an artifact anyone can download, so a secret later put in the fixture step's environment
+could be guessed from its hash. None is there now: `GH_TOKEN` is set only on the Store
+step.
+
+Every requirement of {need}`RFC_0008` has its proving test: `REQ_PROFILED` in
+`tests/test_profile.py`, `REQ_REUSE_SOUND` in six modules and `REQ_REUSE_SCOPED` in three.
+{need}`DES_0008` is implemented.
+
+This entry was reviewed k=2 (correctness; security), one round, against the downloaded
+profiles, stores and workflow logs. Applied: setup's range with the cache, the fixture
+step's source, the count of stored stages, the temporary paths as read from the manifests,
+and the bound on what main's store can save, which first summed modules that run side by
+side.

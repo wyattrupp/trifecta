@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -519,19 +520,6 @@ class ModuleRun:
     why: str = ""
 
 
-#: The placeholders a stored result holds for the root's path, in each of its spellings,
-#: so a copy elsewhere reads back its own path as a fresh run would have written it.
-ROOT_POSIX = "<root:posix>"
-
-
-def _swap(text: str, pairs: list[tuple[str, str]]) -> str:
-    for old, new in pairs:
-        if old:
-            text = re.sub(re.escape(old), lambda _: new, text,
-                          flags=re.IGNORECASE if os.name == "nt" else 0)
-    return text
-
-
 def _map_lines(lines: list[str], change) -> list[str]:
     out = []
     for line in lines:
@@ -549,15 +537,13 @@ def _map_lines(lines: list[str], change) -> list[str]:
 def _portable(lines: list[str], output: str, root: Path) -> dict:
     """A child's result as stored: the root's path replaced in every string of every
     record and in the output."""
-    pairs = [(str(root), record.ROOT), (root.as_posix(), ROOT_POSIX)]
-    change = lambda text: _swap(text, pairs)
+    change = lambda text: store.portable(text, root)
     return {"lines": _map_lines(lines, change), "output": change(output)}
 
 
 def _restored(result: dict, root: Path) -> tuple[list[str], str]:
     """A stored result with this root's path put back, in the spelling it was stored in."""
-    pairs = [(ROOT_POSIX, root.as_posix()), (record.ROOT, str(root))]
-    change = lambda text: _swap(text, pairs)
+    change = lambda text: store.restored(text, root)
     return _map_lines(result["lines"], change), change(result["output"])
 
 
@@ -586,45 +572,73 @@ def run_modules(root: Path, modules: list[str], leave_out: list[str],
     if unused:
         shelf = None
     environ = child_environment()
-    out: dict[str, tuple[list[str], str]] = {}
-    runs: list[ModuleRun] = []
+
     # Every child gets every test to leave out: a test one module inherits from another
     # is left out by the module that defines it.
-    for module in modules:
+    def one(module: str) -> tuple[tuple[list[str], str], ModuleRun]:
         begin = time.perf_counter()
         ident = (shelf.identity("tests", {"module": module, "leave_out": leave_out})
                  if shelf else "")
         why = "fresh" if fresh else ((unused or "not recorded") if shelf is None else "")
         if shelf is not None and not fresh:
-            # Hashes are taken afresh for each module: a child before it may have
+            # Hashes are taken afresh for each module: a child beside it may have
             # changed the tree.
             found, why = shelf.lookup(ident, environ, store.Hashes(), _result_ok)
             if found is not None:
-                out[module] = _restored(found, root)
-                runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), True))
-                continue
+                return (_restored(found, root),
+                        ModuleRun(module, seconds(time.perf_counter() - begin), True))
         lines, output, manifest = run_child(root, module, leave_out, child,
                                             recorded=shelf is not None)
-        out[module] = (lines, output)
         if manifest is not None:
             if not manifest["storable"]:
                 why = f"{why}; not stored: {manifest.get('why', '')}"
+            elif any(store.holds_placeholder(t) for t in (*lines, output)):
+                why = f"{why}; not stored: its output holds the store's placeholder"
             elif not _ended(lines):
                 why = f"{why}; not stored: the child ended before it reported every result"
             else:
                 shelf.put(ident, manifest, _portable(lines, output, root))
-        runs.append(ModuleRun(module, seconds(time.perf_counter() - begin), False,
-                              why[:store.MAX_WHY]))
+        return (lines, output), ModuleRun(module, seconds(time.perf_counter() - begin),
+                                          False, why[:store.MAX_WHY])
+
+    # The modules run side by side, each in its own child; the results keep their order.
+    with ThreadPoolExecutor(max_workers=max(1, min(len(modules), os.cpu_count() or 1))) as pool:
+        done = list(pool.map(one, modules))
+    out = {module: result for module, (result, _) in zip(modules, done)}
+    runs = [run for _, run in done]
     return out, runs
+
+
+def _taken(given: Path | None, root: Path, modules: list[str], leave_out: list[str],
+           ) -> dict[str, tuple[list[str], str]] | None:
+    """What a kept file says the modules reported, with this root's path put back; None
+    when it names other modules or other tests left out, or cannot be read: then the
+    modules run."""
+    if given is None:
+        return None
+    try:
+        data = json.loads(given.read_text(encoding="utf-8"))
+        if data["modules"] != modules or data["leave_out"] != leave_out:
+            return None
+        results = [data["results"][m] for m in modules]
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return None
+    if not all(_result_ok(r) for r in results):
+        return None
+    return {m: _restored(r, root) for m, r in zip(modules, results)}
 
 
 def check_proofs(root: Path, child: list[str] | None = None, fresh: bool = False,
                  runs: list | None = None, store_at: Path | None = None,
+                 given: Path | None = None, keep: Path | None = None,
                  ) -> tuple[list[Finding], set[str], list[str]]:
     """Findings, the requirements proven, and the declarations counted without running.
     ``fresh`` reuses no stored result; ``runs``, when given, receives a ModuleRun for each
     proof module; ``store_at`` names the store, which a run with ``child`` or inside a
-    recorded process otherwise does without."""
+    recorded process otherwise does without. ``keep`` writes what the modules reported;
+    ``given`` takes it from such a file in place of running them, when it names the same
+    modules and the same tests left out: the fixture runner gives the control's to a copy
+    whose mutation leaves the tests and the package alone."""
     reading = read_tests(root)
     findings = list(reading.findings)
     if not reading.modules and not reading.methods:
@@ -654,8 +668,18 @@ def check_proofs(root: Path, child: list[str] | None = None, fresh: bool = False
 
     leave_out = sorted(m.key for m in reading.methods.values() if m.runs and other(m))
     # Stored records and fresh ones are judged alike, by the running package.
-    results, module_runs = run_modules(root, reading.modules, leave_out, child, fresh,
-                                       store_at)
+    taken = None if fresh else _taken(given, root, reading.modules, leave_out)
+    if taken is not None:
+        print(f"tests: taken from {given}, not run", file=sys.stderr)
+        results = taken
+        module_runs = [ModuleRun(m, 0.0, True, "given") for m in reading.modules]
+    else:
+        results, module_runs = run_modules(root, reading.modules, leave_out, child, fresh,
+                                           store_at)
+    if keep is not None:
+        kept = {m: _portable(*results[m], root) for m in reading.modules}
+        keep.write_text(json.dumps({"modules": reading.modules, "leave_out": leave_out,
+                                    "results": kept}), encoding="utf-8")
     if runs is not None:
         runs.extend(module_runs)
     records: list[dict] = []

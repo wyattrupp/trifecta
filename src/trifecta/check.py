@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from . import PROJECT
+from .build import run_build
 from .check_graph import check as check_graph, load_needs
 from .check_lifecycle import check as check_lifecycle
 from .ext import DOC_TYPES
@@ -260,7 +261,8 @@ def _real_dir(path: Path) -> bool:
 
 
 def clean_build(root: Path) -> None:
-    """Remove ``docs/_build`` but the directories in KEPT."""
+    """Empty ``docs/_build`` but the directories in KEPT, and leave it in place: the build
+    sees the same tree whether a run before it left one or not (COMP_BUILD_REUSE)."""
     build = root / "docs" / "_build"
     if not _real_dir(build):
         # A link or a junction is removed, never followed; rmtree refuses either.
@@ -270,6 +272,10 @@ def clean_build(root: Path) -> None:
                 remove(build)
             except OSError:
                 pass
+        try:
+            build.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         return
     for entry in build.iterdir():
         if entry.name in KEPT and _real_dir(entry):
@@ -283,21 +289,21 @@ def clean_build(root: Path) -> None:
                 pass
 
 
-def run_sphinx(root: Path) -> list[Finding]:
-    docs = root / "docs"
+def run_sphinx(root: Path, fresh: bool = False,
+               stage: dict | None = None) -> list[Finding]:
+    """The build's findings, from a fresh build or a stored one (COMP_BUILD_REUSE); when
+    ``stage`` is given, whether it was reused and why not."""
     # --no-color: Sphinx forces ANSI colour when CI=true or on Windows, even into a pipe,
     # and the escape codes break the line-anchored patterns in findings.py.
     # A clean output directory: stale pages of deleted documents would otherwise be linted.
-    # What the build never writes is kept: the profiles beside it (DEC_0029).
+    # What the build never writes is kept: the profiles and the store beside it (DEC_0029).
     clean_build(root)
-    proc = subprocess.run(
-        [sys.executable, "-m", "sphinx", "-q", "-E", "-n", "-W", "--keep-going", "--no-color",
-         "-b", "html", str(docs), str(docs / "_build" / "html")],
-        capture_output=True, encoding="utf-8", errors="replace", env=CHILD_ENV,
-    )
-    findings = from_sphinx(proc.stderr, root)
-    if proc.returncode != 0 and not findings:
-        findings.append(Finding("REQ_WARNINGS_FATAL", "(build)", proc.stderr.strip()[-500:]))
+    returncode, stderr, reused, why = run_build(root, fresh)
+    if stage is not None:
+        stage.update(reused=reused, why=why)
+    findings = from_sphinx(stderr, root)
+    if returncode != 0 and not findings:
+        findings.append(Finding("REQ_WARNINGS_FATAL", "(build)", stderr.strip()[-500:]))
     return findings
 
 
@@ -434,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"(default {PROFILE_DIR.as_posix()}/check.json)")
     parser.add_argument("--fresh", action="store_true",
                         help="run every stage and reuse no stored result")
+    # The fixture runner's (COMP_FIXTURE_RUNNER): the control keeps what its test modules
+    # reported, and a copy whose mutation leaves the tests and the package alone takes it.
+    parser.add_argument("--tests-to", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--tests-from", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     root = corpus_root()
     try:
@@ -445,12 +455,13 @@ def main(argv: list[str] | None = None) -> int:
     # written however the run ends, and touches neither standard output nor the exit status.
     profiler = Profiler("check")
     try:
-        return _run(root, args.base, profiler, args.fresh)
+        return _run(root, args.base, profiler, args.fresh, args.tests_from, args.tests_to)
     finally:
         write_profile(profile_path, profiler.data())
 
 
-def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) -> int:
+def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False,
+         tests_from: Path | None = None, tests_to: Path | None = None) -> int:
     stage = profiler.stage
     vale = vale_path(root).resolve()
     with stage("files"):
@@ -468,14 +479,15 @@ def _run(root: Path, base: str | None, profiler: Profiler, fresh: bool = False) 
         prefix = store_dir.relative_to(root).as_posix().casefold() + "/"
         fresh = fresh or any(f.casefold().startswith(prefix) for f in files)
     with stage("tests"):
-        proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs)
+        proof_findings, proven, unrun = check_proofs(root, fresh=fresh, runs=runs,
+                                                     given=tests_from, keep=tests_to)
         findings += proof_findings
     # Each proof module, within the test stage: whether its stored records were reused.
     for r in runs:
         profiler.stages.append({"name": f"tests: {r.module}", "seconds": r.seconds,
                                 "reused": r.reused, "why": r.why})
-    with stage("sphinx"):
-        findings += run_sphinx(root)
+    with stage("sphinx") as built:
+        findings += run_sphinx(root, fresh, built)
     needs_json = root / "docs" / "_build" / "html" / "needs.json"
     if needs_json.is_file():
         with stage("graph"):
