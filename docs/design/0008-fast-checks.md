@@ -407,3 +407,17 @@ import or through `_imp.create_builtin` with its spec's name read once, and a ne
 interpreter refused, which the security pass found open; taking a wrapper apart stated
 out of scope.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_8
+:k: 2
+:date: 2026-11-13
+:digest: 10080dad74d209c2811d25476b4005dd73b26d0fd9cb89477bac0faf8a0d91a6
+Three rounds, one reviewer per lens, on IF_MANIFEST's `reasons` and IF_PROFILE's
+unstored modules that {need}`PLAN_0008`'s task 2 added. Folded in: wyatt's ruling of
+2026-11-13 that a reason never holds a variable's value, with a backstop; the field list
+restored; the order, the rules `valid()` checks and the child's name stated as built;
+where home and the temporary directory are read; paths cut before a reason is formatted
+and a place replaced only where no other path character follows; the bound reached before
+any cleaning; the design's choices labelled; a module with no reason not listed.
+:::
