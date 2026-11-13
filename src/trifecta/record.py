@@ -106,9 +106,19 @@ HOST_NAME = "localhost"
 #: The ``uname`` fields a run records, each as a SHA-256: every one but the host name.
 UNAME_FIELDS = ("sysname", "release", "version", "machine")
 
-#: The functions the recorder itself calls, taken before any is wrapped.
-_lstat, _scandir, _getcwd, _open = os.lstat, os.scandir, os.getcwd, io.open
+#: The functions the recorder itself calls, taken before any is wrapped. The test's
+#: recorder, which loads after the parent's has wrapped them, takes the parent's: what it
+#: examines of a path the run touched is its own work, not the run's.
+_lstat, _stat, _scandir, _getcwd, _open = os.lstat, os.stat, os.scandir, os.getcwd, io.open
 _realpath = os.path.realpath
+if __name__ == MODULE and PARENT_MODULE in sys.modules:
+    _lstat, _stat, _scandir, _realpath = (getattr(sys.modules[PARENT_MODULE], name)
+                                          for name in ("_lstat", "_stat", "_scandir",
+                                                       "_realpath"))
+#: Variables that make an interpreter run code of the run's before ``site`` starts the
+#: recorder, or from another standard library, unless ``-E`` or ``-I`` is given.
+PRE_SITE = ("PYTHONPATH", "PYTHONHOME", "PYTHONPLATLIBDIR", "PYTHONSTARTUP",
+            "PYTHON_FROZEN_MODULES")
 
 
 def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
@@ -125,9 +135,16 @@ def prepare(directory: str, root: str, ignore=(), recorder: str | None = None,
     config = {"root": os.path.abspath(root),
               "recorder": os.path.abspath(recorder or __file__),
               "ignore": [os.path.abspath(p) for p in ignore],
-              "top": os.path.abspath(directory)}
+              "top": os.path.abspath(directory),
+              "prefixes": _prefixes()}
     _write(os.path.join(directory, CONFIG), json.dumps(config))
     _write(os.path.join(directory, START), PARENT_START_SOURCE if parent else START_SOURCE)
+
+
+def _prefixes() -> list[str]:
+    """This interpreter's prefixes, which a child it starts must share."""
+    return sorted({os.path.abspath(p) for p in (sys.prefix, sys.base_prefix,
+                                                sys.exec_prefix, sys.base_exec_prefix)})
 
 
 def _write(path: str, text: str) -> None:
@@ -327,6 +344,10 @@ class Recorder:
         #: The directory the chain of recorders this one belongs to was prepared in: a
         #: write under it by anything but a recorder is refused.
         self.top = _norm(config.get("top") or self.directory)
+        #: The identity of ``top``, taken when first needed, and whether each directory
+        #: a write named is ``top``, forgotten when the run renames, removes or links.
+        self._top_id = None
+        self._is_top: dict[str, bool] = {}
         #: What the recorder installed, checked at each child start and at exit: each
         #: wrapper as ``(owner, attribute, wrapper, name)``, each recording mapping of the
         #: environment as ``(owner, attribute, class, name)``, and the fixed ``uname``.
@@ -582,12 +603,65 @@ class Recorder:
         path = _text(raw)
         if path is None:
             return
-        n = _norm(os.path.abspath(os.path.join(_getcwd(), path)))
-        if _under(n, self.top):
+        joined = os.path.join(_getcwd(), path)
+        if self.in_top(joined):
             # A recorder's own writes raise no event it handles: this one is the run's,
             # which could rewrite a configuration or a manifest a recorder reads.
             self.refuse("writes into a directory the recorder prepared")
-        (self.created if directory else self.written).add(n)
+        (self.created if directory else self.written).add(_norm(os.path.abspath(joined)))
+
+    def in_top(self, path: str) -> bool:
+        """Whether ``path``, joined to the working directory with its ``..`` not yet taken
+        lexically, is in ``top`` however it is spelled: as written, once its links and
+        ``..`` are resolved, or in a directory that is ``top`` itself by its device and
+        file number, as a share, a long-path prefix or a mount reaches it."""
+        if _under(_norm(path), self.top):
+            return True
+        try:
+            resolved = _realpath(path)
+        except (OSError, ValueError):
+            resolved = os.path.abspath(path)
+        if _under(_norm(resolved), self.top):
+            return True
+        top = self.top_id()
+        if top is None:
+            return False
+        current = resolved
+        for _ in range(256):
+            if current not in self._is_top:
+                self._is_top[current] = _identity(current) == top
+            if self._is_top[current]:
+                return True
+            parent = os.path.dirname(current)
+            if parent == current:
+                return False
+            current = parent
+        return True  # deeper than any path: refused rather than walked
+
+    def top_id(self) -> tuple | None:
+        if self._top_id is None:
+            self._top_id = _identity(self.top)
+        return self._top_id
+
+    def links_into_top(self, absolute: str) -> bool:
+        """Whether ``absolute`` is a file with another name in ``top``: a hard link to a
+        manifest or a configuration a recorder wrote."""
+        try:
+            st = _stat(absolute)
+        except (OSError, ValueError):
+            return False
+        if st.st_nlink < 2 or not stat.S_ISREG(st.st_mode):
+            return False
+        mine = (st.st_dev, st.st_ino)
+        for directory, _, names in _walk(self.top):
+            if any(_identity(os.path.join(directory, n)) == mine for n in names):
+                return True
+        return False
+
+    def moved(self) -> None:
+        """Forget what each directory a write named was: the run renamed, removed or
+        linked something."""
+        self._is_top.clear()
 
     def install(self, owner, attribute: str, wrapper, name: str) -> None:
         """Put ``wrapper`` in place of ``owner.attribute``, to be checked later."""
@@ -597,17 +671,19 @@ class Recorder:
     def intact(self) -> str | None:
         """What of the recorder's own is no longer in place, or None: its audit hook, which
         must still see an event; each wrapper, which must be the attribute or be reached
-        from it through ``__wrapped__``, as another recorder's wrapper reaches it; the
-        environment's recording mappings; and the fixed ``uname``."""
+        from it through ``__wrapped__`` by way of wrappers a recorder installed, as the
+        test's recorder's reach the parent's; the environment's recording mappings; and
+        the fixed ``uname``."""
         token = object()
         self.local.audited = None
         sys.audit(CHECK_EVENT, token)
         if self.local.audited is not token:
             return "its audit hook"
+        known = {id(w) for r in _recorders(self) for _, _, w, _ in r.installed}
         for owner, attribute, wrapper, name in self.installed:
             current = getattr(owner, attribute, None)
             for _ in range(MAX_CHAIN):
-                if current is wrapper or current is None:
+                if current is wrapper or id(current) not in known:
                     break
                 current = getattr(current, WRAPPED, None) or getattr(
                     current, "__wrapped__", None)
@@ -765,6 +841,40 @@ class Recorder:
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 #: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
 MAX_REASONS = 64
+def _recorders(r: Recorder) -> list[Recorder]:
+    """``r`` and every other recorder started in this process."""
+    found = [r]
+    for name in MODULES:
+        other = getattr(sys.modules.get(name), "_recorder", None)
+        if other is not None and other is not r and hasattr(other, "installed"):
+            found.append(other)
+    return found
+
+
+def _identity(path: str) -> tuple | None:
+    """A path's device and file number, following links, or None when it is none."""
+    try:
+        st = _stat(path)
+    except (OSError, ValueError):
+        return None
+    return st.st_dev, st.st_ino
+
+
+def _walk(top: str):
+    """``os.walk`` through the recorder's own listing, not following links."""
+    stack = [top]
+    while stack:
+        directory = stack.pop()
+        try:
+            with _scandir(directory) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        names = [e.name for e in entries if not e.is_dir(follow_symlinks=False)]
+        stack += [e.path for e in entries if e.is_dir(follow_symlinks=False)]
+        yield directory, (), names
+
+
 #: How many ``__wrapped__`` steps the check follows from an attribute to a wrapper.
 MAX_CHAIN = 64
 #: What a wrapper whose original ``inspect.unwrap`` must not reach names it by.
@@ -884,6 +994,9 @@ def _open_event(r: Recorder, args) -> None:
         r.probe(path)  # whether it was there decides what the write does
     if writes:
         r.wrote(path)
+        text = _text(path)
+        if text is not None and r.links_into_top(os.path.join(_getcwd(), text)):
+            r.refuse("writes into a directory the recorder prepared")
 
 
 #: Where each event carries its directory descriptors: a path relative to a descriptor
@@ -900,8 +1013,19 @@ def _by_descriptor(r: Recorder, event: str, args) -> bool:
     return False
 
 
+def _from_top(r: Recorder, raw) -> bool:
+    """Refuse taking a file or directory out of a recorder's prepared directory: put back
+    or linked elsewhere, it could stand for what a recorder wrote."""
+    text = _text(raw)
+    r.moved()
+    if text is not None and r.in_top(os.path.join(_getcwd(), text)):
+        r.refuse("writes into a directory the recorder prepared")
+        return True
+    return False
+
+
 def _rename(r: Recorder, args) -> None:
-    if _by_descriptor(r, "os.rename", args):
+    if _by_descriptor(r, "os.rename", args) or _from_top(r, args[0]):
         return
     src, dst = args[0], args[1]
     if kind(os.path.join(_getcwd(), _text(src) or "")) == "directory":
@@ -917,6 +1041,7 @@ def _rename(r: Recorder, args) -> None:
 
 
 def _remove(r: Recorder, args) -> None:
+    r.moved()
     if _by_descriptor(r, "os.remove", args):
         return
     r.probe(args[0])
@@ -935,6 +1060,8 @@ def _mkdir(r: Recorder, args) -> None:
 
 
 def _copy(r: Recorder, args) -> None:
+    if _from_top(r, args[0]):
+        return
     r.read(args[0])
     r.wrote(args[1])
 
@@ -949,6 +1076,7 @@ def _modifying(event: str):
 
 def _symlink(r: Recorder, args) -> None:
     # Reading the link later reads its target, which the read records then.
+    r.moved()
     if not _by_descriptor(r, "os.symlink", args):
         r.wrote(args[1])
 
@@ -960,7 +1088,7 @@ def _xattr(r: Recorder, args) -> None:
 
 def _hardlink(r: Recorder, args) -> None:
     # A hard link is another name for the same content: the run reads its source.
-    if not _by_descriptor(r, "os.link", args):
+    if not _by_descriptor(r, "os.link", args) and not _from_top(r, args[0]):
         r.read(args[0])
         r.wrote(args[1])
 
@@ -1206,40 +1334,61 @@ def _watch_imports(r: Recorder) -> None:
     r.install(finder, "find_spec", find_spec, "FileFinder.find_spec")
 
 
-def _interpreter_options(argv: list[str]) -> tuple[str, str | None]:
+def _options(argv: list[str]) -> tuple[str, str | None, list[str]]:
     """The one-letter options of an interpreter's command line, up to ``-c``, ``-m``, ``-``
-    or a script, and the module ``-m`` names, if any: ``-Bm kid`` and ``-mkid`` name
-    ``kid``, and a value given with ``-X`` or ``-W``, attached or not, is no option."""
-    flags = ""
+    or a script, the module ``-m`` names, if any, and the values of its ``-X`` options:
+    ``-Bm kid`` and ``-mkid`` name ``kid``, and a value given with ``-X`` or ``-W``,
+    attached or not, is no option."""
+    flags, xs = "", []
     options = iter(argv[1:])
     for a in options:
         if a in ("-c", "-") or not a.startswith("-"):
             break
         if a == "-m":
-            return flags, next(options, None)
+            return flags, next(options, None), xs
         if a in ("-X", "-W", "--check-hash-based-pycs"):
-            next(options, None)  # the option's value, in the next argument
+            value = next(options, None)  # the option's value, in the next argument
+            if a == "-X" and value is not None:
+                xs.append(value)
             continue
         if a.startswith("--"):
             continue
         rest = a[1:]
         for i, c in enumerate(rest):
             if c in "XW":
-                if i == len(rest) - 1:
-                    next(options, None)  # the value is the next argument
-                break  # or the rest of this one, as -Xutf8 has
+                value = rest[i + 1:] or next(options, None)  # attached, or the next
+                if c == "X" and value is not None:
+                    xs.append(value)
+                break
             if c == "c":
-                return flags, None
+                return flags, None, xs
             if c == "m":
-                return flags, rest[i + 1:] or next(options, None)
+                return flags, rest[i + 1:] or next(options, None), xs
             flags += c
-    return flags, None
+    return flags, None, xs
 
 
-def _python_child(argv: list[str]) -> str | None:
-    """Why a child started with ``sys.executable`` cannot record itself, or None."""
-    if "S" in _interpreter_options(argv)[0]:
+def _interpreter_options(argv: list[str]) -> tuple[str, str | None]:
+    """The one-letter options and the module ``-m`` names, as ``_options`` reads them."""
+    return _options(argv)[:2]
+
+
+def _python_child(argv: list[str], env: dict | None = None) -> str | None:
+    """Why a child started with ``sys.executable`` cannot record itself, or None: it
+    runs no .pth file, or it can run code of the run's before ``site`` starts the
+    recorder, through a variable in ``env``, its final environment by name, that ``-E``
+    or ``-I`` does not cancel, or through ``-X frozen_modules=off``."""
+    flags, _, xs = _options(argv)
+    if "S" in flags:
         return "starts a Python child with -S, which runs no .pth file"
+    if any(x.replace(" ", "") == "frozen_modules=off" for x in xs):
+        return ("starts a Python child with -X frozen_modules=off, which can run code "
+                "before the recorder")
+    if env and not ("E" in flags or "I" in flags):
+        for name in PRE_SITE:
+            if env.get(name):
+                return (f"starts a Python child whose environment sets {name}, which can "
+                        f"run code before the recorder")
     return None
 
 
@@ -1281,7 +1430,7 @@ def _watch_children(r: Recorder) -> None:
             # The environment read past the recording mappings, so nothing is noted.
             final = {_name(k): v for k, v in (_environment() if env is None
                                               else env.items())}
-            why = _python_child(decoded)
+            why = _python_child(decoded, final)
             if why is None and PARENT_ENV in final:
                 # Only a recorder sets it, and only here, as the child starts.
                 why = f"starts a Python child whose environment already holds {PARENT_ENV}"
@@ -1301,6 +1450,7 @@ def _watch_children(r: Recorder) -> None:
                         config["ignore"] = sorted({*config.get("ignore", ()), *r.created,
                                                    *r.written})
                     config["top"] = r.config.get("top") or r.directory
+                    config["prefixes"] = _prefixes()
                     os.makedirs(child)
                     _write(os.path.join(child, CONFIG), json.dumps(config))
                     _write(os.path.join(child, START),
@@ -1359,11 +1509,29 @@ def _watch_rmtree(r: Recorder) -> None:
 
     original = shutil.rmtree
 
+    def recorded(callback):
+        """``callback`` run with the recorder listening again: it is the run's code."""
+        if not callable(callback):
+            return callback
+
+        def call(*a, **k):
+            depth, r.local.rmtree = r.local.rmtree, 0
+            try:
+                return callback(*a, **k)
+            finally:
+                r.local.rmtree = depth
+        return call
+
     def rmtree(path, *args, **kwargs):
         def note():
             r.probe(path)
             r.wrote(path, directory=True)
         r.guarded(note)
+        if len(args) > 1:  # rmtree(path, ignore_errors, onerror)
+            args = (args[0], recorded(args[1]), *args[2:])
+        for name in ("onerror", "onexc"):
+            if name in kwargs:
+                kwargs[name] = recorded(kwargs[name])
         r.local.rmtree = getattr(r.local, "rmtree", 0) + 1  # this thread's calls only
         try:
             return original(path, *args, **kwargs)
@@ -1571,6 +1739,23 @@ def _fix_host_name(r: Recorder) -> None:
 _recorder: Recorder | None = None
 
 
+def _started_clean(r: Recorder, config: dict) -> None:
+    """Refuse a process whose interpreter is not its parent's, by its prefixes, or that
+    ran a module from outside them before the recorder started, as one on PYTHONPATH
+    named ``encodings`` would."""
+    mine = sorted(_norm(p) for p in _prefixes())
+    given = config.get("prefixes")
+    if given is not None and sorted(_norm(str(p)) for p in given) != mine:
+        r.refuse("runs under prefixes other than its parent's")
+    for name, module in list(sys.modules.items()):
+        if name in MODULES:
+            continue
+        origin = getattr(getattr(module, "__spec__", None), "origin", None)
+        if isinstance(origin, str) and os.path.isabs(origin) \
+                and not any(_under(_norm(origin), p) for p in mine):
+            r.refuse(f"ran {name} from outside the interpreter before the recorder started")
+
+
 def start(directory: str, config: dict) -> Recorder:
     """Install the recorder in this process, once: the .pth file can run twice in one
     start on Windows. Loaded as PARENT_MODULE, it is the parent's recorder, which starts
@@ -1580,6 +1765,7 @@ def start(directory: str, config: dict) -> Recorder:
         return _recorder
     _bind_long()
     r = _recorder = Recorder(directory, config)
+    _started_clean(r, config)
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.
     sys.dont_write_bytecode = True
