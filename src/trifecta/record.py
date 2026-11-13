@@ -725,6 +725,17 @@ def _registry_read(r: Recorder, args) -> None:
 UNAME_MODULES = frozenset({"posix"})
 
 
+class _Named:
+    """A module spec whose name is the one value the recorder checked; every other
+    attribute is the spec's own."""
+
+    def __init__(self, name, spec):
+        self.name, self._spec = name, spec
+
+    def __getattr__(self, attribute):
+        return getattr(self._spec, attribute)
+
+
 def _import(r: Recorder, args) -> None:
     """The ``import`` event comes only for a module not in ``sys.modules``: once the
     recorder has fixed the host name, a new ``posix`` would give the real one."""
@@ -1149,8 +1160,6 @@ def _recording_environ(r: Recorder, base: type) -> type:
     return Recording
 
 
-
-
 def uname_digests(result) -> dict[str, str]:
     """The SHA-256 of each field of an ``os.uname`` result but the host name."""
     return {field: hashlib.sha256(getattr(result, field).encode(
@@ -1186,10 +1195,14 @@ def _fix_host_name(r: Recorder) -> None:
     create = _imp.create_builtin
 
     def create_builtin(spec):
+        # The name is read once and handed on as read: a spec whose name changes between
+        # two reads, or a str subclass that compares as another name, gets no new posix.
         name = getattr(spec, "name", None)
-        if name in UNAME_MODULES:
+        if type(name) is not str:
+            r.guarded(lambda: r.refuse("imports a builtin by a name that is not a str"))
+        elif name in UNAME_MODULES:
             r.guarded(lambda: r.refuse(f"imports {name} again"))
-        return create(spec)
+        return create(_Named(name, spec))
 
     create_builtin.__name__ = create.__name__
     _imp.create_builtin = create_builtin

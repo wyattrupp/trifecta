@@ -502,6 +502,57 @@ class HostName(unittest.TestCase):
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
+    def test_a_spec_whose_name_changes_gets_no_fresh_posix(self):
+        # Each spec names another module at its first read and posix after: the recorder
+        # reads the name once, so the module made is the one it checked.
+        make = ("import _imp\n"
+                "made = _imp.create_builtin(spec)\n"
+                "_imp.exec_builtin(made)\n"
+                "if hasattr(made, 'uname'):\n"
+                "    names.append(made.uname().nodename)\n")
+        specs = {
+            "property": "class Spec:\n"
+                        "    reads = 0\n"
+                        "    @property\n"
+                        "    def name(self):\n"
+                        "        self.reads += 1\n"
+                        "        return 'math' if self.reads == 1 else 'posix'\n"
+                        "    origin = 'built-in'\n",
+            "__getattr__": "class Spec:\n"
+                           "    reads = 0\n"
+                           "    def __getattr__(self, attribute):\n"
+                           "        if attribute != 'name':\n"
+                           "            raise AttributeError(attribute)\n"
+                           "        self.reads += 1\n"
+                           "        return 'math' if self.reads == 1 else 'posix'\n",
+        }
+        for variant, define in specs.items():
+            with self.subTest(variant=variant):
+                m, names = self.names(define + "spec = Spec()\n" + make)
+                self.assertLessEqual(set(names), {record.HOST_NAME},
+                                     "the real host name reached the run")
+                self.assertTrue(not m["storable"] or not names, m)
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_name_that_is_not_a_str_is_refused(self):
+        m = run(self.root, """
+            import _imp, posix
+            class Name(str):
+                __hash__ = lambda self: 1
+                __eq__ = lambda self, other: False
+            class Spec:
+                name = Name("posix")
+                origin = "built-in"
+            made = _imp.create_builtin(Spec())
+            _imp.exec_builtin(made)
+            made.uname()
+            """)
+        self.assertFalse(m["storable"])
+        self.assertIn("a name that is not a str", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
     def test_the_wrapper_hands_out_no_original(self):
         m, names = self.names(
             "import inspect\n"
