@@ -41,7 +41,8 @@ class Tree(unittest.TestCase):
             "lookups": {"./helper": None},
             "environment": {"TRIFECTA_DEMO": sha("one"), "TRIFECTA_UNSET": None},
             "outside": {},
-            "uname": {},
+            # The recorder takes every field where os.uname exists.
+            "uname": record.uname_digests(os.uname()) if hasattr(os, "uname") else {},
         }
 
     def tearDown(self):

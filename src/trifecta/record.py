@@ -220,6 +220,8 @@ class Recorder:
         self.lookups: dict[str, str | None] = {}
         self.environment: dict[str, str | None] = {}
         self.uname: dict[str, str] = {}
+        #: Whether os.uname gives the fixed host name, which a fresh posix would not.
+        self.uname_fixed = False
         self.env_set: set[str] = set()
         self.created: set[str] = set()   # directories the run made: nothing under them is read
         self.written: set[str] = set()   # files the run wrote, moved or removed
@@ -551,7 +553,9 @@ def valid(data) -> bool:
             and all(_lookup_key(k) and found(v) for k, v in data["lookups"].items())
             and all(name(k) and (v is None or _digest(v))
                     for k, v in data["environment"].items())
-            and all(k in UNAME_FIELDS and _digest(v) for k, v in data["uname"].items()))
+            and all(k in UNAME_FIELDS and _digest(v) for k, v in data["uname"].items())
+            # Where os.uname exists, the recorder takes every field at the start of a run.
+            and (not hasattr(os, "uname") or set(data["uname"]) == set(UNAME_FIELDS)))
 
 
 # --- the events -----------------------------------------------------------------------
@@ -709,6 +713,17 @@ def _registry_read(r: Recorder, args) -> None:
         r.refuse("reads the registry")
 
 
+#: The modules that hold ``uname``: imported afresh, one gives the machine's host name.
+UNAME_MODULES = frozenset({"posix"})
+
+
+def _import(r: Recorder, args) -> None:
+    """The ``import`` event comes only for a module not in ``sys.modules``: once the
+    recorder has fixed the host name, a new ``posix`` would give the real one."""
+    if r.uname_fixed and args[0] in UNAME_MODULES:
+        r.refuse(f"imports {args[0]} again")
+
+
 def _dlopen(r: Recorder, args) -> None:
     if not (args and isinstance(args[0], str) and args[0].lower() in CONSOLE_LIBRARIES):
         r.refuse("loads native code through ctypes")
@@ -745,6 +760,7 @@ HANDLERS = {
     "winreg.EnumValue": _registry_read, "winreg.QueryInfoKey": _registry_read,
     "winreg.QueryValue": _registry_read, "winreg.EnumKey": _registry_read,
     "ctypes.dlopen": _dlopen, "ctypes.dlsym": _dlsym,
+    "import": _import,
 }
 #: Registry keys a run may read: the system's time zone, which belongs with the clock
 #: that RFC_0008 leaves out of scope.
@@ -762,7 +778,7 @@ CONSOLE_FUNCTIONS = {
 #: own events.
 HARMLESS = frozenset({
     "builtins.id", "object.__getattr__", "object.__setattr__", "object.__delattr__",
-    "compile", "exec", "import", "marshal.loads", "marshal.load", "marshal.dumps",
+    "compile", "exec", "marshal.loads", "marshal.load", "marshal.dumps",
     "code.__new__", "function.__new__", "sys._getframe", "sys._getframemodulename",
     "sys._current_frames", "sys._current_exceptions", "sys.addaudithook",
     "sys.excepthook", "sys.unraisablehook", "sys.settrace", "sys.setprofile",
@@ -1123,8 +1139,9 @@ def _recording_environ(r: Recorder, base: type) -> type:
     return Recording
 
 
-#: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run
-#: (COMP_HOST_NAME, DEC_0039), in place of the machine's.
+#: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
+#: in place of the machine's (COMP_HOST_NAME). DEC_0039 rules a fixed host name; this
+#: value is the design's, not ruled.
 HOST_NAME = "localhost"
 #: The ``uname`` fields a run records, each as a SHA-256: every one but the host name.
 UNAME_FIELDS = ("sysname", "release", "version", "machine")
@@ -1152,9 +1169,10 @@ def _fix_host_name(r: Recorder) -> None:
         return type(real)((real.sysname, HOST_NAME, real.release, real.version,
                            real.machine))
 
-    uname.__wrapped__ = original
+    # The original is kept in this closure alone: a ``__wrapped__`` would hand it out.
     uname.__name__, uname.__doc__ = original.__name__, original.__doc__
     os.uname = posix.uname = uname
+    r.uname_fixed = True
     r.guarded(lambda: [r.note("uname", field, digest)
                        for field, digest in uname_digests(original()).items()])
     import platform

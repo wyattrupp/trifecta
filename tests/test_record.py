@@ -448,22 +448,48 @@ class HostName(unittest.TestCase):
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
-    def test_the_host_name_files_and_variable_are_recorded(self):
-        m = run(self.root, """
-            import os
-            for path in ("/etc/hostname", "/proc/sys/kernel/hostname"):
-                if os.path.exists(path):
-                    open(path).read()
-            os.environ.get("HOSTNAME")
-            """)
-        self.assertIn("HOSTNAME", m["environment"])
-        if not m["storable"]:
+    def test_a_read_of_etc_hostname_is_recorded(self):
+        if not os.path.lexists("/etc/hostname"):
+            self.skipTest("this system has no /etc/hostname")
+        m = run(self.root, "open('/etc/hostname').read()")
+        if os.path.islink("/etc/hostname"):
             # A link the run did not make is refused, and named.
+            self.assertFalse(m["storable"])
             self.assertIn("/etc/hostname", m["why"])
-            return
-        self.assertIn("/proc/sys/kernel/hostname", m["outside"])
-        if os.path.exists("/etc/hostname"):
+        else:
+            self.assertTrue(m["storable"], m.get("why"))
             self.assertIn("/etc/hostname", m["outside"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_read_of_the_kernels_host_name_is_recorded(self):
+        m = run(self.root, "open('/proc/sys/kernel/hostname').read()")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("/proc/sys/kernel/hostname", m["outside"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    def test_a_read_of_the_host_name_variables_is_recorded(self):
+        m = run(self.root, "import os; os.environ.get('HOSTNAME'); "
+                           "os.environ.get('COMPUTERNAME')")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("HOSTNAME", m["environment"])
+        self.assertIn("COMPUTERNAME", m["environment"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_fresh_posix_is_refused(self):
+        m = run(self.root, "import sys; del sys.modules['posix']; import posix; "
+                           "posix.uname()")
+        self.assertFalse(m["storable"])
+        self.assertIn("imports posix again", m["why"])
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_wrapper_hands_out_no_original(self):
+        m, names = self.names("import inspect\n"
+                              "names.append(inspect.unwrap(os.uname)().nodename)")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertEqual(names, [record.HOST_NAME])
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     def test_socket_gethostname_is_refused(self):
@@ -482,7 +508,8 @@ class HostName(unittest.TestCase):
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
-        "environment": {"HOME": None}, "outside": {}, "uname": {"release": "0" * 64}}
+        "environment": {"HOME": None}, "outside": {},
+        "uname": {f: "0" * 64 for f in record.UNAME_FIELDS} if hasattr(os, "uname") else {}}
 
 
 class Shape(unittest.TestCase):
@@ -507,6 +534,15 @@ class Shape(unittest.TestCase):
         # The interpreter's own _sysconfigdata module on Linux has dashes in its name.
         self.assertTrue(record.valid(
             {**GOOD, "lookups": {"./_sysconfigdata__linux_x86_64-linux-gnu": None}}))
+
+    @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_where_os_uname_exists_every_field_is_required(self):
+        self.assertTrue(record.valid(GOOD))
+        for fields in ((), ("release",), record.UNAME_FIELDS[:-1]):
+            with self.subTest(fields=fields):
+                self.assertFalse(record.valid(
+                    {**GOOD, "uname": {f: "0" * 64 for f in fields}}))
 
 
 def short_name(path: Path) -> str | None:

@@ -214,7 +214,8 @@ after each lift, on Linux and on Windows.
 {need}`DES_0008`'s IF_MANIFEST gains three sections, amended there when the first of
 them is built: `reasons`, the list of every reason a refused run was refused, beside
 `why`; `programs`, mapping each known program started to its SHA-256; and `uname`, the
-`uname` fields other than the host name, each as a SHA-256. A manifest without them is read as before.
+`uname` fields other than the host name, each as a SHA-256. A manifest without them is
+malformed, since a lookup requires every section, so it is never reused.
 
 ## Risks
 

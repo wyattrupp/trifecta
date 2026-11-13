@@ -237,7 +237,7 @@ environment variable. The profile MUST NOT be read by any rule: it is a report.
 :::{interface} Manifest
 :id: IF_MANIFEST
 :spec: src/trifecta/record.py#def valid
-:constrained_by: DEC_0028
+:constrained_by: DEC_0028, DEC_0039
 A JSON object with `version: 1`, `storable` and, when false, `why`; `files`, mapping each
 path read to its SHA-256; `probes`, mapping each path probed to its kind, `file`,
 `directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
@@ -245,11 +245,15 @@ entries, each with its kind; `lookups`, the import system's names found or not f
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
 path replaced, or null when it is unset; `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256; and
-`uname`, mapping each field of `os.uname` but the host name, `sysname`, `release`,
-`version` and `machine`, to the SHA-256 of its value, taken when the run starts where
-`os.uname` exists and empty where it does not, which a lookup takes again to match.
-Inside a recorded run, `os.uname`, `posix.uname` and `platform` give the fixed host name
-`localhost` in place of the machine's, so no manifest holds a host name.
+`uname`, mapping each field of `os.uname` other than the host name (`sysname`,
+`release`, `version`, `machine`) to the SHA-256 of its value, taken when the run starts,
+which a lookup takes again to match. Where `os.uname` exists all four are required, and
+inside a recorded run `os.uname`, `posix.uname` and `platform` give a fixed host name,
+`localhost`, the design's value, not ruled ({need}`DEC_0039` rules a fixed name); where it
+does not, `uname` is empty and `platform` reads the name through `socket.gethostname`,
+which refuses the run. No manifest holds a host name's value: a read of one through a
+file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
+`/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
 :::
@@ -260,7 +264,10 @@ The recorder sees what Python does through the audited calls and the wrapped fun
 and fails closed on the events it does not know. A read by native code that opens a file
 itself is missed in a run on Windows or macOS; the `strace` test catches it on Linux,
 where a dependency that starts doing so fails the test, and a dependency added to the lock
-is covered by the same test. A test whose result depends on the clock or on chance can be
+is covered by the same test. Native code that reads the host's identity without an
+audited call or a file open, such as the MAC address `uuid.getnode()` reads through
+`_uuid`, is missed on every system. Code that takes the recorder's wrappers apart, beyond
+a fresh import of `posix`, which is refused, stays out of scope. A test whose result depends on the clock or on chance can be
 reused with a result a fresh run would not give; the check already treats one passing run
 as a proof, so reuse adds no new assumption, only a longer life for the same one.
 
