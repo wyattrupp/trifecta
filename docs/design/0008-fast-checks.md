@@ -252,7 +252,9 @@ any rule: it is a report.
 :constrained_by: DEC_0028, DEC_0039
 A JSON object with `version: 1`, `storable` and, when false, `why` and `reasons`; `files`,
 mapping each path read to its SHA-256; `probes`, mapping each path probed to its kind,
-`file`, `directory`, `link` or `absent`; `listings`, mapping each directory listed to its
+`file`, `directory`, `link` or `absent`, or, for a link {need}`DES_0009` holds as the
+interpreter's ({need}`DEC_0045`), `link:` followed by the link's target as it reads, which
+a lookup reads again; `listings`, mapping each directory listed to its
 sorted entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
 path replaced, or null when it is unset, and, under the key `=names`, which no

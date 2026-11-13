@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -152,10 +152,13 @@ of them keyed; any other read under `/proc` or `/dev` refuses the run. A socket 
 network family refuses it, but one of `AF_INET` or `AF_INET6` bound to a loopback address
 on which the command never connects, sends, listens or accepts, under {need}`DEC_0043`;
 any `connect`, and binding a local socket, refuse it too. A read through a link the run
-did not make refuses the run, as the recorder's own does, but the C library's
-`/usr/share/locale/locale.alias`, which {need}`DEC_0043` names: it is recorded by the link,
-its target's content and the content the link reaches, which a lookup takes again following
-it. Making a link that reaches beyond what the run made refuses the run, as the
+did not make refuses the run, as the recorder's own does, but two kinds of link. One is a
+link met resolving `sys.executable`, `sys.prefix`, `sys.base_prefix` or the `home` a
+virtual environment's `pyvenv.cfg` names, which {need}`DEC_0045` holds as the
+interpreter's: it is recorded as a probe of the link with its target, which a lookup reads
+again, and followed. The other is the C library's `/usr/share/locale/locale.alias`, which
+{need}`DEC_0043` names: it is recorded by the link, its target's content and the content
+the link reaches, which a lookup takes again following it. Making a link that reaches beyond what the run made refuses the run, as the
 recorder's own does, and so does a signal, or a pidfd, to a process `strace` does not
 trace, 0, the command's own group, aside. The traced command runs under the recorder too,
 so the host name it sees is the fixed one of COMP_HOST_NAME.
