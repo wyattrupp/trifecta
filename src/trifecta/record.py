@@ -677,7 +677,14 @@ class Recorder:
         return any(_under(n, place) for place in self.places_inside())
 
     def places_inside(self) -> list[str]:
-        return [*_resolved_places([self.root]), *self.prefixes]
+        """The repository root and the prefixes; for the test's recorder in a process the
+        parent's records too, the parent's root as well, which the parent judges against:
+        the test chose this one's."""
+        roots = [self.root]
+        parent = getattr(sys.modules.get(PARENT_MODULE), "_recorder", None)
+        if __name__ == MODULE and parent is not None and hasattr(parent, "root"):
+            roots.append(parent.root)
+        return [*_resolved_places(roots), *self.prefixes]
 
     def links_into_top(self, absolute: str) -> bool:
         """Whether ``absolute`` is a file with another name in ``top``: a hard link to a
@@ -1457,8 +1464,7 @@ def _standard_names() -> frozenset:
 
 
 def _python_child(argv: list[str], env: dict | None = None, inside=None,
-                  cwd: str | None = None, prefixes: list[str] = (),
-                  search_path: bool = True) -> str | None:
+                  cwd: str | None = None, prefixes: list[str] = ()) -> str | None:
     """Why a child started with ``sys.executable`` cannot record itself, or None: it
     runs no .pth file, or it can run code of the run's before ``site`` starts the
     recorder, through a variable in ``env``, its final environment by name, that ``-E``
@@ -1484,9 +1490,7 @@ def _python_child(argv: list[str], env: dict | None = None, inside=None,
             if env.get(name):
                 return (f"starts a Python child whose environment sets {name}, which can "
                         f"run code before the recorder")
-        if search_path:
-            return _search_path_refused(_search_path(env.get(PATH_ENV), cwd), inside,
-                                        prefixes)
+        return _search_path_refused(_search_path(env.get(PATH_ENV), cwd), inside, prefixes)
     return None
 
 
@@ -1617,7 +1621,7 @@ def _watch_children(r: Recorder) -> None:
             try:
                 why = _python_child(decoded, final, r.inside,
                                     None if cwd is None else os.path.join(_getcwd(), cwd),
-                                    r.prefixes, search_path=not _under_parent())
+                                    r.prefixes)
             finally:
                 r.local.busy = False
             if why is None and PARENT_ENV in final:
@@ -1896,15 +1900,7 @@ def _started_clean(r: Recorder, config: dict) -> None:
     its own before the recorder started (DEC_0042)."""
     _same_prefixes(r, config)
     _modules_before_start(r)
-    if not _under_parent():
-        _search_path_inputs(r)
-
-
-def _under_parent() -> bool:
-    """Whether this is the test's recorder in a process the parent's records too: its
-    root is the one the test chose, and the parent's recorder judges the search path
-    against the repository's own, so the test's leaves it alone."""
-    return __name__ == MODULE and PARENT_MODULE in sys.modules
+    _search_path_inputs(r)
 
 
 def _same_prefixes(r: Recorder, config: dict) -> None:
@@ -1945,8 +1941,8 @@ def _search_path_inputs(r: Recorder) -> None:
         r.refuse(why.replace("starts a Python child whose ", "", 1))
         return
     for entry in entries:
-        if not any(_under(_norm(entry), p) for p in r.prefixes):
-            r.list(entry)
+        if _under(_norm(entry), r.nroot):
+            r.list(entry)  # one in the parent's root only, the parent's recorder lists
 
 
 def start(directory: str, config: dict) -> Recorder:

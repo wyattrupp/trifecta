@@ -183,7 +183,10 @@ than its parent's, which its directory's configuration names; when a module is l
 that is not of the standard library, the recorders' own and `__main__` aside, or one of
 the standard library's name from outside the prefixes; or when its `PYTHONPATH` fails
 the checks above, an entry swapped since its start was judged among them; and it lists
-each entry outside the prefixes, all of them in the repository, as an input. These checks
+each entry in its repository as an input. The test's recorder in a process the parent's
+records too counts the parent's repository as inside as well, since the test chose its
+own root and the parent's recorder, which judges against the repository's, lists those
+entries. These checks
 see what was loaded and what the entries hold as the recorder starts: a module that ran
 before it and then removed both its file and its entry in `sys.modules` is not found, a
 limit {need}`DEC_0042` records. A callback that `shutil.rmtree` calls on an error is
