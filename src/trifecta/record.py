@@ -186,14 +186,33 @@ def _root_forms(root: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((root, root.replace("\\", "/"))))
 
 
+#: The placeholders in the order a tie goes: where two places are one path, as the
+#: prefix and the base prefix outside a virtual environment, the first wins.
+_HOLDERS = ("<root>", "<prefix>", "<base_prefix>", "<home>", "<tmp>")
+
+
+def _ordered(places: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """``places`` the longest first, a tie going to the placeholder _HOLDERS puts first,
+    each path once."""
+    out, seen = [], set()
+    for path, holder in sorted(places, key=lambda ph: (-len(ph[0]), _HOLDERS.index(ph[1]))):
+        key = os.path.normcase(path)
+        if key not in seen:
+            seen.add(key)
+            out.append((path, holder))
+    return out
+
+
 def _replace_paths(text: str, places: list[tuple[str, str]]) -> str:
-    """``text`` with each path in ``places`` replaced by its placeholder, the longest
-    first, in either slash form, ignoring case where the system does."""
-    forms = sorted({(form, holder) for path, holder in places for form in _root_forms(path)},
-                   key=lambda fh: -len(fh[0]))
+    """``text`` with each path in ``places`` replaced by its placeholder where a slash or
+    the end of the text follows it, the longest first, in either slash form, ignoring case
+    where the system does."""
+    forms = [(form, holder) for path, holder in _ordered(places)
+             for form in _root_forms(path)]
     flags = re.IGNORECASE if os.name == "nt" else 0
-    for form, holder in forms:
-        text = re.sub(re.escape(form), lambda _, h=holder: h, text, flags=flags)
+    for form, holder in sorted(forms, key=lambda fh: -len(fh[0])):
+        text = re.sub(re.escape(form) + r"(?=[\\/]|$)", lambda _, h=holder: h, text,
+                      flags=flags)
     return text
 
 
@@ -202,9 +221,15 @@ def _replace_paths(text: str, places: list[tuple[str, str]]) -> str:
 _ABSOLUTE = re.compile(r"(?<![\w.<>~/\\-])(?:/|[A-Za-z]:[\\/]|\\\\)[^\s'\"]*")
 #: A placeholder a reason holds, which no later replacement reaches into.
 _PLACEHOLDER = re.compile(r"(<[^<>\s]*>)")
-#: The shortest environment value a reason is searched for: a shorter one, as ``1`` or
-#: ``on``, is a word or a digit any reason may hold. The bound is the design's, not ruled.
+#: The shortest environment value the backstop searches a reason for: a shorter one, as
+#: ``1`` or ``on``, is a word or a digit any reason may hold. Reasons are built from names,
+#: paths and module names only, never a value (wyatt, 2026-11-13: "Never put values in
+#: (Recommended)"); this bound is the design's, not ruled.
 MIN_VALUE = 4
+#: Values the backstop leaves alone, which any reason may hold as words.
+_WORDS = frozenset({"true", "false", "yes", "no", "on", "off", "none", "null"})
+#: How many raised reasons the recorder remembers, so one raised again is not cleaned again.
+MAX_RAISED = 1024
 
 
 def _base_name(path: str) -> str:
@@ -224,9 +249,11 @@ def _environment() -> list[tuple[str, str]]:
 
 
 def _environment_values() -> list[tuple[str, str]]:
-    """Each variable's name with its value, the longest first, but the recorder's own."""
-    return sorted(((_name(k), v) for k, v in _environment()
-                   if _name(k) not in OWN and len(v.strip()) >= MIN_VALUE),
+    """Each variable's name with its value, stripped, the longest first, but the recorder's
+    own, a value shorter than MIN_VALUE and a bare word such as ``true``."""
+    values = ((_name(k), v.strip()) for k, v in _environment())
+    return sorted(((n, v) for n, v in values
+                   if n not in OWN and len(v) >= MIN_VALUE and v.lower() not in _WORDS),
                   key=lambda nv: -len(nv[1]))
 
 
@@ -302,9 +329,12 @@ class Recorder:
         """Refuse the run: the first reason is ``why``, and every distinct one is kept with
         the process that raised it, None for this one, bounded as ``why`` is
         (COMP_REFUSAL_REASONS). Naming a reason changes nothing about storing the run."""
+        if self.why is not None and len(self.reasons) >= MAX_REASONS:
+            return
         if (process, why) in self._raised:
             return
-        self._raised.add((process, why))
+        if len(self._raised) < MAX_RAISED:
+            self._raised.add((process, why))
         reason = {"process": None if process is None else self.sanitize(process)[:MAX_TEXT],
                   "why": self.sanitize(why)[:MAX_TEXT]}
         if self.why is None:
@@ -334,6 +364,21 @@ class Recorder:
                 parts[i] = re.sub(r"(?<!\w)" + re.escape(value) + r"(?!\w)",
                                   lambda _, name=name: f"<env:{name}>", parts[i])
         return "".join(parts)
+
+    def shown(self, key: str) -> str:
+        """A path as a reason names it, before the reason is formatted: a key relative to
+        the root as it is, an absolute one under the root, the interpreter's prefixes, the
+        home or the temporary directory as its placeholder and the rest, and any other by
+        its base name alone."""
+        if not os.path.isabs(key):
+            return key
+        n = _norm(key)
+        for path, holder in _ordered(self._places()):
+            if _under(n, _norm(path)):
+                rest = os.path.relpath(os.path.normpath(_long(key)), os.path.normpath(
+                    _long(path)))
+                return holder if rest == "." else f"{holder}/{rest.replace(os.sep, '/')}"
+        return _base_name(key)
 
     def _places(self) -> list[tuple[str, str]]:
         """Each path a reason holds a placeholder for, with its placeholder."""
@@ -416,7 +461,7 @@ class Recorder:
         if kind(absolute) != "link":
             return absolute
         if self.where(absolute) is not None:
-            self.refuse(f"{what} through a link: {self.where(absolute)[1]}")
+            self.refuse(f"{what} through a link: {self.shown(self.where(absolute)[1])}")
             return None
         return _realpath(absolute)
 
@@ -565,7 +610,15 @@ class Recorder:
                 if name == "environment" and key in self.env_set | self.child_env:
                     continue  # a variable the run set is its own, in its children too
                 if getattr(self, name).get(key, value) != value:
-                    self.refuse(f"a Python child and its parent saw {key} differently",
+                    # A variable's or a field's name, a path, or a directory and a name.
+                    if name in ("environment", "uname"):
+                        shown = key
+                    elif name == "lookups":
+                        directory, _, looked = key.rpartition("/")
+                        shown = f"{self.shown(directory)}/{looked}"
+                    else:
+                        shown = self.shown(key)
+                    self.refuse(f"a Python child and its parent saw {shown} differently",
                                 process)
                 self.note(name, key, value)
 
@@ -587,9 +640,10 @@ class Recorder:
         target = os.path.join(self.directory, MANIFEST)
         if os.path.exists(target):  # another process wrote here: whose reads is unknown
             why = "two processes recorded into one place"
+            first = {"process": None, "why": why}
             data = {**data, "storable": False, "why": why,
-                    "reasons": [{"process": None, "why": why},
-                                *data.get("reasons", [])][:MAX_REASONS]}
+                    "reasons": [first, *(r for r in data.get("reasons", [])
+                                         if r != first)][:MAX_REASONS]}
         _write(os.path.join(self.directory, MADE),
                json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
@@ -1070,14 +1124,17 @@ def _child_name(argv: list[str], program: str) -> str:
             continue
         if a.startswith("--"):
             continue
-        rest = a[1:]
+        rest, stop = a[1:], False
         for i, c in enumerate(rest):
-            if c in "XWc":
+            if c in "XW":
+                break  # the rest is the option's value, as -Xutf8 has
+            if c == "c":
+                stop = True
                 break
             if c == "m":
-                module = rest[i + 1:] or next(options, None)
+                module, stop = rest[i + 1:] or next(options, None), True
                 break
-        if module is not None or any(c in rest for c in "XWc"):
+        if stop:
             break
     if module and all(part.isidentifier() for part in module.split(".")):
         return f"{name} -m {module}"
@@ -1110,7 +1167,8 @@ def _watch_children(r: Recorder) -> None:
                 # The recorder took ENV out of the process: the run named one itself.
                 why = "starts a Python child that records into a directory of its own"
             if why:
-                r.refuse(why)
+                with r.lock:
+                    r.refuse(why)
             else:
                 r.local.busy = True
                 try:
@@ -1136,6 +1194,13 @@ def _watch_children(r: Recorder) -> None:
                     with r.lock:
                         r.children.append((child, r.seq, _child_name(
                             [os.fsdecode(a) for a in argv], os.fsdecode(program))))
+                except (OSError, ValueError) as exc:
+                    if not r.refused():
+                        raise
+                    # A run already refused records its child only to name its reasons.
+                    with r.lock:
+                        r.refuse(f"the recorder could not prepare a Python child: "
+                                 f"{type(exc).__name__}")
                 finally:
                     r.local.busy = False
         r.local.child, r.local.popen = python, True

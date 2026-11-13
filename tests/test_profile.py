@@ -247,6 +247,21 @@ class Reasons(unittest.TestCase):
     """REQ_REFUSALS_NAMED: the profile names each unstored module's reasons and times."""
 
     @proves("REQ_REFUSALS_NAMED")
+    def test_a_module_with_no_reason_and_an_empty_reason_are_not_listed(self):
+        stages = [{"name": "tests: a", "seconds": 1.0, "reasons": [], "tests": []},
+                  {"name": "tests: b", "seconds": 1.0, "reasons": [{"process": None,
+                                                                     "why": ""}],
+                   "tests": [{"name": "T.t", "seconds": 1.0}]},
+                  {"name": "tests: c", "seconds": 1.0,
+                   "reasons": [{"process": None, "why": ""},
+                               {"process": None, "why": "runs git"}], "tests": []}]
+        text = profiler.table({"command": "check", "total": 3.0, "stages": stages})
+        listed = text.split("#### Test modules not stored")[1]
+        self.assertEqual(listed.count("| tests: c |"), 1)
+        self.assertNotIn("| tests: a |", listed)
+        self.assertNotIn("| tests: b |", listed)
+
+    @proves("REQ_REFUSALS_NAMED")
     def test_the_check_profile_holds_each_unstored_modules_reasons_and_times(self):
         reasons = [{"process": None, "why": "runs git"},
                    {"process": "python -m trifecta", "why": "reads the host name"}]

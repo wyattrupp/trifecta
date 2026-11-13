@@ -115,15 +115,15 @@ def _stage_table(stages: list[dict]) -> list[str]:
 def _unstored(stages: list[dict]) -> list[str]:
     """Each test module the store did not store: every reason it was refused, with the
     process that raised it, and each of its tests' wall times, slowest first."""
+    named = lambda s: [r for r in s["reasons"] if isinstance(r, dict) and r.get("why")]
     modules = [s for s in stages if isinstance(s.get("reasons"), list)
-               and isinstance(s.get("tests"), list)]
+               and isinstance(s.get("tests"), list) and named(s)]
     if not modules:
         return []
     out = ["", "#### Test modules not stored", "",
            "| Module | Process | Reason |", "|---|---|---|"]
     for s in modules:
-        for r in s["reasons"] or [{}]:
-            r = r if isinstance(r, dict) else {}
+        for r in named(s):
             out.append(f"| {_cell(s.get('name', ''))} | {_cell(r.get('process') or 'own')} "
                        f"| {_cell(r.get('why', ''))} |")
     out += ["", "| Module | Test | Seconds |", "|---|---|---:|"]

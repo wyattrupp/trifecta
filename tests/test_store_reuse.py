@@ -160,6 +160,11 @@ class Named(unittest.TestCase):
         # The refused module ran again; the stored one was reused, as before.
         _, runs = run_modules(self.root, names, [], None, False, self.store)
         self.assertEqual([r.reused for r in runs], [True, False])
+        # A storable run the store did not keep is named so; nothing is named empty.
+        with mock.patch.object(store.Store, "put", return_value=False):
+            _, runs = run_modules(self.root, ["tests.test_b"], [], None, True, self.store)
+        self.assertEqual(runs[0].reasons, [{"process": None,
+                                            "why": "the store did not store it"}])
 
 
 class Scoped(unittest.TestCase):

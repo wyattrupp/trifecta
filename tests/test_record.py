@@ -690,6 +690,72 @@ class Reasons(unittest.TestCase):
         self.assertNotIn("secret-tool-value", json.dumps(m))
         self.assertEqual(m["why"], "runs <env:TRIFECTA_DEMO_TOOL>")
 
+    def recorder(self) -> record.Recorder:
+        return record.Recorder(str(self.tmp / "record"), {"root": str(self.root)})
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_the_backstop_strips_values_and_leaves_bare_words(self):
+        env = {"TRIFECTA_DEMO": "a-demo-value\n", "TRIFECTA_FLAG": "true",
+               "TRIFECTA_SHORT": "abc"}
+        with mock.patch.dict(os.environ, env):
+            r = self.recorder()
+            r.refuse("a-demo-value is true or abc")
+        self.assertEqual(r.why, "<env:TRIFECTA_DEMO> is true or abc")
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_key_is_cut_before_the_reason_is_formatted(self):
+        r = self.recorder()
+        spaced = ("Q:\\else where\\deep\\name x.txt" if os.name == "nt"
+                  else "/opt/else where/deep/name x.txt")
+        self.assertEqual(r.shown(spaced), "name x.txt")
+        self.assertEqual(r.shown("docs/a.md"), "docs/a.md", "a key in the root is kept")
+        self.assertEqual(r.shown(str(self.root / "sub" / "x.txt")), "<root>/sub/x.txt")
+        self.assertEqual(r.shown(os.path.join(sys.prefix, "lib", "x.py")), "<prefix>/lib/x.py")
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_place_is_replaced_only_where_a_slash_or_the_end_follows(self):
+        r = self.recorder()
+        r.refuse(f"{self.root}less{os.sep}x and {self.root}")
+        self.assertNotIn(record.ROOT + "less", r.why)
+        self.assertTrue(r.why.endswith(f" and {record.ROOT}"), r.why)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_prefix_that_is_also_the_base_prefix_is_the_prefix(self):
+        with mock.patch.multiple(sys, base_prefix=sys.prefix, base_exec_prefix=sys.prefix):
+            r = self.recorder()
+            r.refuse(os.path.join(sys.prefix, "x.py"))
+            self.assertEqual(r.shown(os.path.join(sys.prefix, "y.py")), "<prefix>/y.py")
+        self.assertTrue(r.why.startswith(record.PREFIX), r.why)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_full_list_cleans_nothing_more_and_a_write_adds_no_duplicate(self):
+        r = self.recorder()
+        for i in range(record.MAX_REASONS):
+            r.refuse(f"reason {i}")
+        with mock.patch.object(r, "sanitize", side_effect=AssertionError("cleaned")):
+            r.refuse("one more")
+        self.assertEqual(len(r.reasons), record.MAX_REASONS)
+        r = self.recorder()
+        os.makedirs(r.directory)
+        r.refuse("two processes recorded into one place")
+        (Path(r.directory) / record.MANIFEST).write_text("{}", encoding="utf-8")
+        r.finish()
+        m = json.loads((Path(r.directory) / record.MANIFEST).read_text(encoding="utf-8"))
+        self.assertEqual(m["reasons"], [{"process": None,
+                                         "why": "two processes recorded into one place"}])
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_child_is_named_by_its_executable_and_module_only(self):
+        for argv, name in ((["-Xutf8", "-m", "kid"], "python -m kid"),
+                           (["-X", "utf8", "-Bm", "kid", "x"], "python -m kid"),
+                           (["-Wd", "-mkid"], "python -m kid"),
+                           (["-c", "import kid"], "python"),
+                           (["-m", "not a module"], "python"),
+                           (["script.py", "-m", "kid"], "python")):
+            with self.subTest(argv=argv):
+                self.assertEqual(record._child_name(["python", *argv],
+                                                    os.path.join("bin", "python.exe")), name)
+
     @proves("REQ_REFUSALS_NAMED")
     def test_a_path_in_a_reason_holds_only_placeholders_or_its_base_name(self):
         home, scratch = self.tmp / "home-dir", self.tmp / "scratch-dir"
