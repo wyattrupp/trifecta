@@ -27,7 +27,7 @@ from trifecta.testing import only_on, proves
 from tests.test_record import executable_name, repository, run
 
 def nested(root: Path, inner: str, ignore=(), env: dict | None = None,
-           before: str = "") -> tuple[dict, dict]:
+           before: str = "", timeout: float | None = None) -> tuple[dict, dict]:
     """Run ``inner`` in a Python child that records into a directory of its own, as a test
     of the recorder or the store starts one, from a recorded child that runs ``before``
     first: the recorded child's manifest, which holds the inner child's as its parent's
@@ -45,7 +45,7 @@ def nested(root: Path, inner: str, ignore=(), env: dict | None = None,
                    if k not in record.OWN and k.upper() != record.PATH_ENV}
     environment[record.ENV] = str(outer)
     subprocess.run([sys.executable, "-c", code], cwd=root, env=environment, check=True,
-                   capture_output=True)
+                   capture_output=True, timeout=timeout)
     load = lambda d: json.loads((d / record.MANIFEST).read_text(encoding="utf-8"))
     return load(outer), load(own)
 
@@ -133,6 +133,16 @@ class Nested(_TmpRepo):
         self.assertIsNone(lookup({**env, "TRIFECTA_TEST_NESTED": "other"})[0])
         (self.root / "a.txt").write_text("changed", encoding="utf-8")
         self.assertIsNone(lookup(env)[0])
+
+    @proves("REQ_NESTED_RECORDING")
+    def test_both_recorders_take_one_lock(self):
+        # Each runs inside the other's work: a lock each could deadlock two threads.
+        nested(self.root, f"""
+            import sys
+            locks = [sys.modules[name]._recorder.lock for name in {record.MODULES!r}]
+            open("lock.txt", "w").write(str(locks[0] is locks[1]))
+            """)
+        self.assertEqual((self.root / "lock.txt").read_text(encoding="utf-8"), "True")
 
     @proves("REQ_NESTED_RECORDING")
     def test_the_parents_wrappers_are_innermost(self):
@@ -823,6 +833,8 @@ sys.path_importer_cache.clear()
 {cleanup}
 import encodings
 """
+#: Seconds a race test's run may take; it takes about one.
+RACE_TIMEOUT = 120
 #: A child that says what it read before its recorder started.
 LEAKED = "import sys; open('out.txt', 'w').write(getattr(sys, 'LEAK', 'none'))"
 
@@ -841,7 +853,8 @@ class CarriedSearchPath(_TmpRepo):
     def leaked(self, before: str) -> tuple[dict, str]:
         out = self.root / "out.txt"
         out.unlink(missing_ok=True)
-        outer, _ = nested(self.root, LEAKED, before=before)
+        # Bounded: a recorder that deadlocks fails the test instead of hanging the check.
+        outer, _ = nested(self.root, LEAKED, before=before, timeout=RACE_TIMEOUT)
         return outer, out.read_text(encoding="utf-8")
 
     @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
@@ -861,7 +874,7 @@ class CarriedSearchPath(_TmpRepo):
                         os.makedirs({str(real / 'encodings')!r}, exist_ok=True)
                         with open({str(real / 'encodings' / '__init__.py')!r}, "w") as f:
                             f.write({shadow!r})
-                    threading.Thread(target=plant).start()
+                    threading.Thread(target=plant, daemon=True).start()
                     """)
                 self.assertFalse(out == "S5" and outer["storable"], processes(outer))
 
@@ -889,7 +902,7 @@ class CarriedSearchPath(_TmpRepo):
                         time.sleep({delay})
                         os.symlink({str(evil)!r}, {str(self.root / 't1')!r})
                         os.replace({str(self.root / 't1')!r}, {str(link)!r})
-                    threading.Thread(target=swap).start()
+                    threading.Thread(target=swap, daemon=True).start()
                     """)
                 self.assertFalse(out == "S5" and outer["storable"], processes(outer))
 
