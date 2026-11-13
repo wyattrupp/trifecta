@@ -86,7 +86,7 @@ a hash of its value, never the value, since a store CI publishes is public, and 
 the process environment as before; a variable the run set is its own. The locale's
 variables, which the C library reads where the mapping cannot see, are recorded whether
 set or not. The recorder's own
-variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
+variables, `TRIFECTA_RECORD`, `TRIFECTA_RECORD_PARENT` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
 directory the run or one of its children created is not an input, and neither is that
 directory as an entry of a listing; the run's own control
 files, such as the test child's channel and plan, are not either.
@@ -123,8 +123,8 @@ A directory of entries, `docs/_build/cache/` by default, kept out of the clean b
 Sphinx build, or the directory `TRIFECTA_STORE` names, which replaces
 `TRIFECTA_PROOF_CACHE`. An entry is filed under its identity: the stage; for a test
 module, its name and the tests left out of it; the environment key, made of `os.name`,
-`sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hash of the
-recorder's `.pth` file, the entries of the site directories, and the name, version and
+`sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hashes of the
+recorder's two `.pth` files, the test's and the parent's, the entries of the site directories, and the name, version and
 `RECORD` hash of every installed distribution; and a hash of every file of the package that runs the stage, which an
 editable install's `RECORD` does not cover. Under one identity the store keeps the
 manifests stored with their results, newest first, and a lookup takes the first whose

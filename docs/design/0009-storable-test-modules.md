@@ -151,14 +151,34 @@ this design's. The parent's recorder records the child as it
 records any Python child; the child's own manifest never stands for it. A start whose
 environment already holds `TRIFECTA_RECORD_PARENT` not set by the parent's recorder, and
 any write into a directory the parent's recorder prepared other than its own, keep the
-refusal. At each child start and at exit the parent's recorder checks that its audit
-hook and wrappers are in place.
+refusal. A test's wrapper above the parent's cannot drop the variable, since the parent's
+sets it last; a drop below the parent's wrapper starts a child that leaves no manifest,
+which is refused.
+
+A write is judged by where it lands, not by how it is spelled: once its links and `..`
+are resolved, and by the device and file number of each directory above it, so a link, a
+`/proc` path, a long-path prefix or a share that reaches the prepared directory is
+refused, and so is opening for writing another name of a file in it. Moving, copying or
+hard-linking anything out of it is refused too. A Python child whose final environment
+sets `PYTHONPATH`, `PYTHONHOME`, `PYTHONPLATLIBDIR`, `PYTHONSTARTUP` or
+`PYTHON_FROZEN_MODULES` without `-E` or `-I`, or that is started with
+`-X frozen_modules=off`, is refused, since it can run code before `site` starts the
+recorder; a recorder that starts under prefixes other than its parent's, which its
+directory's configuration names, or after a module from outside them was loaded, refuses
+its run. A callback that `shutil.rmtree` calls on an error is recorded as the run's own
+code. At each child start and at exit the parent's recorder checks that its audit hook
+still sees an event and that each wrapper it installed is still reached from its
+attribute through `__wrapped__`, each step a wrapper some recorder in the process
+installed, so a function that only names a wrapper is a replacement.
 
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`
 and its closure, `os._Environ.__getitem__` past the recording mapping, and
-`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless. A way
-the list does not hold, found later, reopens that decision.
+`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless. To
+these wyatt added, for the same tests, tampering with a recorder's own state from inside
+the process, through `sys.modules`, `gc`, frames or a trace function (wyatt,
+2026-11-13: "Accept and list it (Recommended)"). A way the list does not hold, found
+later, reopens that decision.
 :::
 
 :::{component} Host name
@@ -187,7 +207,10 @@ The stored unit stays the module. The lifts are built in {need}`DEC_0032`'s orde
 shared lift with the first module that needs it. Tests move into modules that stay fresh
 and are never stored: the bash tests of `test_init` and `test_planning`;
 `test_adoption`'s guide test; `test_record`'s `-S` test and its tests whose children
-do a refused thing on purpose; and the Windows junction and ctypes tests of `test_init`,
+do a refused thing on purpose; the two tests of `test_store_reuse` that start a child
+reading the host name on purpose (wyatt, 2026-11-13: "Move them, in task 5
+(Recommended)"); the nested recorder's own tests, in `test_record_nested`, which run
+three recorders deep under the module's; and the Windows junction and ctypes tests of `test_init`,
 `test_planning` and `test_record`. `test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
 that leaves a malformed manifest keeps the refusal until the task that stores
