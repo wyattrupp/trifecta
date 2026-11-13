@@ -1457,7 +1457,8 @@ def _standard_names() -> frozenset:
 
 
 def _python_child(argv: list[str], env: dict | None = None, inside=None,
-                  cwd: str | None = None, prefixes: list[str] = ()) -> str | None:
+                  cwd: str | None = None, prefixes: list[str] = (),
+                  search_path: bool = True) -> str | None:
     """Why a child started with ``sys.executable`` cannot record itself, or None: it
     runs no .pth file, or it can run code of the run's before ``site`` starts the
     recorder, through a variable in ``env``, its final environment by name, that ``-E``
@@ -1483,7 +1484,9 @@ def _python_child(argv: list[str], env: dict | None = None, inside=None,
             if env.get(name):
                 return (f"starts a Python child whose environment sets {name}, which can "
                         f"run code before the recorder")
-        return _search_path_refused(_search_path(env.get(PATH_ENV), cwd), inside, prefixes)
+        if search_path:
+            return _search_path_refused(_search_path(env.get(PATH_ENV), cwd), inside,
+                                        prefixes)
     return None
 
 
@@ -1614,7 +1617,7 @@ def _watch_children(r: Recorder) -> None:
             try:
                 why = _python_child(decoded, final, r.inside,
                                     None if cwd is None else os.path.join(_getcwd(), cwd),
-                                    r.prefixes)
+                                    r.prefixes, search_path=not _under_parent())
             finally:
                 r.local.busy = False
             if why is None and PARENT_ENV in final:
@@ -1893,7 +1896,15 @@ def _started_clean(r: Recorder, config: dict) -> None:
     its own before the recorder started (DEC_0042)."""
     _same_prefixes(r, config)
     _modules_before_start(r)
-    _search_path_inputs(r)
+    if not _under_parent():
+        _search_path_inputs(r)
+
+
+def _under_parent() -> bool:
+    """Whether this is the test's recorder in a process the parent's records too: its
+    root is the one the test chose, and the parent's recorder judges the search path
+    against the repository's own, so the test's leaves it alone."""
+    return __name__ == MODULE and PARENT_MODULE in sys.modules
 
 
 def _same_prefixes(r: Recorder, config: dict) -> None:
