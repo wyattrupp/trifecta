@@ -58,10 +58,10 @@ Closes the `os.uname` gap {need}`RFC_0009` found in the recorder as built, befor
 :gate: The tests show that a run refused for two reasons, one in the module's process and one in a child, holds both in `reasons`, the child named by its executable's base name and `-m` module only, with `why` still the first; that a reason holds no environment value and no absolute path but the root's, home's, temporary directory's and prefixes' placeholders, and cuts any other outside path to its base name; that the same run is stored or refused exactly as without the change; and that the profile lists each unstored module's reasons and its tests' wall times.
 Measure before lifting: the profile replaces {need}`RFC_0009`'s one-off probe.
 
-- [ ] **2.1** Keep every reason with its process, bounded as `why` is, in a `reasons` list, and amend IF_MANIFEST, reviewed k=2 and stamped.
-- [ ] **2.2** Report each test's wall time on the proof child's channel, and print each unstored module's reasons and times in the profile.
-- [ ] **2.3** Add the tests, declared for REQ_REFUSALS_NAMED.
-- [ ] **2.4** Record in the As built entry every module's reasons from both CI jobs, and compare them with {need}`RFC_0009`'s Motivation table.
+- [x] **2.1** Keep every reason with its process, bounded as `why` is, in a `reasons` list, and amend IF_MANIFEST, reviewed k=2 and stamped.
+- [x] **2.2** Report each test's wall time on the proof child's channel, and print each unstored module's reasons and times in the profile.
+- [x] **2.3** Add the tests, declared for REQ_REFUSALS_NAMED.
+- [x] **2.4** Record in the As built entry every module's reasons from both CI jobs, and compare them with {need}`RFC_0009`'s Motivation table.
 :::
 
 :::{task} Nested recording
@@ -179,3 +179,65 @@ fixtures on Windows. The modules stored before the task are stored after it, on 
 six of those; the rest keep the reasons they had. WSL lacks `make` and a venv package,
 so `test_adoption` fails there as it did before the task, and the Linux fixture runner
 and profiles come from CI.
+
+### Task 2 (2026-11-13)
+
+The recorder keeps every distinct reason in a `reasons` list, the run's own in the order
+raised and then each Python child's in the order the children started, at most 64, each
+with its process; a child is named by its executable's base name less `.exe`, with `-m`
+and the module when it was started so, read by one walker of the interpreter's options
+that also decides `-S`. Once refused, a run notes reasons only, never inputs, and still
+records its Python children, so their reasons are named; this made the unstored modules
+slower, `test_init` from 22.7 to 32.4 s on Windows. A reason is built from names, paths
+and module names only, never a variable's value (wyatt, 2026-11-13: "Never put values in
+(Recommended)"), with a backstop that replaces a value of four characters or more; a path
+is cut before the reason is formatted, and `refuse` falls back to a fixed reason rather
+than raise out of the audit hook. The proof child writes each test's wall time on its
+channel as a `time` record, and `trifecta profile` prints each unstored module's reasons
+and times; a storable run the check did not store now names why. Naming changes nothing
+about storing: the same modules are stored before and after, on Windows and in WSL.
+{need}`DES_0008`'s IF_MANIFEST and IF_PROFILE were amended, reviewed k=2 in three rounds
+and stamped. Review findings dropped: a raw outside path with a space keeps its tail in
+the backstop's cleaning, reached only by an unlisted audit event's name; DES_0004's
+prose of the channel, which never listed every record, is not amended for `time`.
+
+Reasons, local, Windows and WSL, with the module's summed test seconds; "own" is the
+module's own process:
+
+| Module | Windows | Linux, WSL | Windows s | Linux s |
+|---|---|---|---:|---:|
+| `test_build_reuse` | own: records into a directory of its own | the same | 47.3 | 34.8 |
+| `test_record_trace` | stored | own: runs strace | 2.0 | 43.2 |
+| `test_adoption` | stored | own: runs git, runs bash; `python -m pip`: reads through a link `os-release`, `mtab`, `rmt`, runs `lsb_release`, runs `uname` | 2.0 | 5.1 |
+| `test_record` | own: records into a directory of its own, a child with `-S`, ctypes | own: records into a directory of its own, a child with `-S` | 30.8 | 23.7 |
+| `test_store_reuse` | own: records into a directory of its own | the same | 18.7 | 13.8 |
+| `test_init` | own: runs git, a junction, runs bash; `python -m trifecta`: runs git, runs vale | own: runs git, runs bash; `python -m trifecta`: runs git, runs vale | 32.4 | 22.4 |
+| `test_package` | `python -m pip`: reads the host name, a WMI query, ctypes, `<home>/.cargo/bin/rustc.EXE` through a link, runs rustc | `python -m pip`: as in `test_adoption` | 9.6 | 6.1 |
+| `test_planning` | own: runs git, a junction, ctypes, runs bash; `python`: a child left no manifest | own: runs git, runs bash; `python`: a child left no manifest | 22.9 | 14.8 |
+
+Against {need}`RFC_0009`'s Motivation table the reasons agree, with two differences: the
+Sphinx build's change of directory in `test_init` did not show, and `test_init` no longer
+reads the host name on Windows, which task 1 fixed. The slowest unstored tests are
+`test_build_reuse`'s `test_an_input_the_build_read_builds_again`, 17.1 s on Windows and
+12.5 s in WSL, and `test_init`'s two `InitPasses` tests, 26.4 s together on Windows.
+
+CI, this task's run 43397321078, the control's reasons, with the module's summed test
+seconds; all 123 fixtures passed in both jobs:
+
+| Module | Linux | Windows | Linux s | Windows s |
+|---|---|---|---:|---:|
+| `test_build_reuse` | own: records into a directory of its own | the same | 50.0 | 63.5 |
+| `test_record_trace` | own: runs strace | stored | 27.7 | — |
+| `test_adoption` | own: runs git, runs bash; `python3 -m pip`: reads through a link `os-release`, `mtab`, `vtrgb`, `vconsole.conf`, `rmt`, `resolv.conf` and `<home>/.cargo/bin/rustc`, runs `lsb_release`, `uname` and `rustc` | stored | 26.4 | — |
+| `test_record` | own: records into a directory of its own, a child with `-S` | the same, and ctypes | 30.6 | 31.7 |
+| `test_store_reuse` | own: records into a directory of its own | the same | 17.3 | 23.0 |
+| `test_init` | own: runs git, runs bash; `python3 -m trifecta`: runs git, runs vale | the same, and a junction | 31.8 | 50.6 |
+| `test_package` | `python3 -m pip`: as in `test_adoption` | `python -m pip`: ctypes, reads the host name, a WMI query, runs rustc | 4.2 | 9.1 |
+| `test_planning` | own: runs git, runs bash; `python3`: a child left no manifest | the same, and a junction and ctypes | 10.2 | 20.3 |
+
+The fixture runner took 3004.9 s on Linux and 3380.7 s on Windows, against 1562.1 and
+2043.0 s in task 1's run, its summed fixture time 11618 and 12871 s against 6052 and
+7669; refused runs now record their Python children, and the spread between runs is
+wide. The CI reasons agree with the local ones, and add on Linux the `pip` child's reads
+of `vtrgb`, `vconsole.conf`, `resolv.conf` and `rustc`, which the runner's image has.
+
