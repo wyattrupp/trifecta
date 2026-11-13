@@ -228,12 +228,15 @@ and appends `trifecta profile` tables to the job summary.
 :constrained_by: DEC_0029
 A JSON object with `version: 1`, `command` (`check` or `fixtures`), `total` in seconds,
 and `stages`, an array in run order of objects with `name`, `seconds`, and for a reusable
-stage `reused` and `why`, and for a test module the store did not store `reasons`, its
-manifest's, each with `process` and `why`, and `tests`, each test's `name` and `seconds`
-as its proof child reported them on its channel; for the fixture runner also `base`,
+stage `reused` and `why`, and for a test module the store did not store for a reason it
+names `reasons`, its manifest's or, for a storable run the check did not store, the
+check's own, each with `process` and `why`, and `tests`, each test's `name`
+(`Class.method`) and `seconds` as its proof child reported them on its channel; a module
+with no reason named is not listed; for the fixture runner also `base`,
 `control` and `fixtures`, each fixture with `name`, `seconds`, `copy_seconds`, `ok` and
 its check's `stages`. Times are wall-clock seconds rounded to milliseconds. `why` and a
-reason MUST NOT hold the value of an environment variable. The profile MUST NOT be read by
+reason MUST NOT hold the value of an environment variable (wyatt, 2026-11-13: "Never put
+values in (Recommended)"). The profile MUST NOT be read by
 any rule: it is a report.
 :::
 
@@ -241,19 +244,10 @@ any rule: it is a report.
 :id: IF_MANIFEST
 :spec: src/trifecta/record.py#def valid
 :constrained_by: DEC_0028, DEC_0039
-A JSON object with `version: 1`, `storable` and, when false, `why` and `reasons`, every
-distinct reason the run was refused in the order raised, the first of which is `why`, at
-most 64, each an object with `why`, at most 4096 characters as `why` is, and `process`,
-null for the run's own process or, for a Python child, its executable's base name with
-`-m` and the module when it was started so, a child's own child joined to it by ` > `.
-In a reason the root, the home directory, the temporary directory and the interpreter's
-prefixes are replaced by `<root>`, `<home>`, `<tmp>`, `<prefix>` and `<base_prefix>`, any
-other absolute path is cut to its base name, and the value of an environment variable,
-of four characters or more, by `<env:NAME>`; once refused, a run notes reasons only, never
-inputs. The bound, the placeholders and the names are the design's, not ruled; `files`,
+A JSON object with `version: 1`, `storable` and, when false, `why` and `reasons`; `files`,
 mapping each path read to its SHA-256; `probes`, mapping each path probed to its kind,
-`file`, `directory`, `link` or `absent`; `listings`, mapping each directory listed to its sorted
-entries, each with its kind; `lookups`, the import system's names found or not found;
+`file`, `directory`, `link` or `absent`; `listings`, mapping each directory listed to its
+sorted entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
 path replaced, or null when it is unset; `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256; and
@@ -269,6 +263,31 @@ file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
 `/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
+
+`reasons` lists every distinct reason the run was refused: the run's own in the order
+raised, then each Python child's in the order the children started; `why` is the first.
+It holds 1 to 64 reasons, and `reasons[0].why` equals `why`. Each reason is an object with
+exactly `process` and `why`: `why` is non-empty, holds no NUL and has at most 4096
+characters; `process` is null for the run's own process, or at most 4096 characters
+naming a Python child by its executable's base name less `.exe`, with `-m` and the module
+when it was started so and nothing else of its command, a child's own child joined to it
+by ` > `, cleaned as a reason is. A refused run notes reasons only, never inputs, and
+still records its Python children, so their reasons are named.
+
+A reason is built from names, paths and module names only, never a variable's value
+(wyatt, 2026-11-13: "Never put values in (Recommended)"). A path a reason names is cut
+before the reason is formatted, and the whole reason is cleaned again: the root, the
+interpreter's prefixes, the home directory (from `HOME` or `USERPROFILE`) and the
+temporary directory (from `TMPDIR`, `TEMP` or `TMP`, `tempfile.tempdir` when the run has
+set it, and on POSIX `/tmp` and `/var/tmp`) are replaced by `<root>`, `<prefix>`,
+`<base_prefix>`, `<home>` and `<tmp>` where a slash or the end follows, the longest
+first, a drive's root never, and where the prefix and the base prefix are one path, by
+`<prefix>`; any other absolute path is cut to its base name. As a backstop, a variable's
+value of four characters or more, stripped, that is not a bare word such as `true` or
+`none`, is replaced where it stands as a whole word by `<env:NAME>`. The 64-reason bound,
+the placeholders, the names, the ` > ` join, the backstop's four characters and its
+whole-word match, and the recording of a refused run's children are the design's, not
+ruled.
 :::
 
 ## Risks
