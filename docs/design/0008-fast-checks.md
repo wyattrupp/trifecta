@@ -265,14 +265,15 @@ Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
 
 `reasons` lists every distinct reason the run was refused: the run's own in the order
-raised, then each Python child's in the order the children started; `why` is the first.
-It holds 1 to 64 reasons, and `reasons[0].why` equals `why`. Each reason is an object with
-exactly `process` and `why`: `why` is non-empty, holds no NUL and has at most 4096
-characters; `process` is null for the run's own process, or at most 4096 characters
-naming a Python child by its executable's base name less `.exe`, with `-m` and the module
-when it was started so and nothing else of its command, a child's own child joined to it
-by ` > `, cleaned as a reason is. A refused run notes reasons only, never inputs, and
-still records its Python children, so their reasons are named.
+raised, then each Python child's in the order the children started; `why` is the first,
+and "two processes recorded into one place", when raised, leads the list. It holds 1 to 64
+reasons, and `reasons[0].why` equals `why`. Each reason is an object with exactly
+`process` and `why`: `why` is non-empty, holds no NUL and has at most 4096 characters;
+`process` is null for the run's own process, or, non-empty, with no NUL and at most 4096
+characters, names a Python child by its executable's base name less `.exe`, with `-m` and
+the module when it was started so and nothing else of its command, a child's own child
+joined to it by ` > `, cleaned as a reason is. A refused run notes reasons only, never
+inputs, and still records its Python children, so their reasons are named.
 
 A reason is built from names, paths and module names only, never a variable's value
 (wyatt, 2026-11-13: "Never put values in (Recommended)"). A path a reason names is cut
@@ -280,14 +281,15 @@ before the reason is formatted, and the whole reason is cleaned again: the root,
 interpreter's prefixes, the home directory (from `HOME` or `USERPROFILE`) and the
 temporary directory (from `TMPDIR`, `TEMP` or `TMP`, `tempfile.tempdir` when the run has
 set it, and on POSIX `/tmp` and `/var/tmp`) are replaced by `<root>`, `<prefix>`,
-`<base_prefix>`, `<home>` and `<tmp>` where a slash or the end follows, the longest
-first, a drive's root never, and where the prefix and the base prefix are one path, by
-`<prefix>`; any other absolute path is cut to its base name. As a backstop, a variable's
-value of four characters or more, stripped, that is not a bare word such as `true` or
-`none`, is replaced where it stands as a whole word by `<env:NAME>`. The 64-reason bound,
-the placeholders, the names, the ` > ` join, the backstop's four characters and its
-whole-word match, and the recording of a refused run's children are the design's, not
-ruled.
+`<base_prefix>`, `<home>` and `<tmp>` where no other path character follows, each place's
+trailing separators ignored, the longest first, a drive's root never, and where the prefix
+and the base prefix are one path, by `<prefix>`; any other absolute path is cut to its
+base name. As a backstop, applied to a reason's `why` and not to its `process`, a
+variable's value of four characters or more, stripped, that is not a bare word such as
+`true` or `none`, is replaced where it stands as a whole word by `<env:NAME>`. The
+64-reason bound, the placeholders, the names, the ` > ` join, the backstop's four
+characters and its whole-word match, and the recording of a refused run's children are the
+design's, not ruled.
 :::
 
 ## Risks
