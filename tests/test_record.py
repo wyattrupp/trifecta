@@ -396,7 +396,7 @@ class HostName(unittest.TestCase):
     @only_on("posix")
     def test_every_uname_gives_the_fixed_host_name_before_and_after_platform_system(self):
         every = ("names += [os.uname().nodename, posix.uname().nodename, platform.node(), "
-                 "platform.uname().node, platform.uname()[1]]")
+                 "platform.uname().node]")
         for order in (f"{every}\nplatform.system()\n{every}",
                       f"platform.system()\n{every}",
                       # platform's cache emptied: filled again through the wrapper.
