@@ -72,7 +72,11 @@ audit event not on its list of handled or known-harmless events marks the manife
 unstorable, and so does a change of working directory.
 
 Reads: an `open` for reading, and the source of a `shutil.copyfile` or the Windows
-`_winapi.CopyFile2` event, is a file input. Probes: it wraps `os.stat`, `os.lstat`,
+`_winapi.CopyFile2` event, is a file input, hashed only when it is a regular file; a
+device or a pipe, as `/dev/urandom`, is held by its kind, never read. A link the run makes
+may reach only what it made, a directory it created or a file it wrote, its links
+resolved; making one that reaches beyond is refused, since a read under a directory the run
+made, which is no input, would reach through it a file no key holds. Probes: it wraps `os.stat`, `os.lstat`,
 `os.access`, `os.readlink`, and `os.path.exists`, `isfile`, `isdir` and `islink`, which
 on Windows are C functions that call no wrapped `os.stat`, and records every probed path
 with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
@@ -254,8 +258,9 @@ sorted entries, each with its kind; `lookups`, the import system's names found o
 path replaced, or null when it is unset, and, under the key `=names`, which no
 variable's name can be, when the run read the whole environment, the SHA-256 of the
 names of the variables the process started with, sorted, joined by NUL and less the
-recorder's own, which a lookup takes again from its environment; a Python child's is its
-parent's, which records its own in its place; `outside`, mapping
+recorder's own, which a lookup takes again from its environment; when a Python child's
+manifest holds the key, its parent's recorder records its own digest under it in place of
+the child's, since the child's environment is what its parent gave it; `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256; and
 `uname`, mapping each field of `os.uname` other than the host name (`sysname`,
 `release`, `version`, `machine`) to the SHA-256 of its value, taken when the run starts,
@@ -274,8 +279,11 @@ REQ_PORTABLE_FINDINGS writes locations.
 program started on its terms can be ({need}`DES_0009`'s COMP_KNOWN_PROGRAMS), and each
 program that the command `strace` traced started, with its `#!` interpreter, followed
 again, and its ELF interpreter, to the SHA-256 of the file its path reaches, links
-followed, which a lookup takes again to match. A program the run made is not held; one
-under the interpreter's prefixes is.
+followed, which a lookup takes again to match. A key inside the repository is relative to
+its root, as the other sections' are, and any other is absolute. A program under a
+directory the run made, a file it wrote, a directory a recorder prepared or one the run's
+configuration leaves out is not held, unless its path lands beyond them through a link,
+where it is held by where it lands; one under the interpreter's prefixes is held.
 
 `reasons` lists every distinct reason the run was refused: the run's own in the order
 raised, then each Python child's in the order the children started; `why` is the first,

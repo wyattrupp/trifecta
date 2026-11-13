@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -115,24 +115,50 @@ no trace sees which variable Vale reads. On Windows the list is stated from Vale
 layout, as wyatt ruled for git.
 
 `strace`, under {need}`DEC_0037`: named by its path and hash, started by
-`test_record_trace` only, as `strace -f -y -s 4096 -qq -o LOG COMMAND...`, with `LOG`
-under the run's directory; it has no proof test of its own, since `strace` cannot run
-under another, and is trusted with the kernel, as {need}`DEC_0037` accepts. Its log
-gives the traced command's inputs: every path read, probed or listed outside the run's
-own directories, each failed `open`, `stat`, `access` or `readlink` as an absence, each
-program it starts by path and SHA-256, with its `#!` interpreter, followed again, and its
-ELF interpreter, which the kernel opens with no call in the log, and the command's whole environment, which no
-trace sees read. `/dev/null` and `/dev/urandom` are allowed, and in the traced
-processes' own `/proc` entries, as `self` or by number, only listing `fd`, reading the
-`exe` link and, under {need}`DEC_0043`, reading `maps` and `cgroup`, none of them keyed;
-any other read under `/proc` or `/dev`, and any `connect`, refuse the run. A socket of a
-network family refuses it too, but one of `AF_INET` or `AF_INET6` that is bound to a
-loopback address and never connects, sends to an address, listens or accepts, under
-{need}`DEC_0043`. A read through a link the run did not make refuses the run, as the
-recorder's own does, but the C library's `/usr/share/locale/locale.alias`, which
-{need}`DEC_0043` names: it is recorded by the link, its target's content and the content
-the link reaches, which a lookup takes again following it. The traced command runs under
-the recorder too, so the host name it sees is the fixed one of COMP_HOST_NAME.
+`test_record_trace`'s own process only, as `strace -f -y -s 4096 -qq -o LOG COMMAND...`.
+The recorder lets the start through only when `LOG` is new, does not start with `|` or `!`,
+and lies, its parent's links resolved, under a directory the run made, in no directory a
+recorder prepared and not under the interpreter's prefixes; `COMMAND` is named by its
+absolute path; the start has no shell, no `preexec_fn` and no `pass_fds`, closes the
+run's other descriptors, and its environment holds no `TRIFECTA_RECORD_PARENT`; and
+`strace`, found along `PATH` as subprocess finds it, each place searched before it recorded
+as probed, is a regular ELF file outside the repository and the run's own directories,
+started by the path it was found at. The form and these conditions are this design's, not
+rulings. `strace` has no proof test of its own, since it cannot run under another, and is
+trusted with the kernel, as {need}`DEC_0037` accepts. The recorder makes `LOG` and holds it
+open before `strace` starts, and once the run reaps `strace` reads the log through that
+descriptor, so what it reads is what `strace` wrote, whatever then becomes of the name; a
+call of the traced command on `LOG`, by any name under what the run made, or on a
+directory that holds it, a write of the run's own to it by any name, and a log that does
+not start with its command's start each refuse the run.
+
+The log gives the traced command's inputs, recorded as {need}`DES_0008`'s recorder records
+the run's own: every path read, probed or listed outside the run's own directories, each
+failed `open`, `stat`, `access` or `readlink` as what is there, absence for a path not
+found; a read keyed both by the name it was given and by the path the kernel opened, which
+`-y` gives, and refused when the name no longer reaches that path; each program it starts
+by path and SHA-256, keyed where its path lands, with its `#!` interpreter, followed again,
+and its ELF interpreter, which the kernel opens with no call in the log; and the command's
+whole environment, which no trace sees read. Under {need}`DEC_0044` only the interpreter's
+own trees, sysconfig's `stdlib`, `platstdlib`, `purelib`, `platlib`, `scripts` and
+`include` under `sys.prefix` and `sys.base_prefix`, are left to the environment key; every
+other path under the prefixes is keyed. The system's time zone is left out with the clock,
+which {need}`RFC_0008` puts out of scope, as the recorder leaves it out. A read, probe or
+listing of a path the run itself wrote or made while `strace` ran refuses the run, since
+the log does not say which the command saw. `/dev/null` and `/dev/urandom` are allowed,
+and in the traced processes' own `/proc` entries, as `self` or by number, only listing
+`fd`, reading the `exe` link and, under {need}`DEC_0043`, reading `maps` and `cgroup`, none
+of them keyed; any other read under `/proc` or `/dev` refuses the run. A socket of a
+network family refuses it, but one of `AF_INET` or `AF_INET6` bound to a loopback address
+on which the command never connects, sends, listens or accepts, under {need}`DEC_0043`;
+any `connect`, and binding a local socket, refuse it too. A read through a link the run
+did not make refuses the run, as the recorder's own does, but the C library's
+`/usr/share/locale/locale.alias`, which {need}`DEC_0043` names: it is recorded by the link,
+its target's content and the content the link reaches, which a lookup takes again following
+it. Making a link that reaches beyond what the run made refuses the run, as the
+recorder's own does, and so does a signal, or a pidfd, to a process `strace` does not
+trace, 0, the command's own group, aside. The traced command runs under the recorder too,
+so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
 `strace` and fails on a path opened, probed or listed outside its stated inputs, a
