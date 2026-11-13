@@ -250,8 +250,9 @@ each file read outside the repository and the interpreter's prefixes to its SHA-
 which a lookup takes again to match. Where `os.uname` exists all four are required, and
 inside a recorded run `os.uname`, `posix.uname` and `platform` give a fixed host name,
 `localhost`, the design's value, not ruled ({need}`DEC_0039` rules a fixed name); where it
-does not, `uname` is empty and `platform` reads the name through `socket.gethostname`,
-which refuses the run. No manifest holds a host name's value: a read of one through a
+does not, `uname` is empty and the first fill of `platform`'s cache, which
+`platform.system()` and the others also make, reads the name through
+`socket.gethostname`, which refuses the run. No manifest holds a host name's value: a read of one through a
 file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
 `/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
@@ -266,8 +267,10 @@ itself is missed in a run on Windows or macOS; the `strace` test catches it on L
 where a dependency that starts doing so fails the test, and a dependency added to the lock
 is covered by the same test. Native code that reads the host's identity without an
 audited call or a file open, such as the MAC address `uuid.getnode()` reads through
-`_uuid`, is missed on every system. Code that takes the recorder's wrappers apart, beyond
-a fresh import of `posix`, which is refused, stays out of scope. A test whose result depends on the clock or on chance can be
+`_uuid`, is missed on every system. A fresh `posix` module, made by `import` or through
+`_imp.create_builtin`, is refused, and so is a new interpreter, which has none of the
+recorder's hooks or wrappers; reaching the original `uname` through other means stays out
+of scope. A test whose result depends on the clock or on chance can be
 reused with a result a fresh run would not give; the check already treats one passing run
 as a proof, so reuse adds no new assumption, only a longer life for the same one.
 

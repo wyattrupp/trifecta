@@ -68,6 +68,12 @@ PTH_LINE = ('import os; os.environ.get("TRIFECTA_RECORD") and exec(open(os.path.
             'os.environ["TRIFECTA_RECORD"], "start.py"), encoding="utf-8").read())\n')
 SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname")
 KINDS = ("file", "directory", "link", "absent")
+#: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
+#: in place of the machine's (COMP_HOST_NAME). DEC_0039 rules a fixed host name; this
+#: value is the design's, not ruled.
+HOST_NAME = "localhost"
+#: The ``uname`` fields a run records, each as a SHA-256: every one but the host name.
+UNAME_FIELDS = ("sysname", "release", "version", "machine")
 
 #: The functions the recorder itself calls, taken before any is wrapped.
 _lstat, _scandir, _getcwd, _open = os.lstat, os.scandir, os.getcwd, io.open
@@ -527,7 +533,9 @@ def _lookup_key(key) -> bool:
 
 def valid(data) -> bool:
     """Whether ``data`` has exactly the shape IF_MANIFEST states, within bounds: what a
-    store holds came from another run, so it is checked before anything reads it."""
+    store holds came from another run, so it is checked before anything reads it. The
+    ``uname`` requirement is read on the platform that checks: where ``os.uname`` exists,
+    every field is required."""
     if not (isinstance(data, dict) and type(data.get("version")) is int
             and data["version"] == VERSION and type(data.get("storable")) is bool
             and set(data) <= {"version", "storable", "why", *SECTIONS}
@@ -785,7 +793,7 @@ HARMLESS = frozenset({
     "sys.set_asyncgen_hooks_firstiter", "sys.set_asyncgen_hooks_finalizer",
     "sys.monitoring.register_callback", "sys.setrecursionlimit",
     "cpython.run_command", "cpython.run_module", "cpython.run_file", "cpython.run_startup",
-    "cpython.run_interactivehook", "cpython.PyInterpreterState_New",
+    "cpython.run_interactivehook",
     "cpython.PyInterpreterState_Clear", "cpython._PySys_ClearAuditHooks",
     "pickle.find_class", "array.__new__", "gc.get_objects", "gc.get_referrers",
     "gc.get_referents", "gc.freeze", "time.sleep", "_thread.start_new_thread",
@@ -810,6 +818,8 @@ REFUSED = {
     "os.fork": "forks", "os.forkpty": "forks", "os.mkfifo": "makes a special file",
     "os.mknod": "makes a special file",
     "os.startfile": "starts a program", "os.fchdir": "changes the working directory",
+    # A new interpreter has none of the recorder's hooks or wrappers.
+    "cpython.PyInterpreterState_New": "starts another interpreter",
 }
 
 
@@ -1139,12 +1149,6 @@ def _recording_environ(r: Recorder, base: type) -> type:
     return Recording
 
 
-#: The host name ``os.uname``, ``posix.uname`` and ``platform`` give inside a recorded run,
-#: in place of the machine's (COMP_HOST_NAME). DEC_0039 rules a fixed host name; this
-#: value is the design's, not ruled.
-HOST_NAME = "localhost"
-#: The ``uname`` fields a run records, each as a SHA-256: every one but the host name.
-UNAME_FIELDS = ("sysname", "release", "version", "machine")
 
 
 def uname_digests(result) -> dict[str, str]:
@@ -1161,20 +1165,34 @@ def _fix_host_name(r: Recorder) -> None:
     and ``platform`` reads the host name through ``socket.gethostname``, which is refused."""
     if not hasattr(os, "uname"):
         return
+    import _imp
     import posix
-    original = posix.uname
+    real = posix.uname()
+    fixed = type(real)((real.sysname, HOST_NAME, real.release, real.version, real.machine))
 
     def uname():
-        real = original()
-        return type(real)((real.sysname, HOST_NAME, real.release, real.version,
-                           real.machine))
+        return fixed
 
-    # The original is kept in this closure alone: a ``__wrapped__`` would hand it out.
-    uname.__name__, uname.__doc__ = original.__name__, original.__doc__
+    # The function returns the fixed result taken once here; it holds no reference to the
+    # original, which a ``__wrapped__`` or its closure would otherwise hand out.
+    uname.__name__, uname.__doc__ = posix.uname.__name__, posix.uname.__doc__
     os.uname = posix.uname = uname
     r.uname_fixed = True
     r.guarded(lambda: [r.note("uname", field, digest)
-                       for field, digest in uname_digests(original()).items()])
+                       for field, digest in uname_digests(fixed).items()])
+    # A new posix module holds the original. The import system makes every builtin module
+    # through _imp.create_builtin, which it looks up at call time, by whatever route; the
+    # import event, which only a module not yet loaded raises, is checked too.
+    create = _imp.create_builtin
+
+    def create_builtin(spec):
+        name = getattr(spec, "name", None)
+        if name in UNAME_MODULES:
+            r.guarded(lambda: r.refuse(f"imports {name} again"))
+        return create(spec)
+
+    create_builtin.__name__ = create.__name__
+    _imp.create_builtin = create_builtin
     import platform
     platform._uname_cache = None
     platform.uname()

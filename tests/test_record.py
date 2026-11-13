@@ -463,6 +463,8 @@ class HostName(unittest.TestCase):
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
     def test_a_read_of_the_kernels_host_name_is_recorded(self):
+        if not os.path.exists("/proc/sys/kernel/hostname"):
+            self.skipTest("this system has no /proc/sys/kernel/hostname")
         m = run(self.root, "open('/proc/sys/kernel/hostname').read()")
         self.assertTrue(m["storable"], m.get("why"))
         self.assertIn("/proc/sys/kernel/hostname", m["outside"])
@@ -478,18 +480,56 @@ class HostName(unittest.TestCase):
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
     def test_a_fresh_posix_is_refused(self):
-        m = run(self.root, "import sys; del sys.modules['posix']; import posix; "
-                           "posix.uname()")
-        self.assertFalse(m["storable"])
-        self.assertIn("imports posix again", m["why"])
+        routes = {
+            "import": "import sys; del sys.modules['posix']; import posix",
+            "import_module": "import importlib, sys; del sys.modules['posix']; "
+                             "posix = importlib.import_module('posix')",
+            "module_from_spec": "import importlib.util; spec = importlib.util.find_spec("
+                                "'posix'); posix = importlib.util.module_from_spec(spec); "
+                                "spec.loader.exec_module(posix)",
+            "create_builtin": "import _imp, posix; "
+                              "posix = _imp.create_builtin(posix.__spec__)",
+            "_load": "import importlib._bootstrap as b, posix; "
+                     "posix = b._load(posix.__spec__)",
+        }
+        for route, code in routes.items():
+            with self.subTest(route=route):
+                m = run(self.root, code + "\n" + "posix.uname()")
+                self.assertFalse(m["storable"])
+                self.assertIn("imports posix again", m["why"])
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     @only_on("posix")
     def test_the_wrapper_hands_out_no_original(self):
-        m, names = self.names("import inspect\n"
-                              "names.append(inspect.unwrap(os.uname)().nodename)")
+        m, names = self.names(
+            "import inspect\n"
+            "names.append(inspect.unwrap(os.uname)().nodename)\n"
+            "for cell in os.uname.__closure__ or ():\n"
+            "    value = cell.cell_contents\n"
+            "    names.append(value().nodename if callable(value) else value.nodename)\n")
         self.assertTrue(m["storable"], m.get("why"))
-        self.assertEqual(names, [record.HOST_NAME])
+        self.assertEqual(set(names), {record.HOST_NAME})
+        self.assertGreater(len(names), 1, "the closure was looked into")
+
+    @proves("REQ_REUSE_SOUND")
+    def test_another_interpreter_is_refused(self):
+        m = run(self.root, """
+            try:
+                import _interpreters as interpreters
+            except ImportError:
+                try:
+                    import _xxsubinterpreters as interpreters
+                except ImportError:
+                    interpreters = None
+            if interpreters is None:
+                open("no-interpreters", "w").close()
+            else:
+                interpreters.destroy(interpreters.create())
+            """)
+        if (self.root / "no-interpreters").exists():
+            self.skipTest("this Python has no module that starts an interpreter")
+        self.assertFalse(m["storable"])
+        self.assertIn("starts another interpreter", m["why"])
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     def test_socket_gethostname_is_refused(self):
@@ -499,6 +539,7 @@ class HostName(unittest.TestCase):
 
     @proves("REQ_HOST_READS", "REQ_REUSE_SOUND")
     def test_where_vale_lives_reads_nothing_of_the_host(self):
+        # Only on Windows does this guard the change: platform.system() there reads the host.
         m = run(self.root, "from pathlib import Path\n"
                            "from trifecta.toolchain import bin_vale\n"
                            "bin_vale(Path('.'))\n")
