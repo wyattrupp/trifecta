@@ -1483,8 +1483,12 @@ def _watch_children(r: Recorder) -> None:
             final = {_name(k): v for k, v in (_environment() if env is None
                                               else env.items())}
             cwd = _text(args[cwd_at])
-            why = _python_child(decoded, final, r.inside,
-                                None if cwd is None else os.path.join(_getcwd(), cwd))
+            r.local.busy = True  # resolving the search path is the recorder's own work
+            try:
+                why = _python_child(decoded, final, r.inside,
+                                    None if cwd is None else os.path.join(_getcwd(), cwd))
+            finally:
+                r.local.busy = False
             if why is None and PARENT_ENV in final:
                 # Only a recorder sets it, and only here, as the child starts.
                 why = f"starts a Python child whose environment already holds {PARENT_ENV}"
