@@ -599,6 +599,152 @@ class HostName(unittest.TestCase):
         self.assertTrue(m["storable"], m.get("why"))
 
 
+def executable_name() -> str:
+    """The interpreter's base name as a reason names a child: no ``.exe``."""
+    name = os.path.basename(sys.executable)
+    return name[:-4] if name.lower().endswith(".exe") else name
+
+
+class Reasons(unittest.TestCase):
+    """COMP_REFUSAL_REASONS: every reason a run is refused, each with its process."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.root = repository(self.tmp)
+        # A child that reads the host name, and a child of its own started with -c.
+        (self.root / "kid.py").write_text(
+            "import socket, subprocess, sys\n"
+            "socket.gethostname()\n"
+            "subprocess.run([sys.executable, '-c', 'import os; os.chdir(\"..\")'],"
+            " check=True)\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_reason_in_the_process_and_one_in_a_child_are_both_named(self):
+        m = run(self.root, """
+            import os, subprocess, sys
+            os.chdir("sub"); os.chdir("..")
+            subprocess.run([sys.executable, "-E", "-m", "kid", "--secret-argument"],
+                           check=True)
+            """)
+        self.assertFalse(m["storable"])
+        python = executable_name()
+        self.assertEqual(m["reasons"], [
+            {"process": None, "why": "changes the working directory"},
+            {"process": f"{python} -m kid", "why": "reads the host name"},
+            {"process": f"{python} -m kid > {python}", "why": "changes the working directory"},
+        ])
+        self.assertEqual(m["why"], m["reasons"][0]["why"], "why stays the first")
+        self.assertNotIn("secret-argument", json.dumps(m["reasons"]))
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_the_childs_reason_comes_after_the_processs_own(self):
+        # The child refuses first in time; its manifest is taken in at the parent's exit,
+        # as before, so ``why`` is the one the parent raised itself.
+        m = run(self.root, """
+            import os, subprocess, sys
+            subprocess.run([sys.executable, "-m", "kid"], check=True)
+            import socket; socket.gethostname()
+            os.chdir("sub"); os.chdir("..")
+            """)
+        self.assertEqual(m["why"], "reads the host name")
+        self.assertEqual([r["process"] for r in m["reasons"]],
+                         [None, None, f"{executable_name()} -m kid",
+                          f"{executable_name()} -m kid > {executable_name()}"])
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_reasons_are_bounded_as_why_is(self):
+        m = run(self.root, f"""
+            import subprocess
+            for name in [f"no-such-program-{{i}}" for i in range(80)] + ["p" * 5000]:
+                try:
+                    subprocess.run([name], capture_output=True)
+                except (OSError, ValueError):
+                    pass
+            """)
+        self.assertEqual(len(m["reasons"]), record.MAX_REASONS)
+        self.assertEqual(m["reasons"][0], {"process": None, "why": "runs no-such-program-0"})
+        self.assertTrue(record.valid(m))
+        m = run(self.root, """
+            import subprocess
+            try:
+                subprocess.run(["p" * 5000], capture_output=True)
+            except (OSError, ValueError):
+                pass
+            """)
+        self.assertEqual(len(m["why"]), record.MAX_TEXT)
+        self.assertTrue(record.valid(m))
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_reason_holds_no_environment_value(self):
+        m = run(self.root, """
+            import os, subprocess
+            try:
+                subprocess.run([os.environ["TRIFECTA_DEMO_TOOL"]], capture_output=True)
+            except OSError:
+                pass
+            """, env={**os.environ, "TRIFECTA_DEMO_TOOL": "secret-tool-value"})
+        self.assertFalse(m["storable"])
+        self.assertNotIn("secret-tool-value", json.dumps(m))
+        self.assertEqual(m["why"], "runs <env:TRIFECTA_DEMO_TOOL>")
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_a_path_in_a_reason_holds_only_placeholders_or_its_base_name(self):
+        home, scratch = self.tmp / "home-dir", self.tmp / "scratch-dir"
+        other = "Q:\\elsewhere\\deep\\name.txt" if os.name == "nt" \
+            else "/opt/elsewhere/deep/name.txt"
+        places = {self.root: record.ROOT, home: record.HOME, scratch: record.TEMP,
+                  Path(sys.prefix): record.PREFIX, Path(sys.base_prefix): record.BASE_PREFIX}
+        env = {"HOME": str(home), "USERPROFILE": str(home), "TMPDIR": str(scratch),
+               "TEMP": str(scratch), "TMP": str(scratch), "TRIFECTA_DEMO": "a-demo-value"}
+        text = " ".join([*(f"{p}{os.sep}x.py" for p in places), self.root.as_posix() + "/y",
+                         other, "a-demo-value"])
+        with mock.patch.dict(os.environ, env):
+            r = record.Recorder(str(self.tmp / "record"), {"root": str(self.root)})
+            r.refuse(text, f"python -m kid {other}")
+        reason = r.reasons[0]
+        for path, holder in places.items():
+            self.assertNotIn(str(path), reason["why"])
+            self.assertIn(holder, reason["why"])
+        self.assertIn(f"{record.ROOT}/y", reason["why"])
+        self.assertNotIn("elsewhere", reason["why"] + reason["process"])
+        self.assertIn(" name.txt ", reason["why"])
+        self.assertTrue(reason["process"].endswith(" name.txt"))
+        self.assertIn("<env:TRIFECTA_DEMO>", reason["why"])
+        self.assertNotIn("a-demo-value", reason["why"])
+        self.assertEqual(r.why, reason["why"])
+
+    @proves("REQ_REFUSALS_NAMED")
+    def test_naming_reasons_changes_nothing_about_storing(self):
+        stored = run(self.root, """
+            import subprocess, sys
+            open("a.txt").read()
+            subprocess.run([sys.executable, "-c", "open('b.txt').read()"], check=True)
+            """)
+        self.assertTrue(stored["storable"], stored.get("why"))
+        self.assertNotIn("reasons", stored)
+        self.assertIn("b.txt", stored["files"])
+        # Once refused, the run notes reasons only: what it reads after is no input, and
+        # the store keeps no refused manifest whatever reasons it holds.
+        refused = run(self.root, """
+            import os, subprocess, sys
+            open("a.txt").read()
+            os.chdir("sub"); os.chdir("..")
+            open("c.txt").read()
+            subprocess.run([sys.executable, "-c", "open('b.txt').read()"], check=True)
+            """)
+        self.assertFalse(refused["storable"])
+        self.assertIn("a.txt", refused["files"])
+        self.assertNotIn("c.txt", refused["files"])
+        self.assertNotIn("b.txt", refused["files"])
+        shelf = store.Store(self.tmp / "store", self.root)
+        self.assertFalse(shelf.put("0" * 64, refused, {}))
+        self.assertFalse(shelf.put("0" * 64, {**stored, "reasons": refused["reasons"]}, {}))
+        self.assertTrue(shelf.put("0" * 64, stored, {}))
+
+
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
@@ -624,7 +770,22 @@ class Shape(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertFalse(record.valid({**GOOD, **change}))
         self.assertFalse(record.valid({**GOOD, "storable": False, "why": 3}))
-        self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git"}))
+        git = [{"process": None, "why": "runs git"}]
+        self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git",
+                                      "reasons": git}))
+        self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git",
+                                      "reasons": git + [{"process": "python -m x",
+                                                         "why": "reads the registry"}]}))
+        for reasons in (None, [], [{"process": None, "why": "runs vale"}],
+                        [{"process": 1, "why": "runs git"}], [{"why": "runs git"}],
+                        git * (record.MAX_REASONS + 1),
+                        [{"process": None, "why": "runs git", "value": "x"}]):
+            with self.subTest(reasons=reasons):
+                bad = {**GOOD, "storable": False, "why": "runs git"}
+                if reasons is not None:
+                    bad["reasons"] = reasons
+                self.assertFalse(record.valid(bad))
+        self.assertFalse(record.valid({**GOOD, "reasons": git}), "a stored run has none")
         # The interpreter's own _sysconfigdata module on Linux has dashes in its name.
         self.assertTrue(record.valid(
             {**GOOD, "lookups": {"./_sysconfigdata__linux_x86_64-linux-gnu": None}}))
