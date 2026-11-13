@@ -857,7 +857,7 @@ class Reasons(unittest.TestCase):
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
-        "environment": {"HOME": None}, "outside": {},
+        "environment": {"HOME": None}, "outside": {}, "programs": {"/usr/bin/strace": "0" * 64},
         "uname": {f: "0" * 64 for f in record.UNAME_FIELDS} if hasattr(os, "uname") else {}}
 
 
@@ -874,6 +874,8 @@ class Shape(unittest.TestCase):
             {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
             {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},
+            {"programs": {"strace": "not a hash"}}, {"programs": {"../strace": "0" * 64}},
+            {"programs": {"//share/strace": "0" * 64}}, {"programs": []},
         ]
         for change in bad:
             with self.subTest(change=change):
