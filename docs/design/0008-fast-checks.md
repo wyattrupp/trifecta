@@ -78,8 +78,8 @@ on Windows are C functions that call no wrapped `os.stat`, and records every pro
 with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
 record each entry with its kind. Imports: the import system's own lookups are recorded as
 the presence or absence of the names it looked for, not as whole listings. Every recorded process, the
-Sphinx build's included, runs with `-B` and with `-X pycache_prefix` set to an empty
-directory the run creates, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
+Sphinx build's included, runs with `-B` and with `pycache_prefix` set to an empty
+directory, which its recorder makes and sets as it starts, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set

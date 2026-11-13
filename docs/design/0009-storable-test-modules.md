@@ -158,26 +158,40 @@ which is refused.
 A write is judged by where it lands, not by how it is spelled: once its links and `..`
 are resolved, and by the device and file number of each directory above it, so a link, a
 `/proc` path, a long-path prefix or a share that reaches the prepared directory is
-refused, and so is opening for writing another name of a file in it. Moving, copying or
-hard-linking anything out of it is refused too. Under {need}`DEC_0042`, a Python child
-whose final environment sets `PYTHONHOME`, `PYTHONPLATLIBDIR`, `PYTHONSTARTUP` or
-`PYTHON_FROZEN_MODULES` without `-E` or `-I`, or that is started with
-`-X frozen_modules=off`, is refused, since it can run code before `site` starts the
-recorder; so is one whose `PYTHONPATH` has an entry, its links resolved and an empty one
-read as the child's working directory, outside the repository root and the interpreter's
-prefixes, or one outside the prefixes that holds a name of the standard library, which
-would load in place of a module the interpreter or the recorder imports as it starts. The
-variable is recorded, and each entry in the repository is listed as an input. A recorder
-that starts under prefixes other than its parent's, which its directory's configuration
-names, or after a module was loaded from outside the repository and the prefixes, or a
-module of the standard library's name from outside the prefixes, refuses its run. These
-checks see what was loaded and what the entries hold as the recorder starts: a module
-that ran before it and then removed both its file and its entry in `sys.modules` is not
-found, a limit {need}`DEC_0042` records. A callback that `shutil.rmtree` calls on an error is recorded as the run's own
-code. At each child start and at exit the parent's recorder checks that its audit hook
-still sees an event and that each wrapper it installed is still reached from its
-attribute through `__wrapped__`, each step a wrapper some recorder in the process
-installed, so a function that only names a wrapper is a replacement.
+refused, and so is opening for writing another name of a file in it. `os.rename`,
+`os.replace`, `os.link` and the copies `shutil` makes, from a path in it, are refused
+too; a copy the run makes by reading and then writing is a read. A write, a move, a copy
+or a link that lands under the interpreter's prefixes, judged the same way, is refused,
+since a `.pth` file or a module there runs in every child before the recorder, and so is
+moving or linking a file out of them. A path the run reaches through a share or a device
+namespace, as a long-path prefix spells it, is refused by that name.
+
+Under {need}`DEC_0042`, a Python child is refused when it can run code of the run's
+before `site` starts the recorder: its final environment sets `PYTHONHOME`,
+`PYTHONPLATLIBDIR`, `PYTHONSTARTUP`, `PYTHON_FROZEN_MODULES` or `PYTHONPYCACHEPREFIX`
+without `-E` or `-I`; it is started with `-X frozen_modules=off` or
+`-X pycache_prefix`, with or without them; a `-W` option or a `PYTHONWARNINGS` item names
+a category whose module is not the standard library's, with or without them; or its
+`PYTHONPATH` has an entry, its links resolved and an empty one read as the child's
+working directory, that lies outside the repository root and the interpreter's
+prefixes, that is not a directory, as a zip is, or that lies outside the prefixes and
+holds a name of the standard library, which would load in place of a module the
+interpreter or the recorder imports as it starts. The check and the Sphinx build start
+a recorded child without `-X pycache_prefix`, since its recorder sets the prefix itself.
+The variable is recorded. A recorder refuses its run when it starts under prefixes other
+than its parent's, which its directory's configuration names; when a module is loaded
+that is not of the standard library, the recorders' own and `__main__` aside, or one of
+the standard library's name from outside the prefixes; or when its `PYTHONPATH` fails
+the checks above, an entry swapped since its start was judged among them; and it lists
+each entry outside the prefixes, all of them in the repository, as an input. These checks
+see what was loaded and what the entries hold as the recorder starts: a module that ran
+before it and then removed both its file and its entry in `sys.modules` is not found, a
+limit {need}`DEC_0042` records. A callback that `shutil.rmtree` calls on an error is
+recorded as the run's own code. At each child start and at exit the parent's recorder
+checks that its audit hook still sees an event and that each wrapper it installed is
+still reached from its attribute through `__wrapped__`, each step a wrapper some
+recorder in the process installed, so a function that only names a wrapper is a
+replacement; a check that fails to run refuses the run too.
 
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`

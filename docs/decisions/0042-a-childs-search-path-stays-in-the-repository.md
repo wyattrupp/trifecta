@@ -56,8 +56,8 @@ Good, because nothing changes in the tests. Bad, because `test_record`, `test_in
 ## Decision Outcome
 
 Chosen option: {need}`OPT_0042_INSIDE`, because wyatt, 2026-11-13, choosing from
-Claude's recommendations: "Allow repo/prefix paths (Recommended)"; temporary-directory
-shadows, as `test_planning`'s `json`, stay refused.
+Claude's recommendations: "Allow repo/prefix paths (Recommended)"; as the option states,
+a shadow in a temporary directory, as `test_planning`'s `json`, stays refused.
 
 ## Consequences
 
