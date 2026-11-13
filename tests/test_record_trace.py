@@ -121,6 +121,12 @@ def unheld(paths: set[tuple[Path, str]], root: Path, manifest: dict,
 def trace(command: list[str], cwd: Path, directory: Path, root: Path) -> tuple[dict, str]:
     record.prepare(str(directory), str(root))
     env = {k: v for k, v in os.environ.items() if k not in record.OWN}
+    # The search path this process has, as the fixture runner gives it, only when it lies
+    # in the root given here: a recorded child refuses an entry outside it (DEC_0042).
+    entries = [e for e in env.get(record.PATH_ENV, "").split(os.pathsep) if e]
+    if entries and not all(Path(e).resolve().is_relative_to(root.resolve())
+                           for e in entries):
+        del env[record.PATH_ENV]
     env[record.ENV] = str(directory)
     log = directory.parent / f"{directory.name}.strace"
     # The form the recorder lets strace through in (COMP_KNOWN_PROGRAMS), its log under a
