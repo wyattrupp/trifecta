@@ -268,3 +268,13 @@ withdrawn, since the correctness pass found `test_build_reuse` never starts git,
 Claude had claimed; git's whole environment recorded; the PLAN_0007 session's
 measurements noted, with this RFC's plan held.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_3
+:k: 2
+:date: 2026-11-13
+:digest: 3262dd28cead768ff6037d8b7f082c61872402a29e787f1bc946abb916d9e09b
+Reviewed with {need}`DES_0008`'s amendment in {need}`PLAN_0008`'s task 1. Folded in: a
+manifest without the new sections is malformed and never reused, since a lookup requires
+every section, not read as before.
+:::

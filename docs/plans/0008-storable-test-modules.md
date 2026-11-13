@@ -45,11 +45,11 @@ stamped in the same task.
 :gate: The tests show, on Linux, that inside a recorded run `os.uname().nodename`, `posix.uname().nodename` and `platform.node()`, called before `platform.system()` and after it, all give the fixed host name; that a change to another `uname` field, given through a test double, reruns the module and the manifest holds that field only as a SHA-256; that `socket.gethostname` is refused, and a read of `/etc/hostname`, of `/proc/sys/kernel/hostname` and of the `HOSTNAME` variable is recorded; that `toolchain.bin_vale` reads nothing of the host on Windows; and that the modules stored before the task, `test_profile` among them, are stored after it.
 Closes the `os.uname` gap {need}`RFC_0009` found in the recorder as built, before any lift relies on it.
 
-- [ ] **1.1** Wrap `os.uname` and `posix.uname` together and fill `platform`'s cache at the recorder's start, so each gives a fixed host name, and record the other fields, hashed, in a `uname` section.
-- [ ] **1.2** Amend {need}`DES_0008`'s IF_MANIFEST with the `uname` section, reviewed k=2 and stamped.
-- [ ] **1.3** Have `toolchain.bin_vale` test `os.name` in place of `platform.system()`.
-- [ ] **1.4** Add the tests, declared for REQ_HOST_READS and REQ_REUSE_SOUND.
-- [ ] **1.5** Record in the As built entry the profiles before and after.
+- [x] **1.1** Wrap `os.uname` and `posix.uname` together and fill `platform`'s cache at the recorder's start, so each gives a fixed host name, and record the other fields, hashed, in a `uname` section.
+- [x] **1.2** Amend {need}`DES_0008`'s IF_MANIFEST with the `uname` section, reviewed k=2 and stamped.
+- [x] **1.3** Have `toolchain.bin_vale` test `os.name` in place of `platform.system()`.
+- [x] **1.4** Add the tests, declared for REQ_HOST_READS and REQ_REUSE_SOUND.
+- [x] **1.5** Record in the As built entry the profiles before and after.
 :::
 
 :::{task} Every refusal is named
@@ -136,3 +136,46 @@ be run, "run in sdd", after {need}`PLAN_0007` was done.
 :::
 
 ## As built
+
+### Task 1 (2026-11-13)
+
+Where `os.uname` exists, the recorder calls the real `posix.uname()` once at its start,
+builds the result with the host name `localhost`, the design's value and not ruled, and
+has `os.uname` and `posix.uname` return it, keeping no reference to the original; it then
+empties `platform`'s cache and fills it through the wrapper. The other four fields are
+recorded as SHA-256 values in the `uname` section, which `valid()` requires in full where
+`os.uname` exists and the store's lookup takes again, a miss naming the field and never
+its value. Since the cache is filled at the start, the fields are recorded in every
+recorded run on Linux, not only in one that reads them, so a change to the runner's
+kernel reruns every stored module there. The recorder now imports `platform` in every
+recorded process on Linux. On Windows nothing changes: `platform`'s first fill reads the
+name through `socket.gethostname`, which stays refused. `toolchain.bin_vale` tests
+`os.name`.
+
+The reviews found more ways to the real host name than the design listed, and each is
+now refused, with a test: a fresh `posix` by `import`, `importlib`, `module_from_spec`,
+`_imp.create_builtin` or `importlib._bootstrap._load`, the wrapper of
+`_imp.create_builtin` reading a spec's name once and refusing a name that is not a `str`;
+and a new interpreter, `cpython.PyInterpreterState_New`, which {need}`DES_0008`'s
+recorder had let through and which runs with no hooks. {need}`DES_0008`'s IF_MANIFEST
+and Risks, and {need}`DES_0009`'s Interfaces, were amended, reviewed k=2 and stamped.
+Review findings dropped: taking a wrapper apart, through its closure, stays out of
+scope, as {need}`DES_0008`'s Risks now say; the manifest's `version` stays 1, since an
+entry without `uname` is malformed and the package's hash already misses it.
+
+Profiles, local Windows, 24 workers, report only; the runs before shared the machine with
+a Linux run, so their times are noisy:
+
+| Run | Total | Fixture step | Control | Fixtures summed | Module runs reused |
+|---|---:|---:|---:|---:|---:|
+| Before, 03b7cdc | 1018.5 | 833.2 | 84.3 | 19649 | 1480 of 1893 |
+| After | 980.3 | 828.1 | 77.3 | 19372 | 1471 of 1893 |
+| After, `--fresh` | 2341.9 | 2191.2 | 75.5 | 51235 | none |
+
+`trifecta fixtures` and `trifecta fixtures --fresh` gave the same result for all 123
+fixtures on Windows. The modules stored before the task are stored after it, on Windows
+`test_profile`, `test_proofs`, `test_fast_tests`, `test_ci_cache`, `test_store`,
+`test_release`, `test_adoption` and `test_record_trace`, and on Linux, in WSL, the first
+six of those; the rest keep the reasons they had. WSL lacks `make` and a venv package,
+so `test_adoption` fails there as it did before the task, and the Linux fixture runner
+and profiles come from CI.

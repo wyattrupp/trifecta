@@ -358,3 +358,19 @@ commit is on main's first-parent chain. Three rounds, one reviewer per lens, wit
 workflow and the code that builds it, the last after the rebase onto the control's kept
 reports.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_7
+:k: 2
+:date: 2026-11-13
+:digest: 4e440f99c7f34a3e8a1750ecd74c8da60bf4ae4f6c2b0ee13022dccf4a1052b0
+Three rounds and a final check, one reviewer per lens, on IF_MANIFEST's `uname`
+section and the Risks that {need}`PLAN_0008`'s task 1 added. Folded in: the fixed host
+name scoped to systems with `os.uname`, Windows' `platform` refused through
+`socket.gethostname`; `localhost` labelled the design's value, not ruled; every field
+required where `os.uname` exists; no manifest holds a host name's value; native reads of
+the host's identity, such as `uuid.getnode()`, stated as missed; a fresh `posix`, by
+import or through `_imp.create_builtin` with its spec's name read once, and a new
+interpreter refused, which the security pass found open; taking a wrapper apart stated
+out of scope.
+:::
