@@ -1,7 +1,8 @@
 """The planning files init adds for Claude Code: REQ_PLANNING_DEFAULT, REQ_HOOK_FAILS_CLOSED,
-and the CLAUDE.md append and the settings merge under REQ_INIT_SAFE. The bash test and
-the Windows junction and ctypes tests are in ``test_planning_refused``, which is never
-stored, so this module is stored."""
+and the CLAUDE.md append and the settings merge under REQ_INIT_SAFE. The bash test, the
+Windows junction and ctypes tests, and the hook tests of a share path and of a shadowed
+``json`` are in ``test_planning_refused``, which is never stored, so this module is
+stored."""
 
 from __future__ import annotations
 
@@ -520,33 +521,12 @@ class Hook(unittest.TestCase):
             self.assertEqual(hook(root, write_call(outside)), 0)
 
     @proves("REQ_HOOK_FAILS_CLOSED")
-    @only_on("nt")
-    def test_refuses_a_share_path_it_cannot_relate_to_the_project(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            share = "\\\\localhost\\c$\\work\\docs\\superpowers\\y.md"
-            self.assertEqual(hook(Path(tmp).resolve(), write_call(share)), 2)
-
-    @proves("REQ_HOOK_FAILS_CLOSED")
     def test_resolves_a_link_into_docs_superpowers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             (root / "docs" / "superpowers").mkdir(parents=True)
             os.symlink(root / "docs" / "superpowers", root / "notes", target_is_directory=True)
             self.assertEqual(hook(root, write_call("notes/x.md")), 2)
-
-    @proves("REQ_HOOK_FAILS_CLOSED")
-    def test_refuses_input_it_cannot_read_and_any_exception(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            for raw in ("not json", "[]", '{"tool_name": "Write"}',
-                        '{"tool_name": "Write", "tool_input": {"file_path": 3}}'):
-                with self.subTest(raw):
-                    self.assertEqual(hook(root, None, raw=raw), 2)
-            shadow = root / "shadow"
-            shadow.mkdir()
-            (shadow / "json.py").write_text("raise RuntimeError('broken import')\n", encoding="utf-8")
-            self.assertEqual(hook(root, write_call("docs/rfcs/x.md"),
-                                  env={"PYTHONPATH": str(shadow)}), 2)
 
 
 if __name__ == "__main__":

@@ -352,19 +352,23 @@ copy outside the repository (wyatt, 2026-11-13: "Move it too (Recommended)"); th
 `test_store_reuse` that starts a child reading the host name on purpose (wyatt,
 2026-11-13: "Move them, in task 5 (Recommended)", ruled as two tests; as measured, the
 module has one, on both platforms); the nested recorder's own tests, in `test_record_nested`, which run
-three recorders deep under the module's; and the Windows junction and ctypes tests of `test_init`,
-`test_planning` and `test_record`. `test_package` builds its wheel through
+three recorders deep under the module's; the Windows junction and ctypes tests of `test_init`,
+`test_planning` and `test_record`; and `test_planning`'s hook tests of a share path and of a
+`json` shadowed from a temporary directory (wyatt, 2026-11-14: "Move both (Recommended)").
+`test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
 that leaves a malformed manifest keeps the refusal until the task that stores
 `test_planning` finds its cause and fixes it. The check starts the
 Sphinx build in `docs/`, so the change into the configuration's directory is no change,
 and maps Sphinx's warning paths as before. The recorder wraps `os._exit`: in the process
-it started in, it takes its lock, writes the manifest with the exit status as the
-`atexit` path writes it, and holds the lock through the real exit, so another thread's
+it started in, it takes its lock, writes the manifest as the `atexit` path writes it,
+and holds the lock through the real exit, so another thread's
 audit hook blocks before its operation. It writes the manifest under a temporary name
 and renames it into place as its last step before the real exit; an event that reaches
-the hook after the snapshot without blocking rewrites it as refused. A fork is already
-refused by the recorder.
+the hook after the snapshot without blocking rewrites it as refused. The manifest holds
+no exit status: the status is passed on to the real exit as given, and a test reads it as
+the child's return code (wyatt, 2026-11-14: "Pass-through is enough (Recommended)"). A
+fork is already refused by the recorder.
 
 Each lift has tests, declared for {need}`REQ_REUSE_SOUND`: a change to each input it
 records reruns the module; a start outside its terms is refused; and each input it does

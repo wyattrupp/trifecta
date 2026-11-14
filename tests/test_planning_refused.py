@@ -1,7 +1,8 @@
 """REQ_INIT_SAFE, REQ_HOOK_FAILS_CLOSED: the tests of the planning files that do what the
 recorder refuses, moved from ``test_planning`` unchanged (COMP_LIFTED_REASONS): its bash
-test, which runs the hook's command through bash (DEC_0034), and its Windows junction and
-ctypes tests.
+test, which runs the hook's command through bash (DEC_0034), its Windows junction and
+ctypes tests, and its hook tests of a share path and of a ``json`` shadowed from a
+temporary directory (wyatt, 2026-11-14: "Move both (Recommended)").
 
 Each refuses the run of this module under its own recorder, so this module is never
 stored, and ``test_planning``, which keeps the rest, is.
@@ -97,6 +98,27 @@ class Hook(unittest.TestCase):
             short = Path(buf.value).name
             self.assertNotEqual(short.casefold(), "superpowers", "8.3 names are off here")
             self.assertEqual(hook(root, write_call(f"docs/{short}/x.md")), 2)
+
+    @proves("REQ_HOOK_FAILS_CLOSED")
+    @only_on("nt")
+    def test_refuses_a_share_path_it_cannot_relate_to_the_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share = "\\\\localhost\\c$\\work\\docs\\superpowers\\y.md"
+            self.assertEqual(hook(Path(tmp).resolve(), write_call(share)), 2)
+
+    @proves("REQ_HOOK_FAILS_CLOSED")
+    def test_refuses_input_it_cannot_read_and_any_exception(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            for raw in ("not json", "[]", '{"tool_name": "Write"}',
+                        '{"tool_name": "Write", "tool_input": {"file_path": 3}}'):
+                with self.subTest(raw):
+                    self.assertEqual(hook(root, None, raw=raw), 2)
+            shadow = root / "shadow"
+            shadow.mkdir()
+            (shadow / "json.py").write_text("raise RuntimeError('broken import')\n", encoding="utf-8")
+            self.assertEqual(hook(root, write_call("docs/rfcs/x.md"),
+                                  env={"PYTHONPATH": str(shadow)}), 2)
 
 
 if __name__ == "__main__":
