@@ -383,7 +383,24 @@ return or raise, the manifest is rewritten as refused. At a normal exit the reco
 writes the manifest the same way, and once it is in place the recorder is quiet no
 longer: an event after it that is no recorder's own, in any thread, as a finalizer's or
 a signal handler's at teardown, rewrites the manifest as refused (wyatt, 2026-11-14: "Fix
-in task 7 (Recommended)"). Each file the recorder writes in its directory, the temporary
+in task 7 (Recommended)"). Should that rewrite and the manifest's removal both fail, the
+event's operation fails, and the next event tries again; the rewrite is made as the
+manifest is written and reaches only what it bound then, since the interpreter's teardown
+empties the recorder's module. The recorder wraps each handler the run gives
+`signal.signal`, since Python runs a handler in the main thread between any two of its
+instructions, the recorder's own among them, wherever another thread raised the signal:
+a handler that runs inside the recorder's own calls refuses the run, after the snapshot
+marks it late, and once the manifest is written rewrites it as refused. The exit paths
+see events only until the interpreter clears its audit hooks at teardown: what runs
+after, as an object the interpreter keeps until it clears its own state, is seen by no
+hook. So a run that puts a callable where the interpreter keeps it past its hooks is
+refused as it does: `codecs.register`, `codecs.register_error`, `os.register_at_fork`
+and `sys.monitoring.register_callback`. The other places a run can leave an object at
+teardown, measured with a finalizer that reads, end refused or never run it: the
+context's variables, the asynchronous generator hooks, a trace or profile function,
+`sys` and `builtins` attributes, `threading.local`, `sys.excepthook`,
+`sys.unraisablehook`, `copyreg`, `atexit` and a weak reference's callback (wyatt,
+2026-11-14: "Fix in task 7 (Recommended)"). Each file the recorder writes in its directory, the temporary
 name among them, is made afresh: what the name held, a link or a hard link to another
 file, is removed first, and the file is created exclusively, never through a link
 (wyatt, 2026-11-14: "Fix in task 7 (Recommended)"). The manifest holds
@@ -421,7 +438,14 @@ does. Until this design's host-name task lands, after {need}`PLAN_0007` (wyatt,
 2026-11-11: "Move the host-name fix too"), the recorder as built lets a run read the host
 name through `os.uname` unrecorded, so a store published from main can hold such runs,
 `test_profile`'s among them. The fresh modules, `test_adoption`'s guide above all, keep
-their cost, which the profile shows.
+their cost, which the profile shows. Two openings in the recorder's ordinary handling,
+which predate this design's last task, are known and deferred to a follow-up plan
+(wyatt, 2026-11-14: "Follow-up plan (Recommended)"): run code that fires inside the
+recorder's own work, a finalizer the collector runs there, whose events the quiet
+recorder does not see; and a run's own method the recorder calls while it is at work, as
+`__fspath__` on a path it is given, whose reads go unrecorded and whose audit hook the
+refusal of `sys.addaudithook` does not see. A signal handler there is refused, as
+COMP_LIFTED_REASONS states.
 
 ## Review
 
