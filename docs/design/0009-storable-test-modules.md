@@ -321,7 +321,8 @@ inside the process, through `sys.modules`, `gc`, frames or a trace function. A w
 list does not hold, found later, reopens those decisions. A run that adds an audit hook,
 which {need}`DEC_0035` listed too, is refused: the hook is called inside the recorder's
 own calls, as while it writes the manifest, where what it does is in no manifest (wyatt,
-2026-11-14: "Refuse it (Recommended)").
+2026-11-14: "Refuse it (Recommended)"); the hook a recorder adds in its own start, as the
+test's recorder does under the parent's, is let through.
 :::
 
 :::{component} Host name

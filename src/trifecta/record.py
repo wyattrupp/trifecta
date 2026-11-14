@@ -1800,8 +1800,20 @@ def _dlsym(r: Recorder, args) -> None:
         r.refuse("loads native code through ctypes")
 
 
+def _add_audit_hook(r: Recorder, args) -> None:
+    """A hook the run adds is called inside the recorder's own calls, as while it writes
+    the manifest, where what it does is in no manifest: refused (wyatt, 2026-11-14:
+    "Refuse it (Recommended)"). The event names no hook; one added in a recorder's own
+    call, as the test's recorder adds its own under the parent's, is let through
+    (COMP_NESTED_RECORDER)."""
+    # This recorder is at work in its own hook here: only another's own call counts.
+    if not any(other.quiet() for other in _recorders(r) if other is not r):
+        r.refuse("adds an audit hook")
+
+
 HANDLERS = {
     "open": _open_event,
+    "sys.addaudithook": _add_audit_hook,
     "os.rename": _rename, "os.replace": _rename,
     "os.remove": _remove, "os.rmdir": _remove,
     "os.mkdir": _mkdir,
@@ -1864,9 +1876,6 @@ HARMLESS = frozenset({
     "winreg.ConnectRegistry",
 })
 REFUSED = {
-    # A hook the run adds is called inside the recorder's own calls, where what it does
-    # is in no manifest (wyatt, 2026-11-14: "Refuse it (Recommended)").
-    "sys.addaudithook": "adds an audit hook",
     "socket.connect": "makes a network connection", "socket.getaddrinfo": "looks up a host",
     "socket.gethostname": "reads the host name", "socket.gethostbyname": "looks up a host",
     "socket.gethostbyaddr": "looks up a host", "socket.getnameinfo": "looks up a host",
@@ -4668,7 +4677,11 @@ def start(directory: str, config: dict) -> Recorder:
     _watch_exit(r)
     # After the import watch, so a platform module on PYTHONPATH is a lookup it records.
     _fix_host_name(r)
-    sys.addaudithook(r.hook)
+    r.local.busy = True  # its own hook: no run's (COMP_NESTED_RECORDER)
+    try:
+        sys.addaudithook(r.hook)
+    finally:
+        r.local.busy = False
     r.started = True
     atexit.register(r.finish)
     return r
