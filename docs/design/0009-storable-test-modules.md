@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045, DEC_0046, DEC_0047, DEC_0048, DEC_0049
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045, DEC_0046, DEC_0047, DEC_0048, DEC_0049, DEC_0050
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -101,7 +101,11 @@ it reaps git. A directory a process made, and one its `init` ran on, count as th
 for its Python children too. Under {need}`DEC_0049` the check and the tests start git
 and Vale with `LD_LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LOCPATH`, `NLSPATH` and
 `GCONV_PATH` removed from the child's environment, and, this design's choice, a start
-that still holds one is refused, since each moves a read to where no key holds it. It
+that still holds one is refused, since each moves a read to where no key holds it. Under
+{need}`DEC_0050` they start git and Vale without `PWD` too, which each stats as the working
+directory's name and which a copy of the repository inherits naming the original (wyatt,
+2026-11-14: "Strip PWD for git/Vale (Recommended)"), and a start that still holds it, even
+empty, is refused. It
 records git's
 executables; on Linux the loader's cache, its preload file, which refuses the start when
 present, and each library named as needed, found in the cache and followed again, a
@@ -579,4 +583,15 @@ Two rounds, one reviewer for both lenses, on the fixes CI's runners called for: 
 rulings of 2026-11-14 on Ubuntu's `locale.alias` link and Git for Windows' `ucrt64`
 build. Folded in: every other build the launcher knows is held absent, file or link,
 which the security pass found open as a link at the other build's `git.exe`.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_9
+:k: 2
+:date: 2026-11-14
+:digest: d4ddb6f439c292b9ffca0fc359e50990dfc05d8c05f104c72e7085cfbf7296a1
+On the fix CI's fixtures called for: git and Vale stat `PWD`, which a fixture copy
+inherits from the original checkout. Folded in: wyatt's ruling of 2026-11-14, recorded as
+{need}`DEC_0050`; the check starts them without it and a recorded start holding it is
+refused.
 :::

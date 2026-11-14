@@ -15,7 +15,7 @@ from unittest import mock
 
 from trifecta import init as init_module
 from trifecta.findings import child_env
-from trifecta.record import MOVING
+from trifecta.record import MOVING, UNHELD
 from trifecta.testing import proves
 from trifecta.toolchain import VALE_ENV, program_env, vale_path
 
@@ -29,8 +29,8 @@ def trifecta(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     env = {**child_env(Path(init_module.__file__).resolve().parent.parent),
            VALE_ENV: str(vale_path(REPO))}
     # The check starts git and Vale without the variables that move what they read
-    # (DEC_0049), and so does this test's start of the check.
-    for name in [k for k in env if k.upper() in {m.upper() for m in MOVING}]:
+    # (DEC_0049) and without PWD (DEC_0050), and so does this test's start of the check.
+    for name in [k for k in env if k.upper() in {m.upper() for m in (*MOVING, *UNHELD)}]:
         del env[name]
     env.pop("TRIFECTA_STORE", None)
     # Vale starts with no terminal to describe, the form it is a known program in

@@ -80,7 +80,7 @@ class Traced(unittest.TestCase):
             path.mkdir(parents=True)
         self.env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("GIT_", "VALE_"))
-                    and k not in ("TERM", *record.OWN, *record.MOVING)}
+                    and k not in ("TERM", *record.OWN, *record.MOVING, *record.UNHELD)}
         self.env.update(GIT_CEILING_DIRECTORIES=str(self.made), GIT_CONFIG_NOSYSTEM="1",
                         GIT_CONFIG_GLOBAL="", HOME=str(self.home),
                         XDG_CONFIG_HOME=str(self.home / ".config"))

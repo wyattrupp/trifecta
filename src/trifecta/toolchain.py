@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .record import MOVING
+from .record import MOVING, UNHELD
 
 #: Platform key -> the suffix of the file Vale releases for it, after ``vale_<version>_``.
 VALE_SUFFIXES = {
@@ -61,9 +61,9 @@ VALE_ENV = "TRIFECTA_VALE"
 
 def program_env() -> dict[str, str]:
     """The environment the check starts git and Vale with: this process's, less the
-    variables that move what they or their loader read, which the recorder refuses
-    (DEC_0049)."""
-    moving = {name.upper() for name in MOVING}
+    variables that move what they or their loader read (DEC_0049) and ``PWD``, which names
+    a place they read unkeyed (DEC_0050), each of which the recorder refuses."""
+    moving = {name.upper() for name in (*MOVING, *UNHELD)}
     return {k: v for k, v in os.environ.items() if k.upper() not in moving}
 
 
