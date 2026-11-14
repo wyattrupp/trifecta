@@ -853,27 +853,6 @@ class OsExit(unittest.TestCase):
             self.assertIn("a.txt", m["files"], "the finalizer's read is in the manifest")
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
-    @only_on("posix")
-    def test_a_signal_handler_reads_nothing_the_manifest_lacks(self):
-        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
-            import os, signal
-            seen = []
-
-            def handler(*_):
-                if not seen:
-                    seen.append(1)
-                    os.write(1, ("read " + open("a.txt").read()).encode())
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
-            os._exit(0)
-            """)])
-        self.assertEqual(done.returncode, 0, done.stderr)
-        m = manifest_at(directory)
-        self.assertTrue(m["storable"], m.get("reasons"))
-        if "read a" in done.stdout:
-            self.assertIn("a.txt", m["files"], "the handler's read is in the manifest")
-
-    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_second_threads_os_exit_waits_for_the_first(self):
         done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
             import os, sys, threading, time

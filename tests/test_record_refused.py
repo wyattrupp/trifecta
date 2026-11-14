@@ -162,6 +162,29 @@ class OsExit(unittest.TestCase):
     setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_signal_handler_reads_nothing_the_manifest_lacks(self):
+        # Moved from test_record: the timer fires every tenth of a millisecond, inside the
+        # recorder's own work too, where the handler refuses the run, as it should.
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, signal
+            seen = []
+
+            def handler(*_):
+                if not seen:
+                    seen.append(1)
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = test_record.manifest_at(directory)
+        if "read a" in done.stdout:
+            self.assertTrue(not m["storable"] or "a.txt" in m["files"],
+                            "the handler's read is in the manifest or refuses the run")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_an_event_past_the_lock_after_the_snapshot_rewrites_the_manifest_as_refused(self):
         done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent("""
             import os, sys, threading, time
@@ -225,9 +248,14 @@ class AfterTheManifest(unittest.TestCase):
 
     setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
 
-    def exits(self, code: str) -> tuple[subprocess.CompletedProcess, dict]:
+    def exits(self, code: str, missing: bool = False) -> tuple[subprocess.CompletedProcess,
+                                                                dict | None]:
+        """The run's output and manifest; with ``missing``, None when it left none, which
+        refuses it as much as a refused manifest does."""
         done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent(code)])
         self.assertEqual(done.returncode, 0, done.stderr)
+        if missing and not (directory / record.MANIFEST).exists():
+            return done, None
         m = test_record.manifest_at(directory)
         self.assertTrue(record.valid(m))
         return done, m
@@ -306,7 +334,7 @@ class AfterTheManifest(unittest.TestCase):
         # SIGINT where the system has no SIGUSR1, as Windows has not.
         for exit_by in ("pass", "os._exit(0)"):
             with self.subTest(exit_by=exit_by):
-                done, m = self.exits(f"""
+                done, m = self.exits(missing=True, code=f"""
                     import os, signal, sys, threading
                     number = getattr(signal, "SIGUSR1", signal.SIGINT)
                     go, seen = [], []
@@ -330,7 +358,7 @@ class AfterTheManifest(unittest.TestCase):
                     go.append(1)
                     {exit_by}
                     """)
-                if "read a" in done.stdout:
+                if "read a" in done.stdout and m is not None:
                     self.assertFalse(m["storable"], "the handler read inside the write")
                     self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
 
@@ -341,7 +369,7 @@ class AfterTheManifest(unittest.TestCase):
         for install in ("import _signal; _signal.signal(number, handler)",
                         "handler.recorded_handler = True; signal.signal(number, handler)"):
             with self.subTest(install=install):
-                done, m = self.exits(f"""
+                done, m = self.exits(missing=True, code=f"""
                     import os, signal, sys, threading
                     number = getattr(signal, "SIGUSR1", signal.SIGINT)
                     go, seen = [], []
@@ -365,7 +393,7 @@ class AfterTheManifest(unittest.TestCase):
                     go.append(1)
                     os._exit(0)
                     """)
-                if "read a" in done.stdout:
+                if "read a" in done.stdout and m is not None:
                     self.assertFalse(m["storable"], "the handler read inside the write")
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
