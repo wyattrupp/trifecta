@@ -216,8 +216,16 @@ def _probe(name: str, kept: Path, control: Path, out: Path) -> None:
                   "modules": {}}
         for module in sorted(set(mine["modules"]) & set(theirs["modules"])):
             a, b = mine["results"][module], theirs["results"][module]
-            report["modules"][module] = {"records_same": records(a) == records(b),
+            ra, rb = records(a), records(b)
+            report["modules"][module] = {"records_same": ra == rb,
                                          "output_same": a["output"] == b["output"]}
+            if ra != rb:  # the rows one side holds and the other does not, cut short
+                cut = lambda rows: [json.dumps(r, sort_keys=True)[:600] for r in rows]
+                mine_rows, their_rows = cut(ra[0]), cut(rb[0])
+                report["modules"][module]["differs"] = {
+                    "copy_only": [r for r in mine_rows if r not in their_rows][:20],
+                    "control_only": [r for r in their_rows if r not in mine_rows][:20],
+                    "copy_problems": ra[1][:5], "control_problems": rb[1][:5]}
     except Exception as exc:  # the probe never changes a fixture's outcome
         report = {"name": name, "error": repr(exc)}
     out.mkdir(exist_ok=True)
