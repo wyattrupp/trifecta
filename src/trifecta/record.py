@@ -554,6 +554,9 @@ class Recorder:
         self.vale_pins: frozenset[str] | None = None
         #: Each Vale let through, with the SHA-256 it was let through on.
         self.vales: list[tuple[str, str]] = []
+        #: Each git or Vale let through and not yet reaped, by its Popen's id: its name
+        #: and what it reads that the run made, which the run may not change meanwhile.
+        self.running: dict[int, tuple] = {}
         self.pin_file: tuple[str, str] | None = None
         self.written: set[str] = set()   # files the run wrote, moved or removed
         #: Each child's directory, with how many inputs had been seen when it started.
@@ -855,7 +858,44 @@ class Recorder:
         if self.reaches_log(joined):
             # strace's log is the key of what it traced until the recorder has taken it.
             self.refuse("writes the log of a strace still running")
+        self.check_running(joined)
         (self.created if directory else self.written).add(_norm(os.path.abspath(joined)))
+
+    def started_known(self, popen, name: str, roots: list[str]) -> None:
+        """Hold ``popen``, a git or Vale let through, as running, with what it reads."""
+        places = []
+        for root in roots:
+            places.append(_norm(os.path.abspath(root)))
+            try:
+                places.append(_norm(_realpath(root)))
+            except (OSError, ValueError):
+                pass
+        identities = {i for i in (_identity(root) for root in roots) if i is not None}
+        with self.lock:
+            self.running[id(popen)] = (popen, name, places, identities)
+
+    def reaped(self, popen) -> None:
+        with self.lock:
+            entry = self.running.get(id(popen))
+            if entry is not None and entry[0] is popen:
+                del self.running[id(popen)]
+
+    def check_running(self, path: str) -> None:
+        """Refuse a change, by any name, to what a git or Vale still running reads: it
+        reads it after its start was judged."""
+        if not self.running:
+            return
+        n = _norm(os.path.abspath(path))
+        try:
+            resolved = _norm(_realpath(path))
+        except (OSError, ValueError):
+            resolved = n
+        found = _identity(path)
+        for _, name, places, identities in list(self.running.values()):
+            if any(_under(n, p) or _under(resolved, p) for p in places) \
+                    or found is not None and found in identities:
+                self.refuse(f"changes what {name} reads while it runs")
+                return
 
     def reaches_log(self, path: str) -> bool:
         """Whether ``path`` is the log of a strace not yet taken, by its name or by its
@@ -1033,6 +1073,9 @@ class Recorder:
             if self.traces:
                 # Its log may not be whole, and what it traced may still run.
                 self.refuse("starts strace and does not wait for it")
+            for _, name, _, _ in self.running.values():
+                # What it reads may change after the run ends, while it still runs.
+                self.refuse(f"starts {name} and does not wait for it")
             for binary, digest in self.vales:
                 if _program_hash(binary) != digest:
                     self.refuse("starts vale, which changed while the run ran")
@@ -1382,6 +1425,7 @@ def _rename(r: Recorder, args) -> None:
             # What is under it would be read under a name the run made.
             r.refuse("moves a directory it did not make")
             return
+        r.check_running(os.path.join(_getcwd(), _text(src) or ""))
         r.wrote(dst, directory=True)
         return
     r.read(src)
@@ -1445,6 +1489,7 @@ def _hardlink(r: Recorder, args) -> None:
     # A hard link is another name for the same content: the run reads its source.
     if not _by_descriptor(r, "os.link", args) and not _refuse_taking(r, args[0]):
         r.read(args[0])
+        r.check_running(os.path.join(_getcwd(), _text(args[0]) or ""))
         r.wrote(args[1])
 
 
@@ -2909,6 +2954,8 @@ def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd
     _whole_environment(r, env, final)
     if form == "init":
         r.git_inits.add(n)
+    # What git reads that the run made, which the run may not change while git runs.
+    r.local.roots = [target, final["HOME"], final["XDG_CONFIG_HOME"]]
     return None, found
 
 
@@ -3126,6 +3173,9 @@ def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cw
     else:
         _dll_inputs(r, binary)
     _whole_environment(r, env, final)
+    # What Vale reads that the run could change while it runs: the build directory, its
+    # configuration, styles and linted files among it, and the binary.
+    r.local.roots = [binary] + ([base] if lint else [])
     return None, binary
 
 
@@ -3886,6 +3936,10 @@ def _watch_children(r: Recorder) -> None:
                 trace = _known(self, args, named)
             elif base in (GIT, VALE):
                 trace = _known_program(args, named, base)
+                if trace:
+                    # Known as running before it starts, under the lock the run's events
+                    # take.
+                    _run_known(self, base)
         r.local.child, r.local.popen = python, True
         r.local.known = trace is not None
         try:
@@ -3895,6 +3949,7 @@ def _watch_children(r: Recorder) -> None:
                 with r.lock:
                     r.traces.pop(id(self), None)
                 os.close(trace.fd)
+            r.reaped(self)
             raise
         finally:
             r.local.child, r.local.popen, r.local.known = False, False, False
@@ -3955,6 +4010,13 @@ def _watch_children(r: Recorder) -> None:
         args[executable_at] = resolved
         return True
 
+    def _run_known(popen, base: str) -> None:
+        """Hold a let-through git or Vale as running until the run reaps it: what it reads
+        is the run's to change only then."""
+        roots = getattr(r.local, "roots", None) or []
+        r.local.roots = None
+        r.started_known(popen, base, roots)
+
     # The original's signature, which a recorder started after this one reads.
     execute_child.__wrapped__ = original
     r.install(subprocess.Popen, "_execute_child", execute_child, "Popen._execute_child")
@@ -3978,7 +4040,10 @@ def _watch_children(r: Recorder) -> None:
 
 def _watch_exits(r: Recorder, subprocess) -> None:
     """Take a strace's log as soon as the run reaps it, before the run can learn it ended:
-    the log is the key of what it traced, and the run may remove it."""
+    the log is the key of what it traced, and the run may remove it. Let go of a git or
+    Vale once the run has reaped it, by waiting or polling."""
+    for name in ("_wait", "_internal_poll"):
+        _watch_reap(r, subprocess, name)
     original = getattr(subprocess.Popen, "_handle_exitstatus", None)
     if original is None:
         return  # Windows, where no strace starts
@@ -3994,6 +4059,19 @@ def _watch_exits(r: Recorder, subprocess) -> None:
     handle_exitstatus.__wrapped__ = original
     r.install(subprocess.Popen, "_handle_exitstatus", handle_exitstatus,
               "Popen._handle_exitstatus")
+
+
+def _watch_reap(r: Recorder, subprocess, name: str) -> None:
+    original = getattr(subprocess.Popen, name)
+
+    def reap(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        if self.returncode is not None:
+            r.reaped(self)
+        return result
+
+    reap.__wrapped__ = original
+    r.install(subprocess.Popen, name, reap, f"Popen.{name}")
 
 
 def _watch_rmtree(r: Recorder) -> None:

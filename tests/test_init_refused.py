@@ -16,6 +16,7 @@ from pathlib import Path
 
 from trifecta import init as init_module
 from trifecta.testing import only_on, proves
+from trifecta.toolchain import program_env
 
 from tests import test_init
 from tests.test_init import Repo
@@ -59,14 +60,16 @@ class InitSafe(unittest.TestCase):
 
         with Repo() as root:
             git = ["git", "-c", "user.name=t", "-c", "user.email=t@localhost"]
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True)
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True,
+                           env=program_env())
             first = run(root, zero)
             self.assertEqual((first.returncode, first.stdout.strip()), (0, "make check"))
             self.assertEqual(run(root, "1" * 40).returncode, 1,
                              "a missing base is refused even at the first commit")
             base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
-                                  encoding="utf-8", check=True).stdout.strip()
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], cwd=root, check=True)
+                                  encoding="utf-8", check=True, env=program_env()).stdout.strip()
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], cwd=root, check=True,
+                           env=program_env())
             self.assertEqual(run(root, zero).returncode, 1, "a new branch's push is refused")
             later = run(root, base)
             self.assertEqual((later.returncode, later.stdout.strip()), (0, f"make check BASE={base}"))

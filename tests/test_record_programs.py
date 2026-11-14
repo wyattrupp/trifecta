@@ -96,7 +96,7 @@ class GitTerms(Tree):
                        env={**self.base, **self.pins})
 
     def judge(self, argv: list[str], env: dict | None = None, inited: bool = True,
-              r: record.Recorder | None = None, drop=(), **terms,
+              r: record.Recorder | None = None, drop=(), shell=False, **terms,
               ) -> tuple[record.Recorder, str | None]:
         r = r or recorder(self.root, [self.made])
         if inited:
@@ -106,7 +106,7 @@ class GitTerms(Tree):
             given.pop(name, None)
         final = final_env(given)
         r.start_names = sorted(final)
-        why, _ = record._git_start(r, argv, "git", None, final, str(self.root), False,
+        why, _ = record._git_start(r, argv, "git", None, final, str(self.root), shell,
                                    **terms)
         return r, why
 
@@ -187,18 +187,9 @@ class GitTerms(Tree):
         }
         for name, (argv, given, expected) in cases.items():
             with self.subTest(name):
-                terms = dict(given.get("terms", {}))
-                shell = terms.pop("shell", False)
-                r = recorder(self.root, [self.made])
-                if shell:
-                    r.git_inits.add(record._norm(str(self.target)))
-                    final = final_env({**self.base, **self.pins})
-                    why, _ = record._git_start(r, argv, "git", None, final, str(self.root),
-                                               True)
-                else:
-                    r, why = self.judge(argv, env=given.get("env"),
-                                        drop=given.get("drop", ()),
-                                        inited=given.get("inited", True), **terms)
+                r, why = self.judge(argv, env=given.get("env"), drop=given.get("drop", ()),
+                                    inited=given.get("inited", True),
+                                    **given.get("terms", {}))
                 self.assertEqual(why, expected)
                 self.assertEqual(r.programs, {})
 
@@ -284,6 +275,37 @@ class GitTerms(Tree):
                                return_value=list(final_env(environ).items())):
             _, why = self.judge(self.form(), env={"PATH": path})
         self.assertEqual(why, "runs a git under the repository or one the run made")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_what_git_reads_is_the_runs_to_change_only_once_git_is_reaped(self):
+        r, why = self.judge(self.form())
+        self.assertIsNone(why)
+        git = object()  # the Popen the wrapper holds as running
+        r.started_known(git, "git", r.local.roots)
+        changed = "changes what git reads while it runs"
+        # A path of the run's own outside what git reads is the run's to change.
+        r.wrote(str(self.made / "other.txt"))
+        self.assertNotIn(changed, whys(r))
+        # Its configuration, as the repro appended core.fsmonitor to it, is not.
+        r.wrote(str(self.target / ".git" / "config"))
+        self.assertIn(changed, whys(r))
+        for path in (self.home / ".config" / "git" / "ignore", self.target / "x.txt"):
+            with self.subTest(path.name):
+                r2, _ = self.judge(self.form())
+                r2.started_known(git, "git", r2.local.roots)
+                r2.wrote(str(path))
+                self.assertIn(changed, whys(r2))
+        # Once reaped, it is the run's again; a run that ends before reaping is refused.
+        r, _ = self.judge(self.form())
+        r.started_known(git, "git", r.local.roots)
+        self.assertIn("starts git and does not wait for it",
+                      [x["why"] for x in r.manifest().get("reasons", [])])
+        r, _ = self.judge(self.form())
+        r.started_known(git, "git", r.local.roots)
+        r.reaped(git)
+        r.wrote(str(self.target / ".git" / "config"))
+        self.assertEqual(whys(r), [])
+        self.assertTrue(r.manifest()["storable"])
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_repository_or_gitdir_file_inside_the_worktree_is_refused(self):
@@ -544,6 +566,51 @@ class ValeTerms(Tree):
         self.assertEqual(why, "runs vale with a rule it may not run")
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_what_vale_reads_is_the_runs_to_change_only_once_vale_is_reaped(self):
+        changed = "changes what vale reads while it runs"
+        styles = self.config.parent.parent / "styles"
+        vale = object()
+        for name, change in (
+                ("its configuration", lambda r: r.wrote(str(self.config))),
+                ("a style", lambda r: r.wrote(str(styles / "Trifecta" / "X.yml"))),
+                ("a file it lints", lambda r: r.wrote(str(self.lint / "a.html"))),
+                ("its binary", lambda r: r.wrote(str(self.vale))),
+                ("the styles moved", lambda r: record._rename(
+                    r, (str(styles), str(self.made / "moved")))),
+                ("its configuration linked", lambda r: record._hardlink(
+                    r, (str(self.config), str(self.made / "alias.ini"))))):
+            with self.subTest(name):
+                r, why = self.judge(self.form())
+                self.assertIsNone(why)
+                r.started_known(vale, "vale", r.local.roots)
+                change(r)
+                self.assertIn(changed, whys(r))
+        r, _ = self.judge(self.form())
+        r.started_known(vale, "vale", r.local.roots)
+        self.assertIn("starts vale and does not wait for it",
+                      [x["why"] for x in r.manifest().get("reasons", [])])
+        r, _ = self.judge(self.form())
+        r.started_known(vale, "vale", r.local.roots)
+        r.reaped(vale)
+        r.wrote(str(self.config))
+        self.assertEqual(whys(r), [])
+        self.assertTrue(r.manifest()["storable"])
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_styles_path_through_a_link_to_outside_is_refused(self):
+        # A directory in the build directory that links to one outside it: Vale cleans
+        # the path to one under the build directory and reads the one outside.
+        outside = self.tmp / "out"
+        shutil.copytree(self.config.parent.parent / "styles", outside / "styles")
+        os.symlink(outside, self.config.parent.parent / "link", target_is_directory=True)
+        text = self.config.read_text(encoding="utf-8")
+        self.config.write_text(text.replace("StylesPath = ../styles",
+                                            "StylesPath = ../link/styles"), encoding="utf-8")
+        _, why = self.judge(self.form())
+        self.assertEqual(why, "runs vale with a StylesPath outside the directory the run made")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_vale_changed_while_the_run_ran_is_refused(self):
         r, why = self.judge(self.form())
         self.assertIsNone(why)
@@ -669,6 +736,32 @@ class ValeTerms(Tree):
             with self.subTest(given=given):
                 self.assertFalse(record.vale_runtime_read("/sys/fs/cgroup/b/cpu.max", {42},
                                                           given))
+
+
+# --- the check's starts --------------------------------------------------------------
+
+class CheckStarts(unittest.TestCase):
+    @proves("REQ_KNOWN_PROGRAM")
+    def test_the_check_starts_git_and_vale_with_the_six_variables_stripped(self):
+        from trifecta import check
+        root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, root, True)
+        lint = root / "docs" / "_build" / "lint" / "rfcs"
+        lint.mkdir(parents=True)
+        done = subprocess.CompletedProcess([], 0, "", "")
+        moving = {name: "x" for name in record.MOVING}
+        with mock.patch.dict(os.environ, moving), \
+                mock.patch.object(check.subprocess, "run", return_value=done) as run:
+            check.repo_files(root)
+            check.run_vale(root, root / "bin" / "vale", "prose.ini")
+            check.check_vale_version(root / "bin" / "vale")
+        self.assertEqual(run.call_count, 3)
+        upper = {record._name(m) for m in record.MOVING}
+        for call in run.call_args_list:
+            with self.subTest(call.args[0][:2]):
+                env = call.kwargs["env"]
+                self.assertTrue(env)
+                self.assertFalse({record._name(k) for k in env} & upper)
 
 
 # --- the Sphinx build --------------------------------------------------------------------

@@ -18,6 +18,7 @@ from tests.test_init import SHA, URL, Repo, snapshot
 from trifecta import init as init_module
 from trifecta.init import CLAUDE_MD, COMMAND, ENTRY, HOOK, MATCHER, NEW, SETTINGS, SKILL
 from trifecta.testing import only_on, proves
+from trifecta.toolchain import program_env
 
 SECTION = init_module.section()
 HEADING = SECTION.splitlines()[0]
@@ -484,7 +485,7 @@ class HookCommand(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "my repo"
             root.mkdir()
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, env=program_env())
             run_init(root)
             settings = json.loads((root / SETTINGS).read_bytes())
             command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
