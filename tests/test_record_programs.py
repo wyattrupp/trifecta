@@ -336,6 +336,20 @@ class GitTerms(Tree):
                                       f"moves what it reads")
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_the_check_starts_git_and_vale_without_pwd(self):
+        # git and Vale each stat PWD, which a copy of the repository inherits naming the
+        # original (wyatt, 2026-11-14: "Strip PWD for git/Vale (Recommended)").
+        with mock.patch.dict(os.environ, {"PWD": str(self.root)}):
+            env = toolchain.program_env()
+        self.assertFalse(any(record._name(k) == record._name("PWD") for k in env))
+        # A start that still holds it, even empty, is refused.
+        for value in (str(self.root), ""):
+            with self.subTest(value=value):
+                _, why = self.judge(self.form(), env={"PWD": value})
+                self.assertEqual(why, f"runs git with {record._name('PWD')} set, which "
+                                      f"names a place it reads unkeyed")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_change_to_tz_or_an_ld_variable_reruns(self):
         here = {**self.base, "TZ": "UTC", "LD_BIND_NOW": "1"}
         with mock.patch.object(record, "_environment",
@@ -584,6 +598,9 @@ class ValeTerms(Tree):
             "LD_LIBRARY_PATH": (self.form(), {"LD_LIBRARY_PATH": "/usr/local/lib"},
                                 f"runs vale with {record._name('LD_LIBRARY_PATH')} set, which "
                                 f"moves what it reads"),
+            "PWD": (self.form(), {"PWD": str(self.target)},
+                    f"runs vale with {record._name('PWD')} set, which names a place it reads "
+                    f"unkeyed"),
             "another output": ([vale, config, "--no-global", "--output=JSON", "--no-exit",
                                 *rest], {}, args),
             "--version and more": ([vale, "--version", "--no-global"], {}, args),
@@ -837,21 +854,21 @@ class ValeTerms(Tree):
 
 class CheckStarts(unittest.TestCase):
     @proves("REQ_KNOWN_PROGRAM")
-    def test_the_check_starts_git_and_vale_with_the_six_variables_stripped(self):
+    def test_the_check_starts_git_and_vale_with_the_variables_stripped(self):
         from trifecta import check
         root = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, root, True)
         lint = root / "docs" / "_build" / "lint" / "rfcs"
         lint.mkdir(parents=True)
         done = subprocess.CompletedProcess([], 0, "", "")
-        moving = {name: "x" for name in record.MOVING}
+        moving = {name: "x" for name in (*record.MOVING, *record.UNHELD)}
         with mock.patch.dict(os.environ, moving), \
                 mock.patch.object(check.subprocess, "run", return_value=done) as run:
             check.repo_files(root)
             check.run_vale(root, root / "bin" / "vale", "prose.ini")
             check.check_vale_version(root / "bin" / "vale")
         self.assertEqual(run.call_count, 3)
-        upper = {record._name(m) for m in record.MOVING}
+        upper = {record._name(m) for m in moving}
         for call in run.call_args_list:
             with self.subTest(call.args[0][:2]):
                 env = call.kwargs["env"]

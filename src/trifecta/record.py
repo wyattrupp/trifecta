@@ -2257,6 +2257,10 @@ GIT_HOMES = ("HOME", "XDG_CONFIG_HOME")
 #: so a start with any of them set is refused (REQ_KNOWN_PROGRAM); the rest of the
 #: environment, ``TZ`` and the other ``LD_*`` among it, is recorded whole.
 MOVING = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LOCPATH", "NLSPATH", "GCONV_PATH")
+#: Variables naming a place a known program reads that no key holds: ``PWD``, which git
+#: and Vale each stat as the working directory's name, and which a copy of the repository
+#: inherits naming the original. A start with any of them set is refused (DEC_0050).
+UNHELD = ("PWD",)
 #: Where the C library on Linux finds locales, its aliases and message catalogs: the
 #: compiled-in places, which only the variables in MOVING move.
 LOCALE_DIR, MESSAGES_DIR = "/usr/lib/locale", "/usr/share/locale"
@@ -2404,6 +2408,9 @@ def _env_refusal(final: dict, program: str) -> str | None:
     for name in MOVING:
         if final.get(name):
             return f"runs {program} with {name} set, which moves what it reads"
+    for name in UNHELD:
+        if name in final:
+            return f"runs {program} with {name} set, which names a place it reads unkeyed"
     return None
 
 
