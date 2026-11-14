@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 authors: [claude]
 ---
 # Storable test modules
@@ -39,6 +39,7 @@ here is built until {need}`PLAN_0007` is done, the host name included, as
 
 :::{component} Refusal reasons
 :id: COMP_REFUSAL_REASONS
+:spec: src/trifecta/record.py#def refuse
 :satisfies: REQ_REFUSALS_NAMED
 :constrained_by: DEC_0032
 The recorder keeps every reason it refuses a run, not only the first, each with the
@@ -57,6 +58,7 @@ names here and below are this design's, not rulings.
 
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
+:spec: src/trifecta/record.py#def _git_start
 :satisfies: REQ_KNOWN_PROGRAM
 :constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045, DEC_0046, DEC_0047, DEC_0048, DEC_0049, DEC_0050
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
@@ -253,6 +255,7 @@ stays fresh on Linux, since only `test_record_trace`'s own process may start `st
 
 :::{component} Nested recorder
 :id: COMP_NESTED_RECORDER
+:spec: src/trifecta/record.py#PARENT_PTH_NAME
 :satisfies: REQ_NESTED_RECORDING
 :constrained_by: DEC_0035, DEC_0041, DEC_0042
 A second recorder, the parent's, loaded from a `.pth` file of its own whose name sorts
@@ -341,6 +344,7 @@ test's recorder does under the parent's, is let through.
 
 :::{component} Host name
 :id: COMP_HOST_NAME
+:spec: src/trifecta/record.py#def _fix_host_name
 :satisfies: REQ_HOST_READS
 :constrained_by: DEC_0039
 The recorder wraps `os.uname` and `posix.uname` together and fills
@@ -359,6 +363,7 @@ risk. Derived, not ruled: `toolchain.bin_vale` tests `os.name` in place of
 
 :::{component} Lifted reasons
 :id: COMP_LIFTED_REASONS
+:spec: src/trifecta/record.py#def _watch_exit
 :satisfies: REQ_LIFT_PROVEN
 :constrained_by: DEC_0032, DEC_0034, DEC_0036, DEC_0038, DEC_0040
 The stored unit stays the module. The lifts are built in {need}`DEC_0032`'s order, each
