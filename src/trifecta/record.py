@@ -38,6 +38,7 @@ import re
 import stat
 import sys
 import threading
+import types
 
 #: The variables the C library reads for the locale, recorded whether set or not.
 LOCALE_VARIABLES = ("LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY",
@@ -595,6 +596,9 @@ class Recorder:
         self.sealed_refused = False
         self.sealed_text = b""
         self.manifest_path = os.path.join(self.directory, MANIFEST)
+        #: The fork callbacks the run gave, which the recorder holds in the interpreter's
+        #: place, by token, until the manifest is written.
+        self.kept: dict[object, object] = {}
 
     def in_rmtree(self) -> bool:
         """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
@@ -1284,6 +1288,9 @@ class Recorder:
             if collecting:
                 gc.enable()
             _release_signals(held)
+        # What the run's fork callbacks hold is let go now, the hooks still listening.
+        kept, self.kept = self.kept, {}
+        kept.clear()
 
     def _seal(self, target: str) -> dict:
         """Write the manifest under its temporary name and rename it into place, the
@@ -4412,30 +4419,81 @@ def _recorded_handler(r: Recorder, handler):
 
 
 #: Places the interpreter clears only after its audit hooks, at its teardown: a callable a
-#: run puts there can run code no hook sees. Each is refused as it is put there; the
+#: run puts there can run code no hook sees (COMP_LIFTED_REASONS). A codec search function
+#: or error handler that is not the interpreter's own is refused as it is registered; the
 #: names are the design's.
-KEPT_PAST_HOOKS = (("codecs", "register", "a codec search function"),
-                   ("_codecs", "register", "a codec search function"),
-                   ("codecs", "register_error", "a codec error handler"),
-                   ("_codecs", "register_error", "a codec error handler"),
-                   ("os", "register_at_fork", "a fork callback"),
-                   ("posix", "register_at_fork", "a fork callback"))
+CODEC_REGISTRIES = (("codecs", "register", "a codec search function"),
+                    ("_codecs", "register", "a codec search function"),
+                    ("codecs", "register_error", "a codec error handler"),
+                    ("_codecs", "register_error", "a codec error handler"))
+
+
+def _interpreters_own(r: Recorder, fn) -> bool:
+    """Whether ``fn`` is a function of the interpreter's own: one its module, from a file
+    under the interpreter's prefixes or built in, names by its qualified name. Anything
+    else, a callable object, a partial or a method, which holds an object of its own, can
+    hold a finalizer of the run's."""
+    if not isinstance(fn, types.FunctionType):
+        return False
+    module = sys.modules.get(fn.__module__ or "")
+    path = getattr(module, "__file__", None)
+    if not (isinstance(path, str) and os.path.isabs(path)
+            and any(_under(_norm(path), p) for p in r.prefixes)):
+        return False
+    found = module
+    for part in fn.__qualname__.split("."):
+        found = getattr(found, part, None) if isinstance(found, (types.ModuleType, type))             else None
+    return found is fn
 
 
 def _watch_kept(r: Recorder) -> None:
-    for module, name, what in KEPT_PAST_HOOKS:
+    for module, name, what in CODEC_REGISTRIES:
         owner = sys.modules.get(module)
         original = getattr(owner, name, None)
         if original is None:
             continue
 
         def kept(*args, _original=original, _what=what, **kwargs):
-            r.guarded(lambda: r.refuse(
-                f"registers {_what}, which the interpreter keeps past its audit hooks"))
+            def judge():
+                if not all(_interpreters_own(r, fn) for fn in [*args, *kwargs.values()]
+                           if callable(fn)):
+                    r.refuse(f"registers {_what}, which the interpreter keeps past its "
+                             f"audit hooks")
+            r.guarded(judge)
             return _original(*args, **kwargs)
 
         kept.__wrapped__ = original
         r.install(owner, name, kept, f"{module}.{name}")
+    # A fork callback: the interpreter keeps what it is given past its hooks, and the
+    # standard library registers some as it is imported. The recorder registers a
+    # forwarder in its place and holds the callable itself, dropping it once the manifest
+    # is written, while the hooks still see what a finalizer it held does.
+    for module in ("os", "posix"):
+        owner = sys.modules.get(module)
+        original = getattr(owner, "register_at_fork", None)
+        if original is None:
+            continue
+
+        def at_fork(*args, _original=original, **kwargs):
+            if args or not kwargs or not all(map(callable, kwargs.values())):
+                return _original(*args, **kwargs)  # it refuses them as given
+            forwarders = {}
+            for key, fn in kwargs.items():
+                token = object()
+                r.kept[token] = fn
+                forwarders[key] = _forwarder(r, token)
+            return _original(**forwarders)
+
+        at_fork.__wrapped__ = original
+        r.install(owner, "register_at_fork", at_fork, f"{module}.register_at_fork")
+
+
+def _forwarder(r: Recorder, token: object):
+    def forward():
+        fn = r.kept.get(token)
+        if fn is not None:
+            fn()
+    return forward
 
 
 def _watch_exit(r: Recorder) -> None:

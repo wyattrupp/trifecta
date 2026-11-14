@@ -361,16 +361,19 @@ class AfterTheManifest(unittest.TestCase):
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_callable_kept_past_the_audit_hooks_refuses_the_run(self):
-        cases = [("import codecs; codecs.register(Kept())", "a codec search function"),
+        kept = "registers {}, which the interpreter keeps past its audit hooks".format
+        cases = [("import codecs; codecs.register(Kept())", kept("a codec search function")),
                  ("import codecs; codecs.register_error('x-kept', Kept())",
-                  "a codec error handler"),
+                  kept("a codec error handler")),
                  ("import sys; sys.monitoring.use_tool_id(3, 'kept'); "
                   "sys.monitoring.register_callback(3, sys.monitoring.events.PY_START, Kept())",
-                  "a monitoring callback")]
+                  kept("a monitoring callback"))]
         if hasattr(os, "register_at_fork"):
-            cases.append(("os.register_at_fork(before=Kept())", "a fork callback"))
-        for line, what in cases:
-            with self.subTest(what=what):
+            # The recorder holds a fork callback itself and lets it go once the manifest is
+            # written, the hooks still listening: its finalizer refuses the run then.
+            cases.append(("os.register_at_fork(before=Kept())", record.LATE))
+        for line, why in cases:
+            with self.subTest(why=why):
                 done, m = self.exits(f"""
                     import os
 
@@ -384,8 +387,7 @@ class AfterTheManifest(unittest.TestCase):
                     {line}
                     """)
                 self.assertFalse(m["storable"])
-                self.assertIn(f"registers {what}, which the interpreter keeps past its audit "
-                              "hooks", [r["why"] for r in m["reasons"]])
+                self.assertIn(why, [r["why"] for r in m["reasons"]])
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_link_at_the_temporary_name_writes_nothing_through_it(self):
