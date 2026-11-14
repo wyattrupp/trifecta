@@ -72,14 +72,16 @@ audit event not on its list of handled or known-harmless events marks the manife
 unstorable, and so does a change of working directory.
 
 Reads: an `open` for reading, and the source of a `shutil.copyfile` or the Windows
-`_winapi.CopyFile2` event, is a file input, hashed only when it is a regular file; a
-device or a pipe, as `/dev/urandom`, is held by its kind, never read. A link the run makes
+`_winapi.CopyFile2` event, is a file input, hashed only when it is a regular file;
+`/dev/null` and `/dev/urandom` are held by their kind, `device`, never read, and a read of
+any other device, a pipe or a socket, which another process can feed, refuses the run. A
+link the run makes
 may reach only what it made, a directory it created or a file it wrote, its links
 resolved; making one that reaches beyond is refused, since a read under a directory the run
 made, which is no input, would reach through it a file no key holds. Probes: it wraps `os.stat`, `os.lstat`,
 `os.access`, `os.readlink`, and `os.path.exists`, `isfile`, `isdir` and `islink`, which
 on Windows are C functions that call no wrapped `os.stat`, and records every probed path
-with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
+with its kind: file, directory, link, fifo, device, socket or absent. Listings: `os.listdir` and `os.scandir`
 record each entry with its kind. Imports: the import system's own lookups are recorded as
 the presence or absence of the names it looked for, not as whole listings. Every recorded process, the
 Sphinx build's included, runs with `-B` and with `pycache_prefix` set to an empty
@@ -252,10 +254,10 @@ any rule: it is a report.
 :constrained_by: DEC_0028, DEC_0039
 A JSON object with `version: 1`, `storable` and, when false, `why` and `reasons`; `files`,
 mapping each path read to its SHA-256; `probes`, mapping each path probed to its kind,
-`file`, `directory`, `link` or `absent`, or, for a link {need}`DES_0009` holds as the
-interpreter's ({need}`DEC_0045`), `link:` followed by the link's target as it reads, which
-a lookup reads again; `listings`, mapping each directory listed to its
-sorted entries, each with its kind; `lookups`, the import system's names found or not found;
+`file`, `directory`, `link`, `fifo`, `device`, `socket` or `absent`, or, for a link
+{need}`DES_0009` holds as the interpreter's ({need}`DEC_0045`), `link:` followed by the
+link's target as it reads, which a lookup reads again; `listings`, mapping each directory
+listed to its sorted entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
 path replaced, or null when it is unset, and, under the key `=names`, which no
 variable's name can be, when the run read the whole environment, the SHA-256 of the

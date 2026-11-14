@@ -128,9 +128,11 @@ rulings. `strace` has no proof test of its own, since it cannot run under anothe
 trusted with the kernel, as {need}`DEC_0037` accepts. The recorder makes `LOG` and holds it
 open before `strace` starts, and once the run reaps `strace` reads the log through that
 descriptor, so what it reads is what `strace` wrote, whatever then becomes of the name; a
-call of the traced command on `LOG`, by any name under what the run made, or on a
+call of the traced command on `LOG`, by any name under what the run made, a change to a
 directory that holds it, a write of the run's own to it by any name, and a log that does
-not start with its command's start each refuse the run.
+not start with its command's start each refuse the run. The recorder knows the log as it
+makes it, before `strace` starts, and, once `strace` is reaped, refuses the run when the
+run wrote the log by any name.
 
 The log gives the traced command's inputs, recorded as {need}`DES_0008`'s recorder records
 the run's own: every path read, probed or listed outside the run's own directories, each
@@ -143,9 +145,12 @@ whole environment, which no trace sees read. Under {need}`DEC_0044` only the int
 own trees, sysconfig's `stdlib`, `platstdlib`, `purelib`, `platlib`, `scripts` and
 `include` under `sys.prefix` and `sys.base_prefix`, are left to the environment key; every
 other path under the prefixes is keyed. The system's time zone is left out with the clock,
-which {need}`RFC_0008` puts out of scope, as the recorder leaves it out. A read, probe or
-listing of a path the run itself wrote or made while `strace` ran refuses the run, since
-the log does not say which the command saw. `/dev/null` and `/dev/urandom` are allowed,
+which {need}`RFC_0008` puts out of scope, as the recorder leaves it out. A read, probe,
+listing or start of a path the run itself first wrote, or one under a directory it first
+made, while `strace` ran refuses the run, since the log does not say whether the command
+saw it before or after. A read of a pipe, a device or a socket, which another process can
+feed, refuses the run, and so does a process started with `CLONE_UNTRACED`, which no
+trace follows. `/dev/null` and `/dev/urandom` are allowed,
 and in the traced processes' own `/proc` entries, as `self` or by number, only listing
 `fd`, reading the `exe` link and, under {need}`DEC_0043`, reading `maps` and `cgroup`, none
 of them keyed; any other read under `/proc` or `/dev` refuses the run. A socket of a
@@ -153,14 +158,17 @@ network family refuses it, but one of `AF_INET` or `AF_INET6` bound to a loopbac
 on which the command never connects, sends, listens or accepts, under {need}`DEC_0043`;
 any `connect`, and binding a local socket, refuse it too. A read through a link the run
 did not make refuses the run, as the recorder's own does, but two kinds of link. One is a
-link met resolving `sys.executable`, `sys.prefix`, `sys.base_prefix` or the `home` a
-virtual environment's `pyvenv.cfg` names, which {need}`DEC_0045` holds as the
+link met resolving `sys.executable`, `sys.prefix`, `sys.base_prefix`,
+`sys.exec_prefix`, `sys.base_exec_prefix` or the `home` a virtual environment's
+`pyvenv.cfg` names, all the interpreter's, which {need}`DEC_0045` holds as the
 interpreter's: it is recorded as a probe of the link with its target, which a lookup reads
 again, and followed. The other is the C library's `/usr/share/locale/locale.alias`, which
 {need}`DEC_0043` names: it is recorded by the link, its target's content and the content
-the link reaches, which a lookup takes again following it. Making a link that reaches beyond what the run made refuses the run, as the
-recorder's own does, and so does a signal, or a pidfd, to a process `strace` does not
-trace, 0, the command's own group, aside. The traced command runs under the recorder too,
+the link reaches, which a lookup takes again following it. Making a link that reaches
+beyond what the run made refuses the run, as the recorder's own does, and so does a signal,
+or a pidfd, to a process `strace` does not trace, but for 0, the command's own process
+group, which holds `strace` and the run's own process too: a signal there can only end
+or stop what is recorded, which then leaves no result. The traced command runs under the recorder too,
 so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
