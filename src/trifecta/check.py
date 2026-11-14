@@ -364,7 +364,9 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
     config_file = root / "docs" / "_build" / "vale" / "vale" / config
     try:
         proc = subprocess.run(
-            [str(vale), f"--config={config_file}", "--output=line",
+            # --no-global: no configuration outside the build directory is searched, the
+            # form the recorder lets Vale through in (COMP_KNOWN_PROGRAMS).
+            [str(vale), f"--config={config_file}", "--no-global", "--output=line",
              "--no-exit", *targets],
             capture_output=True, encoding="utf-8", errors="replace", cwd=root,
         )

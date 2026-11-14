@@ -543,6 +543,16 @@ class Recorder:
         self.traces: dict[int, tuple] = {}
         self.env_set: set[str] = set()
         self.created: set[str] = set()   # directories the run made: nothing under them is read
+        #: The directories the processes above this one made, which a known program judges
+        #: as made by the run (COMP_KNOWN_PROGRAMS).
+        self.made_above: set[str] = {_norm(str(p)) for p in config.get("made", ())}
+        #: The directories a git ``init`` of this run or a process above it was let through
+        #: on: only on one of them is any other git start let through.
+        self.git_inits: set[str] = {_norm(str(p)) for p in config.get("git", ())}
+        #: The pins of Vale's binary, read from the package's toolchain file as the run
+        #: began, with that file's key and SHA-256; None until ``start`` reads them.
+        self.vale_pins: frozenset[str] | None = None
+        self.pin_file: tuple[str, str] | None = None
         self.written: set[str] = set()   # files the run wrote, moved or removed
         #: Each child's directory, with how many inputs had been seen when it started.
         self.children: list[tuple[str, int]] = []
@@ -1833,6 +1843,9 @@ def _prepare_child(r: Recorder, env, final: dict, name: str, token: str,
         # What the parent made or wrote is no input to its child either.
         with r.lock:
             config["ignore"] = sorted({*config.get("ignore", ()), *r.created, *r.written})
+            # What this run made, and where its git init ran, are the child's run's too.
+            config["made"] = sorted(r.made_above | r.created)
+            config["git"] = sorted(r.git_inits)
         config["top"] = r.config.get("top") or r.directory
         config["prefixes"] = _prefixes()
         config.pop(SEARCH_PATH, None)
@@ -2170,6 +2183,852 @@ def _strace_start(r: Recorder, argv: list[str], program: str, env, final: dict,
     _note_program(r, resolved, cwd)
     _whole_environment(r, env, final)
     return None, trace, resolved
+
+
+# --- known programs: git and Vale -------------------------------------------------------
+
+GIT, VALE = "git", "vale"
+#: git's start on a directory the run made, ``init -q DIR``, and its forms after ``-C DIR``
+#: (COMP_KNOWN_PROGRAMS, DEC_0033): no ``-c``, no ``add``, no ``commit``.
+GIT_INIT = ("init", "-q")
+GIT_FORMS = (("remote", "get-url", "origin"), ("ls-files", "-z"),
+             ("ls-files", "-z", "--cached", "--others", "--exclude-standard"),
+             ("config", "user.name"))
+#: The keys ``git init`` writes into a repository's configuration, on Linux, Windows and
+#: macOS, and ``user.name``: the only keys the made repository's configuration may hold.
+GIT_KEYS = frozenset({"core.repositoryformatversion", "core.filemode", "core.bare",
+                      "core.logallrefupdates", "core.symlinks", "core.ignorecase",
+                      "core.precomposeunicode", "user.name"})
+#: The ``GIT_*`` variables a git start must hold, and the only ones it may.
+GIT_PINNED = ("GIT_CEILING_DIRECTORIES", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")
+#: The variables that must name directories the run made.
+GIT_HOMES = ("HOME", "XDG_CONFIG_HOME")
+#: Variables that move what a known program or its loader reads to where no key holds it,
+#: so a start with any of them set is refused (REQ_KNOWN_PROGRAM); the rest of the
+#: environment, ``TZ`` and the other ``LD_*`` among it, is recorded whole.
+MOVING = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LOCPATH", "NLSPATH", "GCONV_PATH")
+#: Where the C library on Linux finds locales, its aliases and message catalogs: the
+#: compiled-in places, which only the variables in MOVING move.
+LOCALE_DIR, MESSAGES_DIR = "/usr/lib/locale", "/usr/share/locale"
+LOCALE_ALIAS = "/usr/share/locale/locale.alias"
+LD_CACHE, LD_PRELOAD_FILE = "/etc/ld.so.cache", "/etc/ld.so.preload"
+#: The loader cache's entry flags for a 64-bit library of the C library, by ELF machine.
+LD_FLAGS = {62: 0x0303, 183: 0x0a03}
+#: Vale's form after ``--config=FILE``, then each directory it lints.
+VALE_FORM = ("--no-global", "--output=line", "--no-exit")
+#: The keys a Vale configuration may hold: at its top, and in a section of files. A rule
+#: toggle, ``Style.Rule = YES``, names a style under ``StylesPath``. The set is the
+#: design's, from what ``run_vale``'s configurations use.
+VALE_KEYS = frozenset({"StylesPath", "MinAlertLevel", "IgnoredClasses", "Vocab"})
+VALE_SECTION_KEYS = frozenset({"BasedOnStyles"})
+VALE_TOGGLES = frozenset({"YES", "NO", "suggestion", "warning", "error"})
+#: Sections in which Vale maps formats or names a converter, which can start a program.
+VALE_SECTIONS_REFUSED = frozenset({"formats", "asciidoctor", "adoc"})
+#: What a rule file of a style may hold at its top, and which rules it may extend: none
+#: that names a file, a script or a dictionary.
+VALE_RULE_KEYS = frozenset({"extends", "message", "level", "ignorecase", "tokens", "swap",
+                            "scope", "nonword", "description", "link"})
+VALE_EXTENDS = frozenset({"existence", "substitution"})
+#: The files Vale may lint: formats it reads itself, starting no program.
+VALE_LINTED = (".html",)
+#: The names Vale looks for in its working directory and each directory above it.
+VALE_CONFIGS = (".vale", ".vale.ini", "_vale", "_vale.ini", "vale.ini")
+#: The reads Vale's runtime makes on Linux that no key can hold, as a trace of it shows:
+#: until a ruling allows them, Vale is refused on Linux (COMP_KNOWN_PROGRAMS).
+VALE_RUNTIME_READS = ("/proc/self/maps", "/proc/self/mountinfo", "/proc/self/cgroup",
+                      "/proc/version", "/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
+                      "/sys/devices/system/cpu/online", "/sys/fs/cgroup/")
+VALE_RUNTIME_RULED = False
+#: The platform keys of the toolchain's pins for this system.
+_SYSTEM_KEYS = {"linux": "linux-", "darwin": "macos-", "win32": "windows-"}
+_PIN_LINE = re.compile(r'^\s*"([a-z0-9]+-[a-z0-9_]+)": "([0-9a-f]{64})",\s*$')
+
+
+def read_pins(recorder_file: str) -> tuple[frozenset[str], str | None, str | None]:
+    """The pins of Vale's binary for this system, the path of the toolchain file beside the
+    recorder they were read from, and its SHA-256: read as the run begins, from the text,
+    so nothing the run then writes there changes them (DEC_0038)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(recorder_file)), "toolchain.py")
+    try:
+        with _open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return frozenset(), None, None
+    prefix = next((v for k, v in _SYSTEM_KEYS.items() if sys.platform.startswith(k)), None)
+    pins, inside = set(), False
+    for line in data.decode("utf-8", "replace").splitlines():
+        if line.startswith("VALE_BINARIES = {"):
+            inside = True
+        elif inside and line.startswith("}"):
+            break
+        elif inside and (m := _PIN_LINE.match(line)) and prefix \
+                and m.group(1).startswith(prefix):
+            pins.add(m.group(2))
+    return frozenset(pins), path, hashlib.sha256(data).hexdigest()
+
+
+def take_pins(r: Recorder, recorder_file: str) -> None:
+    """Give ``r`` the pins of Vale's binary as the package holds them now, as the run
+    begins, and the key of the file holding them, an input of any run that starts Vale."""
+    pins, path, digest = read_pins(recorder_file)
+    r.vale_pins = pins
+    found = r.where(path) if path else None
+    if found is not None and digest is not None:
+        r.pin_file = ("files" if found[0] == "repo" else "outside", found[1], digest)
+
+
+def _made(r: Recorder, path: str) -> bool:
+    """Whether ``path`` is under a directory this run or a process above it made, as it
+    is spelled and with its links resolved, and not in what a recorder prepared."""
+    n = _norm(path)
+    places = r.created | r.made_above
+    if not any(_under(n, m) for m in places) or r.in_top(path):
+        return False
+    try:
+        resolved = _norm(_realpath(path))
+    except (OSError, ValueError):
+        return False
+    return resolved == n
+
+
+def _made_root(r: Recorder, path: str) -> str | None:
+    """The highest directory the run made that holds ``path``: the tree a known program
+    may work in."""
+    n = _norm(path)
+    found = [m for m in r.created | r.made_above if _under(n, m)]
+    return min(found, key=len) if found else None
+
+
+def _ancestors(path: str) -> list[str]:
+    """``path``'s directories above it, nearest first."""
+    out, here = [], os.path.dirname(path)
+    while here and here not in out:
+        out.append(here)
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    return out
+
+
+def _env_refusal(final: dict, program: str) -> str | None:
+    for name in MOVING:
+        if final.get(name):
+            return f"runs {program} with {name} set, which moves what it reads"
+    return None
+
+
+# -- what a program loads -------------------------------------------------------------------
+
+def _elf_dynamic(path: str) -> tuple[int, list[str], bool]:
+    """A 64-bit little-endian ELF program's machine, the libraries it names as needed, and
+    whether it names a search path of its own. ValueError when it cannot be read so."""
+    import struct
+    with _open(path, "rb") as f:
+        data = f.read()
+    if data[:4] != b"\x7fELF" or len(data) < 64 or data[4] != 2 or data[5] != 1:
+        raise ValueError("not a 64-bit little-endian ELF program")
+    machine = struct.unpack_from("<H", data, 18)[0]
+    phoff, = struct.unpack_from("<Q", data, 32)
+    phentsize, phnum = struct.unpack_from("<HH", data, 54)
+    loads, dynamic = [], None
+    for i in range(phnum):
+        at = phoff + i * phentsize
+        kind_, _, offset, vaddr, _, filesz, memsz = struct.unpack_from("<IIQQQQQ", data, at)
+        if kind_ == 1:
+            loads.append((vaddr, memsz, offset))
+        elif kind_ == 2:
+            dynamic = (offset, filesz)
+    if dynamic is None:
+        return machine, [], False
+
+    def at(address: int) -> int:
+        for vaddr, size, offset in loads:
+            if vaddr <= address < vaddr + size:
+                return address - vaddr + offset
+        raise ValueError("an address no segment holds")
+    needed, strtab, own_path = [], None, False
+    for i in range(dynamic[1] // 16):
+        tag, value = struct.unpack_from("<qQ", data, dynamic[0] + 16 * i)
+        if tag == 0:
+            break
+        if tag == 1:
+            needed.append(value)
+        elif tag == 5:
+            strtab = value
+        elif tag in (15, 29):  # DT_RPATH, DT_RUNPATH
+            own_path = True
+    if needed and strtab is None:
+        raise ValueError("no string table")
+    names = []
+    for offset in needed:
+        start = at(strtab) + offset
+        names.append(os.fsdecode(data[start:data.index(b"\0", start)]))
+    return machine, names, own_path
+
+
+def _ld_cache(flags: int) -> dict[str, str]:
+    """The loader cache's map of a library's name to its path, for entries of ``flags``.
+    ValueError for a cache the recorder cannot read, or one with an entry the loader
+    would choose by the processor's capabilities."""
+    import struct
+    with _open(LD_CACHE, "rb") as f:
+        data = f.read()
+    magic = b"glibc-ld.so.cache1.1"
+    base = data.find(magic)
+    if base < 0:
+        raise ValueError("a loader cache of another format")
+    nlibs, = struct.unpack_from("<I", data, base + 20)
+    out: dict[str, str] = {}
+    for i in range(nlibs):
+        entry, key, value, _, hwcap = struct.unpack_from("<iIIIQ", data, base + 48 + 24 * i)
+        if entry & 0xffff != flags:
+            continue
+        name = os.fsdecode(data[base + key:data.index(b"\0", base + key)])
+        path = os.fsdecode(data[base + value:data.index(b"\0", base + value)])
+        if hwcap:
+            raise ValueError(f"a cache entry for {name} chosen by the processor")
+        out.setdefault(name, path)
+    return out
+
+
+def _note_library(r: Recorder, path: str) -> None:
+    """A library the loader maps, by the path it opens and what that path reaches."""
+    digest = _program_hash(path)
+    if digest is None:
+        r.refuse(f"loads {r.shown(path)}, which is not a regular file")
+        return
+    key = _program_key(r, path)
+    if key is not None:
+        r.note("programs", key, digest)
+
+
+def _loader_inputs(r: Recorder, program: str, what: str) -> str | None:
+    """Record what the loader reads for ``program`` on Linux: its cache, its preload file,
+    and each library named as needed, found in the cache and followed again; why it is
+    refused, or None."""
+    r.read(LD_CACHE)
+    r.probe(LD_PRELOAD_FILE)
+    if kind(LD_PRELOAD_FILE) != "absent":
+        return f"runs {what} where the loader preloads a library"
+    try:
+        machine, needed, own = _elf_dynamic(program)
+        if own:
+            return f"runs {what}, which names a library search path of its own"
+        flags = LD_FLAGS.get(machine)
+        if flags is None:
+            return f"runs {what} for a machine the recorder has no loader rule for"
+        cache = _ld_cache(flags)
+        interpreter = _elf_interpreter(program)
+        skip = {os.path.basename(interpreter)} if interpreter else set()
+        seen, queue, libc = set(), list(needed), None
+        while queue:
+            name = queue.pop(0)
+            if name in seen or name in skip:
+                continue
+            seen.add(name)
+            if "/" in name or name not in cache:
+                return f"runs {what}, which needs a library the loader cache does not hold"
+            path = cache[name]
+            _note_library(r, path)
+            if name.startswith("libc.so"):
+                libc = path
+            more = _elf_dynamic(path)
+            if more[2]:
+                return f"runs {what}, whose library names a search path of its own"
+            queue.extend(more[1])
+    except (OSError, ValueError) as exc:
+        return f"runs {what}, whose loading the recorder cannot read: {type(exc).__name__}"
+    r.libc = libc
+    return None
+
+
+def _tree(r: Recorder, top: str, what: str) -> str | None:
+    """Record a tree a program reads whole: each directory listed, each file read; a link
+    in it is refused."""
+    stack = [top]
+    while stack:
+        here = stack.pop()
+        k = kind(here)
+        if k == "link":
+            return f"runs {what}, which reads {r.shown(here)}, a link"
+        if k != "directory":
+            r.read(here)
+            continue
+        r.list(here)
+        for name, _ in listing(here) or ():
+            stack.append(os.path.join(here, name))
+    return None
+
+
+def _locale_inputs(r: Recorder, domain: str, what: str) -> str | None:
+    """Record what the C library on Linux reads for the locale and ``domain``'s messages:
+    the locale archive and every locale's files, the gconv modules' cache, the aliases,
+    and every catalog of ``domain``, whatever language the environment names."""
+    for path in (LOCALE_DIR,):
+        if kind(path) == "directory":
+            why = _tree(r, path, what)
+            if why:
+                return why
+        else:
+            r.probe(path)
+    libc = getattr(r, "libc", None)
+    if libc:
+        gconv = os.path.join(os.path.dirname(_realpath(libc)), "gconv")
+        r.read(os.path.join(gconv, "gconv-modules.cache"))
+        r.read(os.path.join(gconv, "gconv-modules"))
+        d = os.path.join(gconv, "gconv-modules.d")
+        if kind(d) == "directory":
+            why = _tree(r, d, what)
+            if why:
+                return why
+        else:
+            r.probe(d)
+    if kind(LOCALE_ALIAS) == "link":
+        # The one link the C library reads that the run did not make (DEC_0043): held by
+        # the link, its target and what it reaches.
+        digest = _program_hash(LOCALE_ALIAS)
+        if digest is None:
+            return f"runs {what} where the locale aliases are a link to no file"
+        r.note("probes", LOCALE_ALIAS, "link")
+        r.note("outside", LOCALE_ALIAS, digest)
+        r.read(_realpath(LOCALE_ALIAS))
+    else:
+        r.read(LOCALE_ALIAS)
+    return _catalogs(r, MESSAGES_DIR, domain, what)
+
+
+def _catalogs(r: Recorder, directory: str, domain: str, what: str) -> str | None:
+    """Every catalog of ``domain`` under ``directory``, by language: each read, or each
+    language's place probed, so a catalog that appears runs the module again."""
+    if kind(directory) != "directory":
+        r.probe(directory)
+        return None
+    r.list(directory)
+    for name, k in listing(directory) or ():
+        if k == "link":
+            return f"runs {what} where a language's messages are a link"
+        if k != "directory":
+            continue
+        messages = os.path.join(directory, name, "LC_MESSAGES")
+        r.probe(messages)
+        if kind(messages) == "link":
+            return f"runs {what} where a language's messages are a link"
+        catalog = os.path.join(messages, f"{domain}.mo")
+        if kind(catalog) == "link":
+            return f"runs {what} where a catalog is a link"
+        r.read(catalog)
+    return None
+
+
+def _pe_imports(path: str) -> list[str]:
+    """The DLLs a Windows program imports, at load or delayed. ValueError when its headers
+    cannot be read."""
+    import struct
+    with _open(path, "rb") as f:
+        data = f.read()
+    if data[:2] != b"MZ":
+        raise ValueError("not a Windows program")
+    pe, = struct.unpack_from("<I", data, 0x3C)
+    if data[pe:pe + 4] != b"PE\0\0":
+        raise ValueError("not a Windows program")
+    sections, = struct.unpack_from("<H", data, pe + 6)
+    optional_size, = struct.unpack_from("<H", data, pe + 20)
+    optional = pe + 24
+    magic, = struct.unpack_from("<H", data, optional)
+    directories = optional + (112 if magic == 0x20B else 96)
+    table = optional + optional_size
+    spans = [struct.unpack_from("<IIII", data, table + 40 * i + 8) for i in range(sections)]
+
+    def at(rva: int) -> int:
+        for vsize, vaddr, rawsize, rawptr in spans:
+            if vaddr <= rva < vaddr + max(vsize, rawsize):
+                return rva - vaddr + rawptr
+        raise ValueError("an address no section holds")
+
+    def name(rva: int) -> str:
+        start = at(rva)
+        return data[start:data.index(b"\0", start)].decode("ascii")
+    out = []
+    for index, size in ((1, 20), (13, 32)):
+        rva, _ = struct.unpack_from("<II", data, directories + 8 * index)
+        if not rva:
+            continue
+        offset = at(rva)
+        while True:
+            fields = struct.unpack_from("<5I", data, offset)
+            if not any(fields):
+                break
+            out.append(name(fields[3] if size == 20 else fields[1]))
+            offset += size
+    return out
+
+
+def _dll_inputs(r: Recorder, program: str) -> None:
+    """Record each DLL a Windows program imports from its own directory, followed again,
+    and probe each name it imports there, so a DLL planted beside it runs the module
+    again; the system's own are the system's, as the interpreter's native code is."""
+    directory, seen, queue = os.path.dirname(program), set(), [program]
+    while queue:
+        exe = queue.pop(0)
+        try:
+            names = _pe_imports(exe)
+        except (OSError, ValueError, UnicodeDecodeError):
+            r.refuse(f"runs {r.shown(exe)}, whose imports the recorder cannot read")
+            return
+        for dll in names:
+            low = dll.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            beside = os.path.join(directory, dll)
+            if kind(beside) == "file":
+                _note_library(r, beside)
+                queue.append(beside)
+            else:
+                r.probe(beside)
+
+
+# -- finding the program --------------------------------------------------------------------
+
+def _found_windows(r: Recorder, program: str, cwd: str) -> str | None:
+    """The file ``program`` names, as CreateProcess finds it: a name with a directory from
+    the working directory, any other in the process's own directory, its working directory,
+    the system's directories and then along this process's PATH, ``.exe`` added to a name
+    with none; each place searched before it is recorded as probed."""
+    name = program if os.path.splitext(program)[1] else program + ".exe"
+    if os.path.dirname(program):
+        candidates = [os.path.join(cwd, name)]
+    else:
+        import _winapi
+        env = {k.upper(): v for k, v in _environment()}
+        windows = env.get("SYSTEMROOT") or env.get("WINDIR") or "C:\\Windows"
+        places = [os.path.dirname(_winapi.GetModuleFileName(0))]
+        if "NODEFAULTCURRENTDIRECTORYINEXEPATH" not in env:
+            places.append(_getcwd())
+        places += [os.path.join(windows, "System32"), os.path.join(windows, "System"), windows]
+        places += [p for p in env.get("PATH", "").split(os.pathsep) if p]
+        candidates = [os.path.join(p.strip('"'), name) for p in places]
+    for candidate in candidates:
+        absolute = os.path.normpath(candidate)
+        if kind(absolute) == "file":
+            return absolute
+        key = _program_key(r, absolute)
+        if key is not None:
+            r.note("probes", key, kind(absolute))
+    return None
+
+
+def _found(r: Recorder, program: str, final: dict, cwd: str) -> str | None:
+    if os.name == "nt":
+        return _found_windows(r, program, cwd)
+    return _found_program(r, program, final, cwd)
+
+
+def _outside_program(r: Recorder, found: str | None, what: str) -> tuple[str | None, str | None]:
+    """The program found, resolved, when it lies outside the repository and the run's own
+    directories and is a program the system starts directly: on Linux an ELF file, on
+    Windows an ``.exe``; else why it is refused."""
+    if found is None:
+        return f"runs {what}, which is not found", None
+    resolved = os.path.normpath(_realpath(found))
+    if _program_key(r, resolved) is None or _under(_norm(resolved), r.nroot):
+        return f"runs a {what} under the repository or one the run made", None
+    if os.name == "nt":
+        if not resolved.lower().endswith(".exe"):
+            return f"runs a {what} that is not an .exe", None
+    elif _head(resolved, 4) != b"\x7fELF":
+        return f"runs a {what} that is not an ELF program", None
+    return None, resolved
+
+
+# -- git ----------------------------------------------------------------------------------
+
+def _git_form(argv: list[str]) -> tuple[str | None, str | None]:
+    """The directory a git start names and whether it is ``init``, or None: one of the
+    forms, exactly."""
+    args = argv[1:]
+    if len(args) == 3 and tuple(args[:2]) == GIT_INIT:
+        return args[2], "init"
+    if len(args) >= 3 and args[0] == "-C" and tuple(args[2:]) in GIT_FORMS:
+        return args[1], "-C"
+    return None, None
+
+
+def _git_config_keys(text: str) -> list[str] | None:
+    """The keys a git configuration file sets, ``section.key`` or
+    ``section.subsection.key``; None for any line the recorder cannot read as one."""
+    keys, section = [], None
+    header = re.compile(r'\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\\n]|\\.)*)")?\s*\](.*)$')
+    entry = re.compile(r"([A-Za-z][A-Za-z0-9-]*)\s*(?:=(.*))?$")
+    for raw in text.splitlines():
+        line = raw.strip()
+        while line:
+            if line[0] in "#;":
+                break
+            if line[0] == "[":
+                m = header.match(line)
+                if not m:
+                    return None
+                section = m.group(1).lower() + ("" if m.group(2) is None
+                                                else "." + m.group(2))
+                line = m.group(3).strip()
+                continue
+            m = entry.match(line)
+            if not m or section is None or (m.group(2) or "").rstrip().endswith("\\"):
+                return None
+            keys.append(f"{section}.{m.group(1).lower()}")
+            break
+    return keys
+
+
+def _git_repository(r: Recorder, target: str) -> str | None:
+    """Why the made repository at ``target`` would make git run a further program or read
+    elsewhere, or None: a ``.git`` that is not a directory, alternates, ``commondir``, a
+    hook that is not git's sample, or a configuration key ``git init`` does not write."""
+    git = os.path.join(target, ".git")
+    if kind(git) != "directory":
+        return "runs git on a repository whose .git is not a directory"
+    for rel in (("objects", "info", "alternates"), ("objects", "info", "http-alternates"),
+                ("commondir",)):
+        if kind(os.path.join(git, *rel)) != "absent":
+            return f"runs git on a repository with {rel[-1]}"
+    hooks = os.path.join(git, "hooks")
+    k = kind(hooks)
+    if k not in ("absent", "directory"):
+        return "runs git on a repository whose hooks are not a directory"
+    for name, entry in listing(hooks) or ():
+        if entry != "file" or not name.endswith(".sample"):
+            return "runs git on a repository with a hook"
+    config = os.path.join(git, "config")
+    if kind(config) != "file":
+        return "runs git on a repository whose configuration is not a file"
+    try:
+        with _open(config, "rb") as f:
+            text = f.read(1 << 20).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "runs git on a repository whose configuration it cannot read"
+    keys = _git_config_keys(text)
+    if keys is None:
+        return "runs git on a repository whose configuration it cannot read"
+    for key in keys:
+        if key not in GIT_KEYS:
+            return f"runs git on a repository whose configuration sets {key[:64]}"
+    return None
+
+
+def _git_environment(r: Recorder, final: dict, target: str) -> str | None:
+    """Why git's environment is refused, or None: it must hold the ceiling at the made
+    directory's parent, ``GIT_CONFIG_NOSYSTEM=1``, an empty ``GIT_CONFIG_GLOBAL`` and
+    ``HOME`` and ``XDG_CONFIG_HOME`` on directories the run made, and no other ``GIT_*``."""
+    for name in final:
+        if name.upper().startswith("GIT_") and name.upper() not in GIT_PINNED:
+            return f"runs git with {name[:64]} set"
+    ceiling = final.get("GIT_CEILING_DIRECTORIES")
+    if not ceiling or os.pathsep in ceiling or not os.path.isabs(ceiling) \
+            or _norm(ceiling) != _norm(os.path.dirname(target)):
+        return "runs git without GIT_CEILING_DIRECTORIES at its directory's parent"
+    if final.get("GIT_CONFIG_NOSYSTEM") != "1":
+        return "runs git without GIT_CONFIG_NOSYSTEM=1"
+    if final.get("GIT_CONFIG_GLOBAL") != "":
+        return "runs git without an empty GIT_CONFIG_GLOBAL"
+    for name in GIT_HOMES:
+        value = final.get(name)
+        if not value or not os.path.isabs(value) or not _made(r, value):
+            return f"runs git without {name} on a directory the run made"
+    return _env_refusal(final, "git")
+
+
+def _git_layout(r: Recorder, found: str) -> tuple[list[str], str | None, str | None]:
+    """git's executables, its template tree and its locale's catalogs, from where it was
+    found: on Linux the program and the compiled-in places beside its prefix; on Windows,
+    Git for Windows' layout, its launcher in ``cmd`` or ``bin`` starting
+    ``mingw64/bin/git.exe``. Empty when the layout is not one the design states."""
+    if os.name != "nt":
+        prefix = os.path.dirname(os.path.dirname(found))
+        return [found], os.path.join(prefix, "share", "git-core", "templates"), None
+    parent = os.path.dirname(found)
+    base = os.path.basename(parent).lower()
+    if base in ("cmd", "bin") and os.path.basename(found).lower() == "git.exe":
+        install = os.path.dirname(parent)
+        if base == "bin" and os.path.basename(install).lower() == "mingw64":
+            install = os.path.dirname(install)
+    else:
+        return [], None, None
+    real = os.path.join(install, "mingw64", "bin", "git.exe")
+    if kind(real) != "file":
+        return [], None, None
+    executables = list(dict.fromkeys([found, real]))
+    share = os.path.join(install, "mingw64", "share")
+    return executables, os.path.join(share, "git-core", "templates"), install
+
+
+def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
+               shell) -> tuple[str | None, str | None]:
+    """Why a start of git is refused, or None with the path it is executed by: git is let
+    through only in its forms, on a directory the run made, after its ``init``, with the
+    environment pinned, on a repository that starts nothing further and reads nowhere
+    else; its executables, what loads them, its locale, its template tree, the made
+    directory's parents, the working directory's components and the whole environment are
+    recorded (COMP_KNOWN_PROGRAMS, DEC_0033)."""
+    if shell:
+        return "runs git through a shell", None
+    raw, form = _git_form(argv)
+    if raw is None:
+        return "runs git with arguments other than its forms", None
+    target = os.path.normpath(os.path.join(cwd, raw))
+    n = _norm(target)
+    if _under(n, r.nroot) or _under(r.nroot, n):
+        return "runs git on this repository", None
+    if kind(target) != "directory" or not _made(r, target):
+        return "runs git on a directory the run did not make", None
+    if form == "init":
+        if n in r.git_inits or kind(os.path.join(target, ".git")) != "absent":
+            return "runs git init where a repository is already", None
+    elif n not in r.git_inits:
+        return "runs git on a directory before its init", None
+    why = _git_environment(r, final, target)
+    if why:
+        return why, None
+    if form != "init":
+        why = _git_repository(r, target)
+        if why:
+            return why, None
+    why, found = _outside_program(r, _found(r, program, final, cwd), "git")
+    if why:
+        return why, None
+    executables, templates, install = _git_layout(r, found)
+    if not executables:
+        return "runs a git whose layout the design does not state", None
+    for exe in executables:
+        if os.name == "nt":
+            _note_library(r, exe)
+            _dll_inputs(r, exe)
+        else:
+            _note_program(r, exe, cwd)
+            why = _loader_inputs(r, exe, "git")
+            if why:
+                return why, None
+            why = _locale_inputs(r, "git", "git")
+            if why:
+                return why, None
+    if install is not None:
+        # Git for Windows' own configuration, which GIT_CONFIG_NOSYSTEM leaves unread, and
+        # its catalogs.
+        programdata = dict(_environment()).get("PROGRAMDATA") or "C:\\ProgramData"
+        for path in (os.path.join(install, "etc", "gitconfig"),
+                     os.path.join(install, "mingw64", "etc", "gitconfig"),
+                     os.path.join(programdata, "Git", "config")):
+            r.read(path)
+        why = _catalogs(r, os.path.join(install, "mingw64", "share", "locale"), "git", "git")
+        if why:
+            return why, None
+    if form == "init":
+        r.read(os.path.join(templates, "config"))
+        why = _tree(r, templates, "git")
+        if why:
+            return why, None
+    for place in _ancestors(target) + [cwd, *_ancestors(cwd)]:
+        r.probe(place)
+    _whole_environment(r, env, final)
+    if form == "init":
+        r.git_inits.add(n)
+    return None, found
+
+
+# -- Vale ---------------------------------------------------------------------------------
+
+def _vale_config(r: Recorder, path: str, base: str) -> tuple[str | None, str | None]:
+    """Why a Vale configuration is refused, or None with its styles directory: only the
+    stated keys, every style it names under ``StylesPath``, and ``StylesPath`` and each
+    vocabulary under ``base``."""
+    try:
+        with _open(path, "rb") as f:
+            text = f.read(1 << 20).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "runs vale with a configuration it cannot read", None
+    top, sections, section = {}, [], None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line.startswith("["):
+            if not line.endswith("]"):
+                return "runs vale with a configuration it cannot read", None
+            section = line[1:-1].strip()
+            if section.lower() in VALE_SECTIONS_REFUSED:
+                return f"runs vale with a [{section[:32]}] section", None
+            continue
+        key, eq, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if not eq or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", key) \
+                or '"""' in value or value.endswith("\\"):
+            return "runs vale with a configuration it cannot read", None
+        if section is None:
+            if key not in VALE_KEYS:
+                return f"runs vale with a configuration that sets {key[:64]}", None
+            top[key] = value
+        else:
+            sections.append((key, value))
+    if "StylesPath" not in top:
+        return "runs vale with a configuration that names no StylesPath", None
+    styles = os.path.normpath(os.path.join(os.path.dirname(path), top["StylesPath"]))
+    if not _under(_norm(styles), base) or not _made(r, styles) \
+            or kind(styles) != "directory":
+        return "runs vale with a StylesPath outside the directory the run made", None
+    named = set()
+    for key, value in sections:
+        if key in VALE_SECTION_KEYS:
+            named.update(v.strip() for v in value.split(",") if v.strip())
+        elif re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", key) and value in VALE_TOGGLES:
+            named.add(key.split(".")[0])
+        else:
+            return f"runs vale with a configuration that sets {key[:64]}", None
+    for style in named:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", style) \
+                or kind(os.path.join(styles, style)) != "directory":
+            return "runs vale with a style that is not under StylesPath", None
+    for name in (v.strip() for v in top.get("Vocab", "").split(",") if v.strip()):
+        vocab = os.path.normpath(os.path.join(styles, "config", "vocabularies", name))
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or not _under(_norm(vocab), base) \
+                or not _made(r, vocab):
+            return "runs vale with a vocabulary outside the directory the run made", None
+    return _vale_styles(styles), styles
+
+
+def _vale_rule(path: str) -> bool:
+    """Whether a rule file holds only the stated keys at its top and extends one of the
+    stated rules, read line by line as YAML holds its top keys."""
+    try:
+        with _open(path, "rb") as f:
+            lines = f.read(1 << 20).decode("utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return False
+    extends, first = [], True
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line[0] in " \t-":
+            if first:
+                return False
+            continue
+        first = False
+        m = re.fullmatch(r"([A-Za-z_]+):(.*)", line.rstrip())
+        if not m or m.group(1) not in VALE_RULE_KEYS:
+            return False
+        if m.group(1) == "extends":
+            extends.append(m.group(2).strip())
+    return len(extends) == 1 and extends[0] in VALE_EXTENDS
+
+
+def _vale_styles(styles: str) -> str | None:
+    """Why a styles directory is refused: it may hold styles of rule files and the
+    vocabularies' word lists, and nothing else; no link."""
+    for name, k in listing(styles) or ():
+        here = os.path.join(styles, name)
+        if name == "config" and k == "directory":
+            for sub, sk in listing(here) or ():
+                if sub != "vocabularies" or sk != "directory":
+                    return "runs vale with styles that hold what is not a rule"
+                for vocab, vk in listing(os.path.join(here, sub)) or ():
+                    if vk != "directory":
+                        return "runs vale with styles that hold what is not a rule"
+                    for word, wk in listing(os.path.join(here, sub, vocab)) or ():
+                        if wk != "file" or word not in ("accept.txt", "reject.txt"):
+                            return "runs vale with styles that hold what is not a rule"
+            continue
+        if k != "directory":
+            return "runs vale with styles that hold what is not a rule"
+        for rule, rk in listing(here) or ():
+            if rk != "file" or not rule.endswith(".yml") \
+                    or not _vale_rule(os.path.join(here, rule)):
+                return "runs vale with a rule it may not run"
+    return None
+
+
+def _vale_linted(directories: list[str]) -> str | None:
+    """Why the files Vale would lint are refused: any that is not of a format Vale reads
+    itself, or a link."""
+    stack = list(directories)
+    while stack:
+        here = stack.pop()
+        k = kind(here)
+        if k == "directory":
+            stack.extend(os.path.join(here, n) for n, _ in listing(here) or ())
+        elif k != "file":
+            return "runs vale on a link or what is not a file"
+        elif not here.lower().endswith(VALE_LINTED):
+            return "runs vale on a file of a format for which it can start a program"
+    return None
+
+
+def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
+                shell) -> tuple[str | None, str | None]:
+    """Why a start of Vale is refused, or None with the path it is executed by: Vale is
+    the repository's ``bin/vale``, whose SHA-256 is a pin of the toolchain as the run
+    began, started as ``vale --version`` or ``vale --config=FILE --no-global --output=line
+    --no-exit DIR...`` on a tree the run made; the binary, the pin's file, what loads it,
+    the configuration files it looks for and the whole environment are recorded
+    (COMP_KNOWN_PROGRAMS, DEC_0038)."""
+    if shell:
+        return "runs vale through a shell", None
+    binary = os.path.normpath(os.path.join(cwd, program))
+    own = os.path.join(r.root, "bin", "vale.exe" if os.name == "nt" else "vale")
+    if _norm(binary) != _norm(own) or kind(binary) != "file":
+        return "runs a vale that is not the repository's bin/vale", None
+    digest = file_hash(binary)
+    if not r.vale_pins or digest not in r.vale_pins:
+        return "runs a vale whose SHA-256 is not the toolchain's pin", None
+    args = argv[1:]
+    lint = len(args) >= 5 and args[0].startswith("--config=") \
+        and tuple(args[1:4]) == VALE_FORM and not any(a.startswith("-") for a in args[4:])
+    if args != ["--version"] and not lint:
+        return "runs vale with arguments other than its forms", None
+    for name in final:
+        if name.upper().startswith("VALE_"):
+            return f"runs vale with {name[:64]} set", None
+    if final.get("TERM"):
+        # With TERM set, Vale looks up the user and reads the terminal's description.
+        return "runs vale with TERM set", None
+    why = _env_refusal(final, "vale")
+    if why:
+        return why, None
+    if lint:
+        config = os.path.normpath(os.path.join(cwd, args[0][len("--config="):]))
+        base = _made_root(r, config)
+        if base is None or not _made(r, config) or kind(config) != "file":
+            return "runs vale with --config outside a directory the run made", None
+        directories = [os.path.normpath(os.path.join(cwd, d)) for d in args[4:]]
+        if not all(_under(_norm(d), base) and _made(r, d) for d in directories):
+            return "runs vale on a directory outside the one the run made", None
+        why, _ = _vale_config(r, config, base)
+        if why:
+            return why, None
+        why = _vale_linted(directories)
+        if why:
+            return why, None
+    for place in [cwd, *_ancestors(cwd)]:
+        for name in VALE_CONFIGS:
+            path = os.path.join(place, name)
+            r.probe(path)
+            if kind(path) != "absent":
+                return "runs vale where a configuration it looks for is present", None
+    key = _program_key(r, binary)
+    if key is not None:
+        r.note("programs", key, digest)
+    if r.pin_file is not None:
+        r.note(*r.pin_file)
+    if os.name != "nt":
+        why = _loader_inputs(r, binary, "vale")
+        if why:
+            return why, None
+        r.read("/proc/version")
+        if not VALE_RUNTIME_RULED:
+            return "runs vale, whose runtime reads of the kernel's files no ruling allows", None
+    else:
+        _dll_inputs(r, binary)
+    _whole_environment(r, env, final)
+    return None, binary
 
 
 #: The calls a traced command makes that name no path, or name one only through a
@@ -2919,11 +3778,16 @@ def _watch_children(r: Recorder) -> None:
                 args[env_at] = _prepare_child(r, env, final, _child_name(
                     decoded, os.fsdecode(program)), secrets.token_hex(8), entries or None)
         trace = None
-        if not python and not r.quiet() and os.name == "posix" and argv and not isinstance(
-                argv, (str, bytes)):
+        if not python and not r.quiet() and argv and not isinstance(argv, (str, bytes)):
             named = os.fsdecode(program_arg if program_arg is not None else argv[0])
-            if os.path.basename(named) == STRACE:
+            base = os.path.basename(named)
+            if os.name == "nt":
+                base = base.lower()
+                base = base[:-4] if base.endswith(".exe") else base
+            if base == STRACE and os.name == "posix":
                 trace = _known(self, args, named)
+            elif base in (GIT, VALE):
+                trace = _known_program(args, named, base)
         r.local.child, r.local.popen = python, True
         r.local.known = trace is not None
         try:
@@ -2964,6 +3828,33 @@ def _watch_children(r: Recorder) -> None:
             return False
         args[executable_at] = resolved
         return trace
+
+    def _known_program(args: list, named: str, base: str) -> bool:
+        """Judge a start of git or Vale: True, with the executable pinned in ``args`` to
+        the path it was judged by, when let through; False when refused, its reason
+        given. What it records is judged as a trace's reads are, the interpreter's own
+        trees alone left to the environment key (DEC_0044)."""
+        r.local.busy, r.local.tracing = True, True
+        try:
+            env = args[env_at]
+            final = {_name(k): os.fsdecode(v) if isinstance(v, bytes) else v
+                     for k, v in (_environment() if env is None else env.items())}
+            cwd = _text(args[cwd_at])
+            cwd = _getcwd() if cwd is None else os.path.join(_getcwd(), cwd)
+            argv = [os.fsdecode(a) for a in args[0]]
+            judge = _git_start if base == GIT else _vale_start
+            with r.lock:
+                why, resolved = judge(r, argv, named, env, final, cwd, args[shell_at])
+        except Exception as exc:
+            why = f"the recorder failed on a start of {base}: {type(exc).__name__}"
+        finally:
+            r.local.busy, r.local.tracing = False, False
+        r.guarded(r.check_intact)
+        if why is not None:
+            r.refuse(why)
+            return False
+        args[executable_at] = resolved
+        return True
 
     # The original's signature, which a recorder started after this one reads.
     execute_child.__wrapped__ = original
@@ -3323,6 +4214,7 @@ def start(directory: str, config: dict) -> Recorder:
     # The names the process starts with, its search path put back: a lookup's environment.
     r.start_names = sorted({_name(k) for k, _ in _environment()} - OWN)
     _started_clean(r, config)
+    take_pins(r, config["recorder"])
     # No byte code is read or written: every module compiles from its source, which the
     # recorder hashes, into an empty prefix the run made.
     sys.dont_write_bytecode = True
