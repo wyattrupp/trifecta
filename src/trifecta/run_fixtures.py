@@ -174,7 +174,14 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
     except OSError:
         runs_tests = True
     tests = () if runs_tests else ("--tests-from", str(tmp / CONTROL_TESTS))
+    # PROBE (not for merge): a copy that runs its modules keeps what they reported, and
+    # each module the control also ran is compared with the control's report.
+    kept = tmp / f"{path.stem}-tests.json"
+    if runs_tests and not fresh:
+        tests = ("--tests-to", str(kept))
     code, findings, record["stages"] = run_check(copy, vale, cache, fresh, tests)
+    if runs_tests and not fresh:
+        _probe(path.stem, kept, tmp / CONTROL_TESTS, tmp / "probe")
     record["check_seconds"] = seconds(time.perf_counter() - mutated)
     hits = [f for f in findings if f.req == spec["expect"]]
     # `only: true` also fails the fixture on any other requirement, for a fixture whose
@@ -186,6 +193,35 @@ def run_fixture(path: Path, base: Path, tmp: Path, vale: Path,
         return done(True, f"{spec['expect']}: {hits[0].message}")
     got = sorted({f.req for f in findings}) or ["no findings"]
     return done(False, f"expected {spec['expect']}, got {', '.join(got)}")
+
+
+def _probe(name: str, kept: Path, control: Path, out: Path) -> None:
+    """PROBE (not for merge): per module, whether the copy's records equal the control's,
+    times aside; written as one file per copy."""
+    import json
+    from .proofs import _parse
+
+    def records(result: dict) -> list:
+        parsed, problems = _parse(result["lines"])
+        rows = [{k: v for k, v in r.items() if k != "seconds"}
+                for r in parsed if r["kind"] != "time"]
+        return [rows, problems]
+
+    try:
+        mine = json.loads(kept.read_text(encoding="utf-8"))
+        theirs = json.loads(control.read_text(encoding="utf-8"))
+        report = {"name": name, "leave_out_same": mine["leave_out"] == theirs["leave_out"],
+                  "only_in_copy": sorted(set(mine["modules"]) - set(theirs["modules"])),
+                  "only_in_control": sorted(set(theirs["modules"]) - set(mine["modules"])),
+                  "modules": {}}
+        for module in sorted(set(mine["modules"]) & set(theirs["modules"])):
+            a, b = mine["results"][module], theirs["results"][module]
+            report["modules"][module] = {"records_same": records(a) == records(b),
+                                         "output_same": a["output"] == b["output"]}
+    except Exception as exc:  # the probe never changes a fixture's outcome
+        report = {"name": name, "error": repr(exc)}
+    out.mkdir(exist_ok=True)
+    (out / f"{name}.json").write_text(json.dumps(report), encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -262,6 +298,13 @@ def _run(root: Path, vale: Path, fixtures: list[Path], profiler: Profiler,
                 results = list(pool.map(lambda f: run_fixture(f, base, tmp, vale, shared, fresh),
                                         fixtures))
         extra["fixtures"] = [r[3] for r in results]
+        # PROBE (not for merge): the reports leave with the profile's artifact.
+        import json
+        target = root / PROFILE_DIR
+        target.mkdir(parents=True, exist_ok=True)
+        reports = [json.loads(p.read_text(encoding="utf-8"))
+                   for p in sorted((tmp / "probe").glob("*.json"))]
+        (target / "probe.json").write_text(json.dumps(reports, indent=1), encoding="utf-8")
 
     failed = 0
     for name, ok, detail, _ in results:
