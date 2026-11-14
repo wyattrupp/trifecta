@@ -93,7 +93,11 @@ refused, and so, this design's choice, is an `init` where a repository is alread
 the `-C` forms a `.git`, file or directory, anywhere below the made worktree's own is
 refused, as a repository of its own or a file naming one elsewhere. A start through a
 shell, with code before it starts or with descriptors it inherits is refused, as
-`strace`'s is. A directory a process made, and one its `init` ran on, count as the run's
+`strace`'s is. As `strace`'s log is, what a git let through reads that the run made, its
+made repository and the made `HOME` and `XDG_CONFIG_HOME`, is held from its start until
+the run reaps it, by waiting or polling: a write, move, removal, change of mode or link
+of a path under them, by any name, refuses the run, and so does a run that ends before
+it reaps git. A directory a process made, and one its `init` ran on, count as the run's
 for its Python children too. Under {need}`DEC_0049` the check and the tests start git
 and Vale with `LD_LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LOCPATH`, `NLSPATH` and
 `GCONV_PATH` removed from the child's environment, and, this design's choice, a start
@@ -131,7 +135,10 @@ path with its hash, which is what is trusted; the file holding the pin is a reco
 a mismatch refuses, a Vale the run made is refused whatever its hash, and the stamp file is
 never trusted for it. The binary is hashed again when the run ends, and one changed while
 Vale ran refuses the run. A start through a shell, with code before it starts or with
-descriptors it inherits is refused, as git's is. It is started as `vale --version` or as
+descriptors it inherits is refused, as git's is, and, as for git, what Vale reads that
+the run made, the build directory with its configuration, styles and linted files, and
+its binary, is held from its start until the run reaps it: a change to any of them, by
+any name, meanwhile, or a run that ends before it reaps Vale, refuses the run. It is started as `vale --version` or as
 `vale --config=FILE --no-global --output=line --no-exit DIR...`, where `FILE` and each
 `DIR` are under the build directory the run made, the highest directory the run made that
 holds `FILE`, as `run_vale` starts it with `--no-global` added, so no configuration outside
