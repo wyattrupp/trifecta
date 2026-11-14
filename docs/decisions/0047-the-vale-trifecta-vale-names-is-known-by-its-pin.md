@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-14
+date: 2026-11-13
 decision-makers: [wyatt]
 informed: [claude]
 ---
@@ -42,7 +42,7 @@ in every fixture copy.
 
 ## Decision Outcome
 
-Chosen option: {need}`OPT_0047_PINNED`, because wyatt, 2026-11-14, choosing from Claude's
+Chosen option: {need}`OPT_0047_PINNED`, because wyatt, 2026-11-13, choosing from Claude's
 recommendations: "Yes, if it matches the pin (Recommended)".
 
 ## Consequences

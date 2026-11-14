@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-14
+date: 2026-11-13
 decision-makers: [wyatt]
 informed: [claude]
 ---
@@ -41,7 +41,7 @@ network, which {need}`REQ_KNOWN_PROGRAM` refuses.
 
 ## Decision Outcome
 
-Chosen option: {need}`OPT_0048_REFUSE`, because wyatt, 2026-11-14, choosing from Claude's
+Chosen option: {need}`OPT_0048_REFUSE`, because wyatt, 2026-11-13, choosing from Claude's
 recommendations: "Keep refusing TERM (Recommended)".
 
 ## Consequences

@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-14
+date: 2026-11-13
 decision-makers: [wyatt]
 informed: [claude]
 ---
@@ -56,7 +56,7 @@ are nearly all its time.
 
 ## Decision Outcome
 
-Chosen option: {need}`OPT_0046_NARROW`, because wyatt, 2026-11-14, choosing from Claude's
+Chosen option: {need}`OPT_0046_NARROW`, because wyatt, 2026-11-13, choosing from Claude's
 recommendations: "Allow unkeyed, narrowly (Recommended)".
 
 ## Consequences
