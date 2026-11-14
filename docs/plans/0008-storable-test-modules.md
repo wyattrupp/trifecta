@@ -145,6 +145,15 @@ Reviewed with {need}`DES_0009` in this plan's task 3. Folded in: task 5 moves
 on 2026-11-13, "Move them, in task 5 (Recommended)", and stores that module.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0008_3
+:k: 2
+:date: 2026-11-13
+:digest: fa007d8c77363c98b51d38a0f99842158114677fa940859129fe8d6770625759
+Reviewed with {need}`DES_0009` in this plan's task 4. Folded in: task 4's gate lets
+through {need}`DEC_0043`'s allowances and refuses their neighbours.
+:::
+
 ## As built
 
 ### Task 1 (2026-11-13)

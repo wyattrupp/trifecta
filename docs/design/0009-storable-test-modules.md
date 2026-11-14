@@ -396,3 +396,17 @@ refused; the search path carried in the configuration until the recorder starts,
 the security pass found raceable; a wrapper reached only through recorders' wrappers;
 an `rmtree` callback recorded as the run's code.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_5
+:k: 2
+:date: 2026-11-13
+:digest: 4a6507318dcaa9cd03495349e820dde0787fd20fc05e5157773ae85f70062e17
+Two rounds, a ruling round and a final check, one reviewer per lens, on
+COMP_KNOWN_PROGRAMS's `strace` as {need}`PLAN_0008`'s task 4 built it. Folded in: wyatt's
+rulings of 2026-11-13, recorded as {need}`DEC_0043`, {need}`DEC_0044` and
+{need}`DEC_0045`; the start's terms stated in full; the log made and held by the
+recorder, known before `strace` starts; reads keyed where the kernel opened them; links,
+signals, late writes, untraced children, pipes and devices refused, which the security
+passes found open; the environment's names keyed.
+:::

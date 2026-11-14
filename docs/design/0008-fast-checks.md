@@ -456,3 +456,15 @@ Reviewed with {need}`DES_0009`'s nested recorder in {need}`PLAN_0008`'s task 3. 
 `TRIFECTA_RECORD_PARENT` among the recorder's own variables; the store key holding both
 `.pth` files' hashes; a recorded child started without `-X pycache_prefix`.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_10
+:k: 2
+:date: 2026-11-13
+:digest: d35a072853089457a9093e77f9a7cac0c0e2e59defce2786b58d5fd9ea385283
+Reviewed with {need}`DES_0009`'s `strace` in {need}`PLAN_0008`'s task 4. Folded in:
+IF_MANIFEST's `programs` section and the environment's `=names` digest, closing a variable
+that appears or vanishes; a probe's `link:` value for the interpreter's own links; a link
+the run makes reaching only what it made; only regular files hashed, a device, pipe or
+socket read refused but `/dev/null` and `/dev/urandom`.
+:::
