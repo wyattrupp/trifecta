@@ -2233,12 +2233,39 @@ VALE_EXTENDS = frozenset({"existence", "substitution"})
 VALE_LINTED = (".html",)
 #: The names Vale looks for in its working directory and each directory above it.
 VALE_CONFIGS = (".vale", ".vale.ini", "_vale", "_vale.ini", "vale.ini")
-#: The reads Vale's runtime makes on Linux that no key can hold, as a trace of it shows:
-#: until a ruling allows them, Vale is refused on Linux (COMP_KNOWN_PROGRAMS).
-VALE_RUNTIME_READS = ("/proc/self/maps", "/proc/self/mountinfo", "/proc/self/cgroup",
-                      "/proc/version", "/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
-                      "/sys/devices/system/cpu/online", "/sys/fs/cgroup/")
-VALE_RUNTIME_RULED = False
+#: The reads Vale's runtime makes on Linux that no key can hold, allowed unkeyed and no
+#: others (DEC_0046): its own /proc entries, by ``self`` or its number, and these files of
+#: the kernel's; and its own control group's ``cpu.max``. ``/proc/version`` and the
+#: libraries it loads stay keyed. A trace of Vale in its forms shows these are all
+#: (COMP_KNOWN_PROGRAMS).
+VALE_OWN_PROC = ("maps", "mountinfo", "cgroup")
+VALE_RUNTIME_FILES = ("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
+                      "/sys/devices/system/cpu/online")
+#: The variable naming the Vale the check runs in place of the repository's own, as the
+#: fixture runner sets it; that Vale is let through when its hash is the pin (DEC_0047).
+VALE_VARIABLE = "TRIFECTA_VALE"
+def vale_runtime_read(path: str, pids, cgroup: str | None) -> bool:
+    """Whether ``path``, read by a Vale process whose numbers are ``pids``, is one of the
+    reads of its runtime DEC_0046 allows: its own ``maps``, ``mountinfo`` or ``cgroup``,
+    the two kernel files, or ``cpu.max`` of the control group ``cgroup`` names, the
+    unified hierarchy's ``0::PATH`` line of its own ``/proc/self/cgroup``."""
+    parts = path.split("/")
+    if parts[1:2] == ["proc"] and len(parts) == 4:
+        who = parts[2]
+        own = who == "self" or who.isdigit() and int(who) in pids
+        return own and parts[3] in VALE_OWN_PROC
+    if path in VALE_RUNTIME_FILES:
+        return True
+    group = None
+    for line in (cgroup or "").splitlines():
+        if line.startswith("0::"):
+            group = line[3:].strip()
+    if group is None or not group.startswith("/") or ".." in group.split("/"):
+        return False
+    import posixpath
+    return path == posixpath.normpath("/sys/fs/cgroup" + group + "/cpu.max")
+
+
 #: The platform keys of the toolchain's pins for this system.
 _SYSTEM_KEYS = {"linux": "linux-", "darwin": "macos-", "win32": "windows-"}
 _PIN_LINE = re.compile(r'^\s*"([a-z0-9]+-[a-z0-9_]+)": "([0-9a-f]{64})",\s*$')
@@ -2965,18 +2992,24 @@ def _vale_linted(directories: list[str]) -> str | None:
 def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
                 shell) -> tuple[str | None, str | None]:
     """Why a start of Vale is refused, or None with the path it is executed by: Vale is
-    the repository's ``bin/vale``, whose SHA-256 is a pin of the toolchain as the run
-    began, started as ``vale --version`` or ``vale --config=FILE --no-global --output=line
-    --no-exit DIR...`` on a tree the run made; the binary, the pin's file, what loads it,
-    the configuration files it looks for and the whole environment are recorded
+    the repository's ``bin/vale``, or the one TRIFECTA_VALE names (DEC_0047), whose
+    SHA-256 is a pin of the toolchain as the run began, started as ``vale --version`` or
+    ``vale --config=FILE --no-global --output=line --no-exit DIR...`` on a tree the run
+    made; the binary by its path and hash, the pin's file, what loads it, the
+    configuration files it looks for and the whole environment are recorded
     (COMP_KNOWN_PROGRAMS, DEC_0038)."""
     if shell:
         return "runs vale through a shell", None
     binary = os.path.normpath(os.path.join(cwd, program))
     own = os.path.join(r.root, "bin", "vale.exe" if os.name == "nt" else "vale")
-    if _norm(binary) != _norm(own) or kind(binary) != "file":
-        return "runs a vale that is not the repository's bin/vale", None
-    digest = file_hash(binary)
+    named = dict((_name(k), v) for k, v in _environment()).get(_name(VALE_VARIABLE))
+    places = [own] + ([os.path.normpath(os.path.join(_getcwd(), named))] if named else [])
+    if _norm(binary) not in {_norm(p) for p in places} or kind(binary) != "file":
+        return "runs a vale that is neither bin/vale nor the one TRIFECTA_VALE names", None
+    key = _program_key(r, binary)
+    if key is None:
+        return "runs a vale the run made", None
+    digest = _program_hash(binary)
     if not r.vale_pins or digest not in r.vale_pins:
         return "runs a vale whose SHA-256 is not the toolchain's pin", None
     args = argv[1:]
@@ -3013,18 +3046,16 @@ def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cw
             r.probe(path)
             if kind(path) != "absent":
                 return "runs vale where a configuration it looks for is present", None
-    key = _program_key(r, binary)
-    if key is not None:
-        r.note("programs", key, digest)
+    r.note("programs", key, digest)
     if r.pin_file is not None:
         r.note(*r.pin_file)
     if os.name != "nt":
         why = _loader_inputs(r, binary, "vale")
         if why:
             return why, None
+        # Keyed; the runtime's other reads of the kernel's files are allowed unkeyed
+        # (DEC_0046).
         r.read("/proc/version")
-        if not VALE_RUNTIME_RULED:
-            return "runs vale, whose runtime reads of the kernel's files no ruling allows", None
     else:
         _dll_inputs(r, binary)
     _whole_environment(r, env, final)

@@ -319,9 +319,6 @@ class ValeTerms(Tree):
         self.lint.mkdir(parents=True)
         (self.lint / "a.html").write_text("<p>a</p>", encoding="utf-8")
         self.config = build_dir / "vale" / "vale" / "prose.ini"
-        ruled = mock.patch.object(record, "VALE_RUNTIME_RULED", True)
-        ruled.start()
-        self.addCleanup(ruled.stop)
 
     def write_pins(self, *digests: str) -> None:
         key = {"linux": "linux-x86_64", "darwin": "macos-arm64",
@@ -413,7 +410,8 @@ class ValeTerms(Tree):
                                 *rest], {}, args),
             "--version and more": ([vale, "--version", "--no-global"], {}, args),
             "another vale": ([str(self.made / "vale"), "--version"], {},
-                             "runs a vale that is not the repository's bin/vale"),
+                             "runs a vale that is neither bin/vale nor the one TRIFECTA_VALE "
+                             "names"),
             "VALE_CONFIG_PATH": (self.form(), {"VALE_CONFIG_PATH": str(outside)},
                                  f"runs vale with {record._name('VALE_CONFIG_PATH')} set"),
             "VALE_STYLES_PATH": (self.form(), {"VALE_STYLES_PATH": str(elsewhere)},
@@ -491,13 +489,70 @@ class ValeTerms(Tree):
         _, why = self.judge(self.form())
         self.assertEqual(why, "runs vale where a configuration it looks for is present")
 
+    def named(self, path: Path):
+        """The process's environment as the recorder reads it, TRIFECTA_VALE naming
+        ``path``."""
+        here = {**{k: v for k, v in os.environ.items()
+                   if k.upper() not in (record.VALE_VARIABLE, "TERM")
+                   and not k.upper().startswith("VALE_")}, record.VALE_VARIABLE: str(path)}
+        self.here = {k: v for k, v in here.items() if k.upper() not in record.OWN}
+        return mock.patch.object(record, "_environment",
+                                 return_value=list(final_env(here).items()))
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_the_vale_trifecta_vale_names_is_let_through_by_its_pin(self):
+        # As in a fixture copy: the original's Vale, outside this repository (DEC_0047).
+        original = self.tmp / "original" / "bin"
+        original.mkdir(parents=True)
+        other = original / self.vale.name
+        shutil.copy(self.vale, other)
+        argv = [str(other), *self.form()[1:]]
+        with self.named(other):
+            r, why = self.judge(argv, env={record.VALE_VARIABLE: str(other)})
+        self.assertIsNone(why)
+        # Recorded by its path; its hash is what is trusted.
+        self.assertEqual(r.programs[str(other)], self.digest)
+        self.assertIsNone(self.differs(r, self.here))
+        with open(other, "ab") as f:
+            f.write(b"\0")
+        self.assertEqual(self.differs(r, self.here), f"program {other}")
+        # One that does not match the pin is refused.
+        with self.named(other):
+            _, why = self.judge(argv)
+        self.assertEqual(why, "runs a vale whose SHA-256 is not the toolchain's pin")
+        # Only the one it names, and never one the run made.
+        with self.named(self.vale):
+            _, why = self.judge(argv)
+        self.assertEqual(why, "runs a vale that is neither bin/vale nor the one TRIFECTA_VALE "
+                              "names")
+        made = self.made / self.vale.name
+        shutil.copy(self.vale, made)
+        with self.named(made):
+            _, why = self.judge([str(made), "--version"])
+        self.assertEqual(why, "runs a vale the run made")
+
     @proves("REQ_KNOWN_PROGRAM")
-    @only_on("posix")
-    def test_vale_is_refused_on_linux_until_its_runtime_reads_are_ruled(self):
-        with mock.patch.object(record, "VALE_RUNTIME_RULED", False):
-            _, why = self.judge(self.form())
-        self.assertEqual(why, "runs vale, whose runtime reads of the kernel's files no "
-                              "ruling allows")
+    def test_only_the_runtime_reads_ruled_on_are_allowed_unkeyed(self):
+        cgroup = "0::/user.slice/vale\n"
+        allowed = ["/proc/self/maps", "/proc/self/mountinfo", "/proc/self/cgroup",
+                   "/proc/42/maps", "/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
+                   "/sys/devices/system/cpu/online", "/sys/fs/cgroup/user.slice/vale/cpu.max"]
+        neighbours = ["/proc/self/status", "/proc/self/environ", "/proc/43/maps",
+                      "/proc/self/task/42/maps", "/proc/version", "/proc/mounts",
+                      "/sys/kernel/mm/transparent_hugepage/enabled",
+                      "/sys/devices/system/cpu/possible", "/sys/fs/cgroup/other/cpu.max",
+                      "/sys/fs/cgroup/user.slice/vale/memory.max", "/sys/fs/cgroup/cpu.max"]
+        for path in allowed:
+            with self.subTest(path):
+                self.assertTrue(record.vale_runtime_read(path, {42}, cgroup))
+        for path in neighbours:
+            with self.subTest(path):
+                self.assertFalse(record.vale_runtime_read(path, {42}, cgroup))
+        # A control group the recorder cannot read as its own allows no cpu.max.
+        for given in (None, "", "0::relative\n", "0::/a/../b\n"):
+            with self.subTest(given=given):
+                self.assertFalse(record.vale_runtime_read("/sys/fs/cgroup/b/cpu.max", {42},
+                                                          given))
 
 
 # --- the Sphinx build --------------------------------------------------------------------

@@ -4,9 +4,8 @@ connect nowhere, as ``strace`` shows.
 
 Each form is judged as the recorder judges it, by a recorder this process makes and never
 starts, and then run under ``strace``; every path the traced program opened, probed or
-listed outside the directory the run made must be one the judged start recorded. Vale's
-runtime also reads files of the kernel's no key can hold; until a ruling allows them the
-recorder refuses Vale on Linux, and the test shows those reads are all that is left.
+listed outside the directory the run made must be one the judged start recorded, or, for
+Vale, one of the reads of its runtime DEC_0046 allows unkeyed.
 
 strace is a known program only in ``test_record_trace``'s own process (DEC_0037), so this
 module's run under its own recorder is refused there, and it stays fresh on Linux.
@@ -159,19 +158,14 @@ class Traced(unittest.TestCase):
                           *record.VALE_FORM, str(lint)]}
         for name, argv in forms.items():
             with self.subTest(name):
-                r, why, outside, _ = self.trace(name, argv, record._vale_start, self.target,
-                                                self.target)
-                self.assertEqual(why, "runs vale, whose runtime reads of the kernel's files "
-                                      "no ruling allows")
-                runtime = [line for line in outside if self.runtime(line.split(" ", 1)[1])]
-                self.assertEqual([line for line in outside if line not in runtime], [], name)
-
-    @staticmethod
-    def runtime(path: str) -> bool:
-        """Whether ``path`` is one of the reads of Vale's runtime the recorder names."""
-        path = re.sub(r"^/proc/\d+/", "/proc/self/", path)
-        return any(path == p or p.endswith("/") and path.startswith(p)
-                   for p in record.VALE_RUNTIME_READS)
+                r, why, outside, text = self.trace(name, argv, record._vale_start,
+                                                   self.target, self.target)
+                self.assertIsNone(why)
+                pids = {int(m) for m in re.findall(r"^(\d+) ", text, re.M)}
+                cgroup = Path("/proc/self/cgroup").read_text(encoding="utf-8")
+                left = [line for line in outside if not record.vale_runtime_read(
+                    line.split(" ", 1)[1], pids, cgroup)]
+                self.assertEqual(left, [], name)
 
 
 if __name__ == "__main__":
