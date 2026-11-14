@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from trifecta import build, record, store
+from trifecta import build, record, store, toolchain
 from trifecta.testing import only_on, proves
 
 PACKAGE = Path(record.__file__).resolve().parent
@@ -79,7 +79,9 @@ class GitTerms(Tree):
         self.pins = {"GIT_CEILING_DIRECTORIES": str(self.made), "GIT_CONFIG_NOSYSTEM": "1",
                      "GIT_CONFIG_GLOBAL": "", "HOME": str(self.home),
                      "XDG_CONFIG_HOME": str(self.home / ".config")}
-        self.base = {k: v for k, v in os.environ.items()
+        # As the tests start git: no other GIT_* variable, and none that moves what it or its
+        # loader reads (DEC_0049).
+        self.base = {k: v for k, v in toolchain.program_env().items()
                      if not k.upper().startswith("GIT_")}
         if os.name == "posix":
             # What loads git on Linux is reached through the system's links, which this
@@ -94,7 +96,8 @@ class GitTerms(Tree):
                        env={**self.base, **self.pins})
 
     def judge(self, argv: list[str], env: dict | None = None, inited: bool = True,
-              r: record.Recorder | None = None, drop=()) -> tuple[record.Recorder, str | None]:
+              r: record.Recorder | None = None, drop=(), **terms,
+              ) -> tuple[record.Recorder, str | None]:
         r = r or recorder(self.root, [self.made])
         if inited:
             r.git_inits.add(record._norm(str(self.target)))
@@ -103,7 +106,8 @@ class GitTerms(Tree):
             given.pop(name, None)
         final = final_env(given)
         r.start_names = sorted(final)
-        why, _ = record._git_start(r, argv, "git", None, final, str(self.root), False)
+        why, _ = record._git_start(r, argv, "git", None, final, str(self.root), False,
+                                   **terms)
         return r, why
 
     def form(self, *rest: str) -> list[str]:
@@ -133,6 +137,7 @@ class GitTerms(Tree):
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_start_outside_its_terms_is_refused(self):
         args = "runs git with arguments other than its forms"
+        code = "runs git with code before it starts or descriptors it inherits"
         target = str(self.target)
         elsewhere = self.tmp / "elsewhere"
         elsewhere.mkdir()
@@ -175,11 +180,25 @@ class GitTerms(Tree):
                                 "runs git on a directory before its init"),
             "init again": (["git", "init", "-q", target], {},
                            "runs git init where a repository is already"),
+            "a shell": (self.form(), {"terms": {"shell": True}}, "runs git through a shell"),
+            "code before it starts": (self.form(), {"terms": {"preexec_fn": print}}, code),
+            "every descriptor": (self.form(), {"terms": {"close_fds": False}}, code),
+            "descriptors": (self.form(), {"terms": {"pass_fds": (3,)}}, code),
         }
         for name, (argv, given, expected) in cases.items():
             with self.subTest(name):
-                r, why = self.judge(argv, env=given.get("env"), drop=given.get("drop", ()),
-                                    inited=given.get("inited", True))
+                terms = dict(given.get("terms", {}))
+                shell = terms.pop("shell", False)
+                r = recorder(self.root, [self.made])
+                if shell:
+                    r.git_inits.add(record._norm(str(self.target)))
+                    final = final_env({**self.base, **self.pins})
+                    why, _ = record._git_start(r, argv, "git", None, final, str(self.root),
+                                               True)
+                else:
+                    r, why = self.judge(argv, env=given.get("env"),
+                                        drop=given.get("drop", ()),
+                                        inited=given.get("inited", True), **terms)
                 self.assertEqual(why, expected)
                 self.assertEqual(r.programs, {})
 
@@ -260,6 +279,39 @@ class GitTerms(Tree):
         self.assertIsNone(self.differs(r, environ))
         shutil.copy(GIT, self.root / name)
         self.assertEqual(self.differs(r, environ), f"path {name}")
+        # And the next start, which would run the planted git, is refused.
+        with mock.patch.object(record, "_environment",
+                               return_value=list(final_env(environ).items())):
+            _, why = self.judge(self.form(), env={"PATH": path})
+        self.assertEqual(why, "runs a git under the repository or one the run made")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_a_repository_or_gitdir_file_inside_the_worktree_is_refused(self):
+        for name, plant in (("a repository", lambda d: d.mkdir()),
+                            ("a gitdir file", lambda d: d.write_text(
+                                "gitdir: /elsewhere\n", encoding="utf-8"))):
+            with self.subTest(name):
+                inner = self.target / "sub" / name.replace(" ", "-")
+                inner.mkdir(parents=True)
+                plant(inner / ".git")
+                _, why = self.judge(self.form())
+                self.assertEqual(why, "runs git on a worktree that holds another .git")
+                shutil.rmtree(self.target / "sub")
+        _, why = self.judge(self.form())
+        self.assertIsNone(why)
+
+    @proves("REQ_KNOWN_PROGRAM")
+    def test_the_check_starts_git_and_vale_without_the_variables_that_move_reads(self):
+        moving = {name: "x" for name in record.MOVING}
+        with mock.patch.dict(os.environ, moving):
+            env = toolchain.program_env()
+        self.assertFalse({record._name(k) for k in env} & {record._name(m) for m in moving})
+        # A start that still holds one is refused.
+        for name in record.MOVING:
+            with self.subTest(name):
+                _, why = self.judge(self.form(), env={name: "x"})
+                self.assertEqual(why, f"runs git with {record._name(name)} set, which "
+                                      f"moves what it reads")
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_change_to_tz_or_an_ld_variable_reruns(self):
@@ -302,7 +354,8 @@ class ValeTerms(Tree):
         if os.name == "nt":
             # A small program the system can start, standing for Vale: what is judged is
             # its hash against the pin, not what it does.
-            shutil.copy(getattr(sys, "_base_executable", sys.executable), self.vale)
+            shutil.copy(os.path.join(os.environ.get("SYSTEMROOT", "C:\\Windows"),
+                                     "System32", "where.exe"), self.vale)
         else:
             from tests.test_record_trace import elf
             elf(self.vale)
@@ -337,14 +390,14 @@ class ValeTerms(Tree):
                 *(str(d) for d in (dirs or (self.lint,)))]
 
     def judge(self, argv: list[str], r: record.Recorder | None = None, env=None,
-              cwd: Path | None = None) -> tuple[record.Recorder, str | None]:
+              cwd: Path | None = None, **terms) -> tuple[record.Recorder, str | None]:
         r = r or self.recorder()
-        given = {k: v for k, v in os.environ.items()
+        given = {k: v for k, v in toolchain.program_env().items()
                  if k.upper() != "TERM" and not k.upper().startswith("VALE_")}
         final = final_env({**given, **(env or {})})
         r.start_names = sorted(final)
         why, _ = record._vale_start(r, argv, argv[0], None, final, str(cwd or self.target),
-                                    False)
+                                    terms.pop("shell", False), **terms)
         return r, why
 
     @proves("REQ_KNOWN_PROGRAM")
@@ -395,6 +448,7 @@ class ValeTerms(Tree):
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_start_outside_its_terms_is_refused(self):
         args = "runs vale with arguments other than its forms"
+        code = "runs vale with code before it starts or descriptors it inherits"
         vale = str(self.vale)
         rest = [str(self.lint)]
         config = f"--config={self.config}"
@@ -406,6 +460,13 @@ class ValeTerms(Tree):
             "sync": ([vale, "sync"], {}, args),
             "no --no-global": ([vale, config, "--output=line", "--no-exit", *rest], {}, args),
             "another option": ([vale, config, *record.VALE_FORM, "--glob=*", *rest], {}, args),
+            "a shell": (self.form(), {}, "runs vale through a shell", {"shell": True}),
+            "code before it starts": (self.form(), {}, code, {"preexec_fn": print}),
+            "every descriptor": (self.form(), {}, code, {"close_fds": False}),
+            "descriptors": (self.form(), {}, code, {"pass_fds": (3,)}),
+            "LD_LIBRARY_PATH": (self.form(), {"LD_LIBRARY_PATH": "/usr/local/lib"},
+                                f"runs vale with {record._name('LD_LIBRARY_PATH')} set, which "
+                                f"moves what it reads"),
             "another output": ([vale, config, "--no-global", "--output=JSON", "--no-exit",
                                 *rest], {}, args),
             "--version and more": ([vale, "--version", "--no-global"], {}, args),
@@ -422,9 +483,9 @@ class ValeTerms(Tree):
             "a directory outside": (self.form(None, elsewhere), {},
                                     "runs vale on a directory outside the one the run made"),
         }
-        for name, (argv, env, expected) in cases.items():
+        for name, (argv, env, expected, *terms) in cases.items():
             with self.subTest(name):
-                r, why = self.judge(argv, env=env)
+                r, why = self.judge(argv, env=env, **(terms[0] if terms else {}))
                 self.assertEqual(why, expected)
                 self.assertEqual(r.programs, {})
 
@@ -432,11 +493,12 @@ class ValeTerms(Tree):
     def test_a_configuration_outside_the_list_is_refused(self):
         text = self.config.read_text(encoding="utf-8")
         styles = self.config.parent.parent / "styles"
+        written = "runs vale with a StylesPath it may not read as written"
         cases = {
             "Packages": (text.replace("MinAlertLevel", "Packages = Google\nMinAlertLevel"),
                          "runs vale with a configuration that sets Packages"),
-            "StylesPath outside": (text.replace("StylesPath = ../styles",
-                                                f"StylesPath = {self.root}"),
+            "StylesPath outside": (text.replace("StylesPath = ../styles", "StylesPath = " + (
+                os.path.relpath(self.root, self.config.parent).replace(os.sep, "/"))),
                                    "runs vale with a StylesPath outside the directory the run "
                                    "made"),
             "a vocabulary outside": (text.replace("MinAlertLevel", "Vocab = ..\nMinAlertLevel"),
@@ -444,6 +506,18 @@ class ValeTerms(Tree):
                                      "run made"),
             "a formats section": (text + "\n[formats]\nmdx = md\n",
                                   "runs vale with a [formats] section"),
+            "StylesPath in quotes": (text.replace("StylesPath = ../styles",
+                                                  'StylesPath = "/elsewhere"'), written),
+            "StylesPath in backticks": (text.replace("StylesPath = ../styles",
+                                                     "StylesPath = `/elsewhere`"), written),
+            "StylesPath with a ; comment": (text.replace("StylesPath = ../styles",
+                                                         "StylesPath = ../styles ; x"),
+                                            written),
+            "StylesPath with a # comment": (text.replace("StylesPath = ../styles",
+                                                         "StylesPath = ../styles # x"),
+                                            written),
+            "Vocab in quotes": (text.replace("MinAlertLevel", 'Vocab = "x"\nMinAlertLevel'),
+                                "runs vale with a Vocab it may not read as written"),
             "a converter": (text + "\n[*.html]\nTransform = x.xsl\n",
                             "runs vale with a configuration that sets Transform"),
             "a style not under StylesPath": (text + "\n[*.html]\nBasedOnStyles = Vale\n",
@@ -470,6 +544,48 @@ class ValeTerms(Tree):
         self.assertEqual(why, "runs vale with a rule it may not run")
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    def test_a_vale_changed_while_the_run_ran_is_refused(self):
+        r, why = self.judge(self.form())
+        self.assertIsNone(why)
+        self.assertNotIn("starts vale, which changed while the run ran", whys(r))
+        with open(self.vale, "ab") as f:
+            f.write(b"\0")
+        r.manifest()
+        self.assertIn("starts vale, which changed while the run ran", whys(r))
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_vales_elf_interpreter_is_keyed(self):
+        from tests.test_record_trace import elf
+        loader = elf(self.tmp / "loader")
+        elf(self.vale, str(loader))
+        self.write_pins(record.file_hash(str(self.vale)))
+        r, why = self.judge(self.form())
+        self.assertIsNone(why)
+        self.assertEqual(r.programs[str(loader)], record.file_hash(str(loader)))
+        with open(loader, "ab") as f:
+            f.write(b"\0")
+        self.assertEqual(self.differs(r, {k: v for k, v in os.environ.items()
+                                          if k.upper() not in record.OWN}),
+                         f"program {loader}")
+
+    @proves("REQ_KNOWN_PROGRAM")
+    @only_on("nt")
+    def test_a_dll_found_neither_beside_vale_nor_in_the_system_is_refused(self):
+        # The interpreter's own program imports its DLL from its own directory, which is
+        # not beside the copy.
+        shutil.copy(getattr(sys, "_base_executable", sys.executable), self.vale)
+        self.write_pins(record.file_hash(str(self.vale)))
+        r, _ = self.judge(self.form())
+        self.assertIn(f"runs <root>/bin/{self.vale.name}, which imports a DLL from neither "
+                      f"its own directory nor the system's", whys(r))
+
+    @proves("REQ_KNOWN_PROGRAM")
+    def test_the_recorders_variable_is_the_toolchains(self):
+        # The recorder cannot import the toolchain as it starts; the two names are one.
+        self.assertEqual(record.VALE_VARIABLE, toolchain.VALE_ENV)
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     def test_a_file_of_a_format_vale_starts_a_program_for_is_refused(self):
         for name in ("a.rst", "a.adoc", "a.xml"):
             with self.subTest(name):
@@ -492,7 +608,7 @@ class ValeTerms(Tree):
     def named(self, path: Path):
         """The process's environment as the recorder reads it, TRIFECTA_VALE naming
         ``path``."""
-        here = {**{k: v for k, v in os.environ.items()
+        here = {**{k: v for k, v in toolchain.program_env().items()
                    if k.upper() not in (record.VALE_VARIABLE, "TERM")
                    and not k.upper().startswith("VALE_")}, record.VALE_VARIABLE: str(path)}
         self.here = {k: v for k, v in here.items() if k.upper() not in record.OWN}

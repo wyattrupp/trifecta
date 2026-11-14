@@ -552,6 +552,8 @@ class Recorder:
         #: The pins of Vale's binary, read from the package's toolchain file as the run
         #: began, with that file's key and SHA-256; None until ``start`` reads them.
         self.vale_pins: frozenset[str] | None = None
+        #: Each Vale let through, with the SHA-256 it was let through on.
+        self.vales: list[tuple[str, str]] = []
         self.pin_file: tuple[str, str] | None = None
         self.written: set[str] = set()   # files the run wrote, moved or removed
         #: Each child's directory, with how many inputs had been seen when it started.
@@ -1031,6 +1033,9 @@ class Recorder:
             if self.traces:
                 # Its log may not be whole, and what it traced may still run.
                 self.refuse("starts strace and does not wait for it")
+            for binary, digest in self.vales:
+                if _program_hash(binary) != digest:
+                    self.refuse("starts vale, which changed while the run ran")
             if self.why is None:
                 for _, origin in _module_origins():
                     self.read(origin)
@@ -2221,6 +2226,8 @@ VALE_FORM = ("--no-global", "--output=line", "--no-exit")
 #: design's, from what ``run_vale``'s configurations use.
 VALE_KEYS = frozenset({"StylesPath", "MinAlertLevel", "IgnoredClasses", "Vocab"})
 VALE_SECTION_KEYS = frozenset({"BasedOnStyles"})
+#: The keys whose values are paths or name them, held to plain path characters.
+VALE_PATH_KEYS = ("StylesPath", "Vocab")
 VALE_TOGGLES = frozenset({"YES", "NO", "suggestion", "warning", "error"})
 #: Sections in which Vale maps formats or names a converter, which can start a program.
 VALE_SECTIONS_REFUSED = frozenset({"formats", "asciidoctor", "adoc"})
@@ -2336,6 +2343,16 @@ def _ancestors(path: str) -> list[str]:
             break
         here = parent
     return out
+
+
+def _start_refusal(program: str, shell, preexec_fn, close_fds, pass_fds) -> str | None:
+    """Why a known program's start is refused for how it starts, as strace's is: through a
+    shell, with code before it starts, or with descriptors it inherits."""
+    if shell:
+        return f"runs {program} through a shell"
+    if preexec_fn is not None or not close_fds or pass_fds:
+        return f"runs {program} with code before it starts or descriptors it inherits"
+    return None
 
 
 def _env_refusal(final: dict, program: str) -> str | None:
@@ -2612,8 +2629,22 @@ def _dll_inputs(r: Recorder, program: str) -> None:
             if kind(beside) == "file":
                 _note_library(r, beside)
                 queue.append(beside)
-            else:
-                r.probe(beside)
+                continue
+            r.probe(beside)
+            if not low.startswith(("api-ms-", "ext-ms-")) \
+                    and kind(os.path.join(_system32(), dll)) != "file":
+                # Found neither beside the program nor among the system's own: the
+                # loader would search further, along PATH among other places.
+                r.refuse(f"runs {r.shown(exe)}, which imports a DLL from neither its own "
+                         f"directory nor the system's")
+                return
+
+
+def _system32() -> str:
+    """The system's own directory of DLLs, as the environment names Windows'."""
+    env = {k.upper(): v for k, v in _environment()}
+    return os.path.join(env.get("SYSTEMROOT") or env.get("WINDIR") or "C:\\Windows",
+                        "System32")
 
 
 # -- finding the program --------------------------------------------------------------------
@@ -2744,6 +2775,22 @@ def _git_repository(r: Recorder, target: str) -> str | None:
     return None
 
 
+def _git_nested(target: str) -> str | None:
+    """Why the made worktree is refused: a ``.git``, file or directory, below its top one,
+    a repository of its own or a file naming one elsewhere."""
+    stack = [target]
+    while stack:
+        here = stack.pop()
+        for name, k in listing(here) or ():
+            if here == target and name == ".git":
+                continue
+            if os.path.normcase(name) == os.path.normcase(".git"):
+                return "runs git on a worktree that holds another .git"
+            if k == "directory":
+                stack.append(os.path.join(here, name))
+    return None
+
+
 def _git_environment(r: Recorder, final: dict, target: str) -> str | None:
     """Why git's environment is refused, or None: it must hold the ceiling at the made
     directory's parent, ``GIT_CONFIG_NOSYSTEM=1``, an empty ``GIT_CONFIG_GLOBAL`` and
@@ -2791,15 +2838,17 @@ def _git_layout(r: Recorder, found: str) -> tuple[list[str], str | None, str | N
 
 
 def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
-               shell) -> tuple[str | None, str | None]:
+               shell, preexec_fn=None, close_fds=True, pass_fds=(),
+               ) -> tuple[str | None, str | None]:
     """Why a start of git is refused, or None with the path it is executed by: git is let
     through only in its forms, on a directory the run made, after its ``init``, with the
     environment pinned, on a repository that starts nothing further and reads nowhere
     else; its executables, what loads them, its locale, its template tree, the made
     directory's parents, the working directory's components and the whole environment are
     recorded (COMP_KNOWN_PROGRAMS, DEC_0033)."""
-    if shell:
-        return "runs git through a shell", None
+    why = _start_refusal("git", shell, preexec_fn, close_fds, pass_fds)
+    if why:
+        return why, None
     raw, form = _git_form(argv)
     if raw is None:
         return "runs git with arguments other than its forms", None
@@ -2818,7 +2867,7 @@ def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd
     if why:
         return why, None
     if form != "init":
-        why = _git_repository(r, target)
+        why = _git_repository(r, target) or _git_nested(target)
         if why:
             return why, None
     why, found = _outside_program(r, _found(r, program, final, cwd), "git")
@@ -2899,9 +2948,17 @@ def _vale_config(r: Recorder, path: str, base: str) -> tuple[str | None, str | N
             sections.append((key, value))
     if "StylesPath" not in top:
         return "runs vale with a configuration that names no StylesPath", None
-    styles = os.path.normpath(os.path.join(os.path.dirname(path), top["StylesPath"]))
-    if not _under(_norm(styles), base) or not _made(r, styles) \
-            or kind(styles) != "directory":
+    for key in VALE_PATH_KEYS:
+        # Vale reads a value in quotes or backticks unquoted, and cuts it at a comment:
+        # only a plain path is judged, as Vale reads it.
+        if key in top and not re.fullmatch(r"[A-Za-z0-9_./-]+", top[key]):
+            return f"runs vale with a {key} it may not read as written", None
+    joined = os.path.join(os.path.dirname(path), top["StylesPath"])
+    styles = os.path.normpath(joined)
+    # Judged as joined, its links and .. resolved, and as Vale cleans it: both the same
+    # directory under the build directory.
+    if not _under(_norm(styles), base) or _norm(_realpath(joined)) != _norm(styles) \
+            or not _made(r, styles) or kind(styles) != "directory":
         return "runs vale with a StylesPath outside the directory the run made", None
     named = set()
     for key, value in sections:
@@ -2990,7 +3047,8 @@ def _vale_linted(directories: list[str]) -> str | None:
 
 
 def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
-                shell) -> tuple[str | None, str | None]:
+                shell, preexec_fn=None, close_fds=True, pass_fds=(),
+                ) -> tuple[str | None, str | None]:
     """Why a start of Vale is refused, or None with the path it is executed by: Vale is
     the repository's ``bin/vale``, or the one TRIFECTA_VALE names (DEC_0047), whose
     SHA-256 is a pin of the toolchain as the run began, started as ``vale --version`` or
@@ -2998,8 +3056,9 @@ def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cw
     made; the binary by its path and hash, the pin's file, what loads it, the
     configuration files it looks for and the whole environment are recorded
     (COMP_KNOWN_PROGRAMS, DEC_0038)."""
-    if shell:
-        return "runs vale through a shell", None
+    why = _start_refusal("vale", shell, preexec_fn, close_fds, pass_fds)
+    if why:
+        return why, None
     binary = os.path.normpath(os.path.join(cwd, program))
     own = os.path.join(r.root, "bin", "vale.exe" if os.name == "nt" else "vale")
     named = dict((_name(k), v) for k, v in _environment()).get(_name(VALE_VARIABLE))
@@ -3047,9 +3106,17 @@ def _vale_start(r: Recorder, argv: list[str], program: str, env, final: dict, cw
             if kind(path) != "absent":
                 return "runs vale where a configuration it looks for is present", None
     r.note("programs", key, digest)
+    # Hashed again once the run ends, after Vale did: one changed while it ran is refused.
+    r.vales.append((binary, digest))
     if r.pin_file is not None:
         r.note(*r.pin_file)
     if os.name != "nt":
+        try:
+            interpreter = _elf_interpreter(binary)
+        except (OSError, ValueError):
+            return "runs a vale whose ELF headers the recorder cannot read", None
+        if interpreter is not None:
+            _note_program(r, interpreter, cwd)
         why = _loader_inputs(r, binary, "vale")
         if why:
             return why, None
@@ -3875,7 +3942,8 @@ def _watch_children(r: Recorder) -> None:
             argv = [os.fsdecode(a) for a in args[0]]
             judge = _git_start if base == GIT else _vale_start
             with r.lock:
-                why, resolved = judge(r, argv, named, env, final, cwd, args[shell_at])
+                why, resolved = judge(r, argv, named, env, final, cwd, args[shell_at],
+                                      args[preexec_at], args[close_at], args[pass_at])
         except Exception as exc:
             why = f"the recorder failed on a start of {base}: {type(exc).__name__}"
         finally:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .record import MOVING
+
 #: Platform key -> the suffix of the file Vale releases for it, after ``vale_<version>_``.
 VALE_SUFFIXES = {
     "linux-x86_64": "Linux_64-bit.tar.gz",
@@ -55,6 +57,14 @@ def inside(path: Path, root: Path) -> Path:
 #: Names the Vale executable in place of the repository's own; the fixture runner sets it,
 #: so each repository copy runs the Vale its original set up.
 VALE_ENV = "TRIFECTA_VALE"
+
+
+def program_env() -> dict[str, str]:
+    """The environment the check starts git and Vale with: this process's, less the
+    variables that move what they or their loader read, which the recorder refuses
+    (DEC_0049)."""
+    moving = {name.upper() for name in MOVING}
+    return {k: v for k, v in os.environ.items() if k.upper() not in moving}
 
 
 def bin_vale(root: Path) -> Path:

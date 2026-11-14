@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 
 from .findings import Finding
+from .toolchain import program_env
 
 from .ext import digest, plans
 
@@ -44,7 +45,7 @@ def _git(root: Path, *args: str) -> str:
     try:
         return subprocess.run(
             ["git", "-C", str(root), *args], check=True, capture_output=True,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", env=program_env(),
         ).stdout
     except (OSError, subprocess.CalledProcessError) as exc:
         raise GitError(str(exc)) from exc

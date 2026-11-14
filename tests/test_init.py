@@ -15,8 +15,9 @@ from unittest import mock
 
 from trifecta import init as init_module
 from trifecta.findings import child_env
+from trifecta.record import MOVING
 from trifecta.testing import proves
-from trifecta.toolchain import VALE_ENV, vale_path
+from trifecta.toolchain import VALE_ENV, program_env, vale_path
 
 REPO = Path(__file__).resolve().parent.parent
 URL = "https://github.com/wyattrupp/trifecta/releases/download/v0.1.0/trifecta-0.1.0-py3-none-any.whl"
@@ -27,6 +28,10 @@ ARGS = ["--codeowner", "@someone", "--wheel-url", URL, "--wheel-sha256", SHA]
 def trifecta(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     env = {**child_env(Path(init_module.__file__).resolve().parent.parent),
            VALE_ENV: str(vale_path(REPO))}
+    # The check starts git and Vale without the variables that move what they read
+    # (DEC_0049), and so does this test's start of the check.
+    for name in [k for k in env if k.upper() in {m.upper() for m in MOVING}]:
+        del env[name]
     env.pop("TRIFECTA_STORE", None)
     # Vale starts with no terminal to describe, the form it is a known program in
     # (COMP_KNOWN_PROGRAMS).
@@ -66,7 +71,7 @@ class Repo:
         for name in names:
             del os.environ[name]
         os.environ.update(pinned)
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=program_env())
         return self.root
 
     def __exit__(self, *exc) -> None:

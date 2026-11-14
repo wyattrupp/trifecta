@@ -26,7 +26,7 @@ from importlib import metadata
 from pathlib import Path, PurePosixPath
 
 from .check import GITATTRIBUTES, package_url_problem
-from .toolchain import PACKAGE_DIR, corpus_root
+from .toolchain import PACKAGE_DIR, corpus_root, program_env
 
 #: The actions the CI workflow init writes runs, pinned by commit SHA; the test for
 #: REQ_INIT_SAFE holds them equal to this repository's own workflow.
@@ -193,7 +193,8 @@ def codeowner(root: Path, given: str | None) -> str:
     """The CODEOWNERS owner: given, or the GitHub owner of the ``origin`` remote."""
     if given is None:
         proc = subprocess.run(["git", "-C", str(root), "remote", "get-url", "origin"],
-                              capture_output=True, encoding="utf-8", errors="replace")
+                              capture_output=True, encoding="utf-8", errors="replace",
+                              env=program_env())
         m = re.match(r"^(?:https://github\.com/|git@github\.com:)([A-Za-z0-9-]+)/",
                      proc.stdout.strip())
         if not m:

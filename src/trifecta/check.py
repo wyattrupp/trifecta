@@ -27,7 +27,8 @@ from .profiler import DIRECTORY as PROFILE_DIR, Profiler, target as profile_targ
 from .profiler import write as write_profile
 from .proofs import check_proofs
 from .store import DEFAULT as STORE_DIR, location as store_location
-from .toolchain import PACKAGE_DIR, VALE_SUFFIXES, OutsideRepository, corpus_root, vale_path
+from .toolchain import (PACKAGE_DIR, VALE_SUFFIXES, OutsideRepository, corpus_root,
+                        program_env, vale_path)
 
 # An exact pin with at least one sha256 hash, all on one line (pip accepts that form).
 LOCK_LINE = re.compile(
@@ -213,6 +214,7 @@ def repo_files(root: Path) -> tuple[list[str], list[Finding]]:
         proc = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
             capture_output=True, encoding="utf-8", errors="replace", check=True,
+            env=program_env(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         return [], [Finding("REQ_WARNINGS_FATAL", "(git)",
@@ -345,7 +347,7 @@ def check_vale_version(vale: Path) -> list[Finding]:
     version = values.get("VALE_VERSION")
     try:
         out = subprocess.run([str(vale), "--version"], capture_output=True, encoding="utf-8",
-                             errors="replace").stdout
+                             errors="replace", env=program_env()).stdout
     except OSError as exc:
         return [Finding("REQ_PLATFORM_TOOLCHAIN", "bin/", f"cannot run {vale.name}: {exc}")]
     if not (isinstance(version, str)
@@ -369,6 +371,7 @@ def run_vale(root: Path, vale: Path, config: str) -> list[Finding]:
             [str(vale), f"--config={config_file}", "--no-global", "--output=line",
              "--no-exit", *targets],
             capture_output=True, encoding="utf-8", errors="replace", cwd=root,
+            env=program_env(),
         )
     except OSError as exc:
         return [Finding("REQ_WARNINGS_FATAL", where, f"cannot run {vale}: {exc}")]
