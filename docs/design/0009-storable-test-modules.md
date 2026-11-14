@@ -89,14 +89,31 @@ and `XDG_CONFIG_HOME` on directories the run made, which the tests set; any othe
 `GIT_*` variable is refused. A `.git` file, alternates, `commondir`, and any file in
 `.git/hooks` other than git's samples are refused, and the made repository's
 configuration may hold only the keys `git init` writes and `user.name`; any other key is
-refused. It records git's executables, the loader's files, the locale archive and
-message catalogs, the template tree in `init`, the parents of the made repository, and
-the whole environment, since `TZ`, `LD_*`, `LOCPATH`, `NLSPATH` and `GCONV_PATH` move
-what git and its loader read; the files under the made `HOME` and `XDG_CONFIG_HOME`,
-such as `git/ignore` and `git/attributes`, are the run's own and need no record. On
-Windows the list is stated from Git for Windows' layout, its installation's
-`etc/gitconfig` and templates and `USERPROFILE` among them. git on this repository stays
-refused.
+refused, and so is an `init` where a repository is already. A directory a process made,
+and one its `init` ran on, count as the run's for its Python children too.
+`LD_LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LOCPATH`, `NLSPATH` and `GCONV_PATH`, set,
+refuse the start, since each moves a read to where no key holds it. It records git's
+executables; on Linux the loader's cache, its preload file, which refuses the start when
+present, and each library named as needed, found in the cache and followed again, a
+library the cache lacks, one the cache chooses by the processor, or a program or library
+with a search path of its own refusing the start; every locale's files under
+`/usr/lib/locale`, the locale archive among them, the gconv modules' cache beside the C
+library, the locale aliases, and each language's catalog of git's messages under
+`/usr/share/locale`, whatever language the environment names; the template tree in
+`init`; the parents of the made repository, and the working directory git starts in and
+its parents, which git resolves; and the whole environment, since `TZ` and the other
+`LD_*` variables move what git and its loader do. The files under the made `HOME` and
+`XDG_CONFIG_HOME`, such as `git/ignore` and `git/attributes`, are the run's own and need
+no record. On Windows the list is stated from Git for Windows' layout: git is found as
+CreateProcess finds it, in the interpreter's own directory, the working directory, the
+system's directories and then along `PATH`, each place before it recorded as probed; its
+launcher in `cmd` or `bin`, which starts `mingw64/bin/git.exe`, and that program, each by
+path and SHA-256, with each DLL either imports from that directory, followed again, and
+each other name it imports probed there; the installation's `etc/gitconfig`,
+`mingw64/etc/gitconfig`, `ProgramData/Git/config`, the templates under
+`mingw64/share/git-core/templates`, the catalogs under `mingw64/share/locale`, and the
+whole environment, `USERPROFILE` among it. Another layout is refused. git on this
+repository stays refused.
 
 Vale, under {need}`DEC_0038`: `bin/vale` under the repository, whose SHA-256 the recorder
 checks before the start against a pin of the binary itself per platform, a new constant
@@ -104,15 +121,31 @@ in the toolchain, read from the recorder's package as loaded when the run began 
 trusted as the recorder is; the file holding the pin is a recorded input; a mismatch
 refuses, and the stamp file is never trusted for it. It is started as `vale --version`
 or as `vale --config=FILE --no-global --output=line --no-exit DIR...`, where `FILE` and
-each `DIR` are under the build directory the run made, as `run_vale` starts it with
-`--no-global` added, so no configuration outside them is searched. The configuration may
-hold only a stated set of keys, and every path in it, `StylesPath` and the vocabularies
-it reaches among them, must resolve under that build directory; the styles directory is
-recorded, and a configuration that fails this is refused. A configuration with
-`Packages`, the `sync` command, a linted file of a format for which Vale starts a
-program, and any `VALE_*` variable are refused. It records the whole environment, since
-no trace sees which variable Vale reads. On Windows the list is stated from Vale's
-layout, as wyatt ruled for git.
+each `DIR` are under the build directory the run made, the highest directory the run
+made that holds `FILE`, as `run_vale` starts it with `--no-global` added, so no
+configuration outside them is searched. The configuration may hold only `StylesPath`,
+`MinAlertLevel`, `IgnoredClasses` and `Vocab` at its top and, in a section of files,
+`BasedOnStyles` and a rule's toggle, `Style.Rule` set to `YES`, `NO` or a level, each
+style it names a directory under `StylesPath`; a `[formats]` or `[asciidoctor]` section
+is refused. Every path in it, `StylesPath` and the vocabularies it reaches among them,
+must resolve under that build directory, and the styles directory may hold only styles
+of rule files, each extending `existence` or `substitution` with only the keys those
+rules take, and the vocabularies' `accept.txt` and `reject.txt`; a configuration that
+fails this is refused. A configuration with `Packages`, the `sync` command, any other
+option, a linted file of a format for which Vale starts a program, any file it lints but
+`.html` among them, and any `VALE_*` variable are refused. So is a start with `TERM` set:
+a trace shows Vale then looks the user up, through the name service and its socket, and
+reads the terminal's description. Each name Vale looks for a configuration by, `.vale`,
+`.vale.ini`, `_vale`, `_vale.ini` and `vale.ini`, is probed in the working directory and
+each directory above it, and one present refuses the start. It records the binary, the
+pin's file and the whole environment, since no trace sees which variable Vale reads, and
+on Linux the loader's files, as for git, and `/proc/version`. Vale's runtime on Linux
+also reads, as the trace shows, its own `/proc/self/maps`, `mountinfo` and `cgroup`,
+`/sys/kernel/mm/transparent_hugepage/hpage_pmd_size`, `/sys/devices/system/cpu/online`
+and its control group's `cpu.max`, which no key can hold; until wyatt rules on them, the
+recorder refuses Vale on Linux. On Windows the list is stated from Vale's layout, as
+wyatt ruled for git: the binary, each name it imports probed beside it, and the
+configuration names above.
 
 `strace`, under {need}`DEC_0037`: named by its path and hash, started by
 `test_record_trace`'s own process only, as `strace -f -y -s 4096 -qq -o LOG COMMAND...`.
@@ -173,7 +206,9 @@ so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
 `strace` and fails on a path opened, probed or listed outside its stated inputs, a
-further program started, a host-name read, or a connection.
+further program started, a host-name read, or a connection; Vale's shows that the reads
+of its runtime above are all that is left. The tests are in a module of their own, which
+stays fresh on Linux, since only `test_record_trace`'s own process may start `strace`.
 :::
 
 :::{component} Nested recorder
