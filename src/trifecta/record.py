@@ -1231,6 +1231,8 @@ def _refused(data: dict, why: str, first: bool = False) -> dict:
     reasons = ([reason, *others] if first or not others else [*others, reason])
     return {**data, "storable": False, "why": reasons[0]["why"],
             "reasons": reasons[:MAX_REASONS]}
+
+
 def _recorders(r: Recorder) -> list[Recorder]:
     """``r`` and every other recorder started in this process."""
     found = [r]
