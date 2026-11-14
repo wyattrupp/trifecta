@@ -522,3 +522,14 @@ rulings of 2026-11-14 on Ubuntu's `locale.alias` link and Git for Windows' `ucrt
 build. Folded in: every other build the launcher knows is held absent, file or link,
 which the security pass found open as a link at the other build's `git.exe`.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_9
+:k: 2
+:date: 2026-11-14
+:digest: d4ddb6f439c292b9ffca0fc359e50990dfc05d8c05f104c72e7085cfbf7296a1
+On the fix CI's fixtures called for: git and Vale stat `PWD`, which a fixture copy
+inherits from the original checkout. Folded in: wyatt's ruling of 2026-11-14, recorded as
+{need}`DEC_0050`; the check starts them without it and a recorded start holding it is
+refused.
+:::
