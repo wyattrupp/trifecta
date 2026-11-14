@@ -24,7 +24,7 @@ from .findings import Finding, child_env
 from .profiler import DIRECTORY as PROFILE_DIR, Profiler, seconds, target as profile_target
 from .profiler import read as read_profile, write as write_profile
 from .store import ENV as STORE_ENV
-from .toolchain import VALE_ENV, OutsideRepository, corpus_root, vale_path
+from .toolchain import VALE_ENV, OutsideRepository, corpus_root, program_env, vale_path
 
 
 class FixtureError(Exception):
@@ -33,7 +33,7 @@ class FixtureError(Exception):
 
 def _git(cwd: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
-                   encoding="utf-8", errors="replace")
+                   encoding="utf-8", errors="replace", env=program_env())
 
 
 def make_base(tmp: Path, root: Path) -> Path:

@@ -24,7 +24,7 @@ from pathlib import Path
 
 
 from .ext import DOC_TYPES, FILENAME_RE, plans
-from .toolchain import corpus_root
+from .toolchain import corpus_root, program_env
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ELEMENT_RE = re.compile(r"^:id: ((?:COMP|IF)_[A-Z0-9_]+)\s*$", re.M)
@@ -35,7 +35,7 @@ def _author() -> str:
     try:
         name = subprocess.run(["git", "-C", str(corpus_root()), "config", "user.name"],
                               capture_output=True, encoding="utf-8", errors="replace",
-                              check=True).stdout.strip()
+                              check=True, env=program_env()).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         name = ""
     return name or "unknown"

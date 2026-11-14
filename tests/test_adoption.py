@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 from trifecta.testing import only_on, proves
-from trifecta.toolchain import vale_path
+from trifecta.toolchain import program_env, vale_path
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -77,7 +77,7 @@ class AdoptionGuide(unittest.TestCase):
                             "--no-build-isolation", "-q", "-w", str(dist), str(ROOT)], check=True)
             (wheel,) = dist.glob(f"trifecta-{version}-*.whl")
             repo.mkdir()
-            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=program_env())
             shutil.copy2(wheel, repo / wheel.name)
             # This repository's Vale, so the check does not download it again.
             (repo / "bin").mkdir()

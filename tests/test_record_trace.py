@@ -201,8 +201,10 @@ class Traced(unittest.TestCase):
         paths, connects = traced_paths(log, cwd)
         self.assertGreater(len(paths), 0, "strace reported no call")
         # The interpreter's own files are the environment's; the recorder's own file is
-        # loaded before it starts and belongs to the package's identity.
-        own = [Path(p) for p in (sys.prefix, sys.base_prefix, record.__file__)]
+        # loaded before it starts and belongs to the package's identity, and so is the
+        # toolchain file it reads Vale's pins from as it starts (COMP_KNOWN_PROGRAMS).
+        own = [Path(p) for p in (sys.prefix, sys.base_prefix, record.__file__,
+                                 Path(record.__file__).with_name("toolchain.py"))]
         self.assertEqual(unheld(paths, root, manifest, allowed + own), [])
         self.assertEqual(connects, [])
 
