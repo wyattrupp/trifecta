@@ -2595,6 +2595,10 @@ def _catalogs(r: Recorder, directory: str, domain: str, what: str) -> str | None
         return None
     r.list(directory)
     for name, k in listing(directory) or ():
+        if k == "link" and os.path.join(directory, name) == LOCALE_ALIAS:
+            # The aliases, held by their link, its target and its content (DEC_0043); wyatt,
+            # 2026-11-14: "Skip LOCALE_ALIAS (Recommended)". Any other link is refused.
+            continue
         if k == "link":
             return f"runs {what} where a language's messages are a link"
         if k != "directory":
@@ -2858,28 +2862,46 @@ def _git_environment(r: Recorder, final: dict, target: str) -> str | None:
     return _env_refusal(final, "git")
 
 
-def _git_layout(r: Recorder, found: str) -> tuple[list[str], str | None, str | None]:
-    """git's executables, its template tree and its locale's catalogs, from where it was
-    found: on Linux the program and the compiled-in places beside its prefix; on Windows,
-    Git for Windows' layout, its launcher in ``cmd`` or ``bin`` starting
-    ``mingw64/bin/git.exe``. Empty when the layout is not one the design states."""
+#: The directories of Git for Windows' own build, of which an installation holds exactly
+#: one: wyatt, 2026-11-14: "State ucrt64 too (Recommended)".
+GIT_FLAVOURS = ("mingw64", "ucrt64")
+
+
+def _git_layout(r: Recorder, found: str,
+                ) -> tuple[str | None, list[str], str | None, tuple[str, str] | None]:
+    """Why git's layout is refused, or None with git's executables, its template tree and,
+    on Windows, its installation with the directory of its build: on Linux the program and
+    the compiled-in places beside its prefix; on Windows, Git for Windows' layout, its
+    launcher in ``cmd`` or ``bin`` starting ``mingw64/bin/git.exe`` or
+    ``ucrt64/bin/git.exe``, exactly one of the two present and the other probed."""
     if os.name != "nt":
         prefix = os.path.dirname(os.path.dirname(found))
-        return [found], os.path.join(prefix, "share", "git-core", "templates"), None
+        return None, [found], os.path.join(prefix, "share", "git-core", "templates"), None
+    unstated = "runs a git whose layout the design does not state"
     parent = os.path.dirname(found)
     base = os.path.basename(parent).lower()
     if base in ("cmd", "bin") and os.path.basename(found).lower() == "git.exe":
         install = os.path.dirname(parent)
-        if base == "bin" and os.path.basename(install).lower() == "mingw64":
+        if base == "bin" and os.path.basename(install).lower() in GIT_FLAVOURS:
             install = os.path.dirname(install)
     else:
-        return [], None, None
-    real = os.path.join(install, "mingw64", "bin", "git.exe")
-    if kind(real) != "file":
-        return [], None, None
-    executables = list(dict.fromkeys([found, real]))
-    share = os.path.join(install, "mingw64", "share")
-    return executables, os.path.join(share, "git-core", "templates"), install
+        return unstated, [], None, None
+    reals = {flavour: os.path.join(install, flavour, "bin", "git.exe")
+             for flavour in GIT_FLAVOURS}
+    present = [flavour for flavour, real in reals.items() if kind(real) == "file"]
+    if len(present) > 1:
+        return "runs a git whose installation holds both mingw64 and ucrt64", [], None, None
+    if not present:
+        return unstated, [], None, None
+    flavour = present[0]
+    for other, real in reals.items():
+        if other != flavour:
+            # An installation that adds it runs the module again.
+            r.probe(real)
+    build = os.path.join(install, flavour)
+    executables = list(dict.fromkeys([found, reals[flavour]]))
+    templates = os.path.join(build, "share", "git-core", "templates")
+    return None, executables, templates, (install, build)
 
 
 def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd: str,
@@ -2918,9 +2940,9 @@ def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd
     why, found = _outside_program(r, _found(r, program, final, cwd), "git")
     if why:
         return why, None
-    executables, templates, install = _git_layout(r, found)
-    if not executables:
-        return "runs a git whose layout the design does not state", None
+    why, executables, templates, places = _git_layout(r, found)
+    if why:
+        return why, None
     for exe in executables:
         if os.name == "nt":
             _note_library(r, exe)
@@ -2933,15 +2955,16 @@ def _git_start(r: Recorder, argv: list[str], program: str, env, final: dict, cwd
             why = _locale_inputs(r, "git", "git")
             if why:
                 return why, None
-    if install is not None:
+    if places is not None:
         # Git for Windows' own configuration, which GIT_CONFIG_NOSYSTEM leaves unread, and
         # its catalogs.
+        install, build = places
         programdata = dict(_environment()).get("PROGRAMDATA") or "C:\\ProgramData"
         for path in (os.path.join(install, "etc", "gitconfig"),
-                     os.path.join(install, "mingw64", "etc", "gitconfig"),
+                     os.path.join(build, "etc", "gitconfig"),
                      os.path.join(programdata, "Git", "config")):
             r.read(path)
-        why = _catalogs(r, os.path.join(install, "mingw64", "share", "locale"), "git", "git")
+        why = _catalogs(r, os.path.join(build, "share", "locale"), "git", "git")
         if why:
             return why, None
     if form == "init":
