@@ -393,9 +393,11 @@ a handler that runs inside the recorder's own calls refuses the run, after the s
 marks it late, and once the manifest is written rewrites it as refused. The exit paths
 see events only until the interpreter clears its audit hooks at teardown: what runs
 after, as an object the interpreter keeps until it clears its own state, is seen by no
-hook. So a run that puts a callable where the interpreter keeps it past its hooks is
-refused as it does: `codecs.register`, `codecs.register_error`, `os.register_at_fork`
-and `sys.monitoring.register_callback`. The other places a run can leave an object at
+hook. So a codec search function or error handler that is not a function of the
+interpreter's own, one its module names, and any `sys.monitoring` callback are refused as
+they are registered; a fork callback, which the standard library registers as it is
+imported, the recorder holds in the interpreter's place and lets go once the manifest is
+written, while the hooks still see what a finalizer it held does. The other places a run can leave an object at
 teardown, measured with a finalizer that reads, end refused or never run it: the
 context's variables, the asynchronous generator hooks, a trace or profile function,
 `sys` and `builtins` attributes, `threading.local`, `sys.excepthook`,
