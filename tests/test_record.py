@@ -243,15 +243,67 @@ class Inputs(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
-    def test_a_read_through_a_link_the_run_made_reads_its_target(self):
+    def test_a_link_the_run_makes_reaches_only_what_it_made(self):
         m = run(self.root, """
             import os, tempfile
-            link = os.path.join(tempfile.mkdtemp(), "link")
-            os.symlink(os.path.abspath("b.txt"), link)
+            made = tempfile.mkdtemp()
+            with open(os.path.join(made, "a.txt"), "w") as f:
+                f.write("a")
+            link = os.path.join(made, "link")
+            os.symlink("a.txt", link)
             open(link).read()
             """)
         self.assertTrue(m["storable"], m.get("why"))
-        self.assertIn("b.txt", m["files"])
+        # A link to what the run did not make would let a read under a directory it made
+        # reach a file no key holds, as through a linked directory: refused.
+        for target in ("os.path.abspath('b.txt')", "os.path.abspath('sub')"):
+            with self.subTest(target=target):
+                why = self.refused_in(self.root, f"""
+                    import os, tempfile
+                    made = tempfile.mkdtemp()
+                    os.symlink({target}, os.path.join(made, "link"))
+                    open(os.path.join(made, "link", "x.txt") if 'sub' in {target!r}
+                         else os.path.join(made, "link")).read()
+                    """)
+                self.assertIn("makes a link to outside what the run made", why)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_device_is_held_by_its_kind_never_read(self):
+        m = run(self.root, "import os; os.stat('/dev/urandom'); os.lstat('/dev/zero'); "
+                           "open('/dev/urandom', 'rb').read(8)")
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertNotIn("/dev/urandom", m["outside"])
+        self.assertEqual(m["probes"]["/dev/urandom"], "device")
+        self.assertEqual(m["probes"]["/dev/zero"], "device")
+        # Any other device read could be fed what no key holds: refused.
+        why = self.refused_in(self.root, "open('/dev/zero', 'rb').read(8)")
+        self.assertIn("which is not a regular file", why)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_pipe_read_is_refused_by_the_recorder_and_in_a_trace(self):
+        # A pipe another process feeds holds what no key holds. This process makes it, so
+        # this module's own recorder refuses the module; task 5 moves such tests out.
+        fifo = self.tmp / "fifo"
+        os.mkfifo(fifo)
+        self.assertEqual(record.kind(str(fifo)), "fifo")
+        config = {"root": str(self.root), "recorder": record.__file__, "ignore": []}
+        r = record.Recorder(str(self.tmp / "recorder"), config)
+        r.read(str(fifo))
+        self.assertIn("which is not a regular file", r.why or "")
+        log = self.tmp / "made" / "trace.log"
+        log.parent.mkdir()
+        (log.parent / "start").write_text("#!/bin/sh\n", encoding="utf-8")
+        log.write_text(f'100 execve("{log.parent}/start", ["start"], 0x0 /* 0 vars */) = 0\n'
+                       f'100 openat(AT_FDCWD, "{fifo}", O_RDONLY|O_NONBLOCK) = 3<{fifo}>\n',
+                       encoding="utf-8")
+        r = record.Recorder(str(self.tmp / "recorder"), config)
+        r.created.add(record._norm(str(log.parent)))
+        record._take_trace(r, record._Trace(str(log), str(self.root),
+                                            os.open(log, os.O_RDONLY)), 0)
+        self.assertTrue(any("which is not a regular file" in x["why"] for x in r.reasons),
+                        r.reasons)
 
     @proves("REQ_REUSE_SOUND")
     def test_environment_reads_and_iteration(self):
@@ -266,6 +318,24 @@ class Inputs(unittest.TestCase):
         for own in record.OWN:
             self.assertNotIn(own, m["environment"])
         self.assertNotIn("1", m["environment"].values(), "values are recorded as hashes")
+
+    @proves("REQ_REUSE_SOUND")
+    def test_a_variable_that_appears_after_the_environment_was_read_whole_reruns(self):
+        # The environment the child started with, as a lookup's environment is.
+        env = {k: v for k, v in os.environ.items()
+               if k not in record.OWN and k.upper() != record.PATH_ENV}
+        m = run(self.root, "import os; dict(os.environ)", env=env)
+        self.assertEqual(m["environment"][record.NAMES], record.names_digest(
+            map(record._name, env)))
+        differs = lambda environ: store.mismatch(m, self.root, environ, store.Hashes())
+        self.assertIsNone(differs(env))
+        self.assertEqual(differs({**env, "LD_PRELOAD": "/x.so"}), "the environment's names")
+        gone = dict(env)
+        gone.pop(sorted(gone)[0])
+        self.assertIsNotNone(differs(gone))
+        # A run that reads one variable by name is keyed on that one alone.
+        m = run(self.root, "import os; os.environ.get('HOME')", env=env)
+        self.assertNotIn(record.NAMES, m["environment"])
 
     @proves("REQ_REUSE_SOUND")
     def test_imported_module_sources_and_lookups(self):
@@ -857,7 +927,7 @@ class Reasons(unittest.TestCase):
 GOOD = {"version": 1, "storable": True,
         "files": {"docs/a.md": "0" * 64}, "probes": {"gone": "absent"},
         "listings": {"docs": [["a.md", "file"]]}, "lookups": {"./mod": "mod.py"},
-        "environment": {"HOME": None}, "outside": {},
+        "environment": {"HOME": None}, "outside": {}, "programs": {"/usr/bin/strace": "0" * 64},
         "uname": {f: "0" * 64 for f in record.UNAME_FIELDS} if hasattr(os, "uname") else {}}
 
 
@@ -870,15 +940,20 @@ class Shape(unittest.TestCase):
             {"files": {"../outside": "0" * 64}}, {"files": {"/abs": "0" * 64}},
             {"files": {"C:/x": "0" * 64}}, {"files": {"a\\b": "0" * 64}},
             {"files": {"a": "not a hash"}}, {"outside": {"relative": "0" * 64}},
-            {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
+            {"probes": {"a": "door"}}, {"listings": {"d": [["a/b", "file"]]}},
             {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
             {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},
+            {"programs": {"strace": "not a hash"}}, {"programs": {"../strace": "0" * 64}},
+            {"programs": {"//share/strace": "0" * 64}}, {"programs": []},
+            {"probes": {"a": record.LINK_TO}}, {"probes": {"a": "link:x\0y"}},
         ]
         for change in bad:
             with self.subTest(change=change):
                 self.assertFalse(record.valid({**GOOD, **change}))
         self.assertFalse(record.valid({**GOOD, "storable": False, "why": 3}))
+        # An interpreter's link held with its target, as a trace holds one (DEC_0045).
+        self.assertTrue(record.valid({**GOOD, "probes": {"/py": record.LINK_TO + "/py-3"}}))
         git = [{"process": None, "why": "runs git"}]
         self.assertTrue(record.valid({**GOOD, "storable": False, "why": "runs git",
                                       "reasons": git}))

@@ -483,7 +483,9 @@ def run_child(root: Path, module: str, leave_out: list[str], child: list[str] | 
         env = child_environment()
         directory = tmp_path / "record"
         if recorded:
-            record.prepare(str(directory), str(root), ignore=[str(tmp_path)])
+            # The module is named, so a program only it may start is let through only in
+            # its own process (COMP_KNOWN_PROGRAMS).
+            record.prepare(str(directory), str(root), ignore=[str(tmp_path)], module=module)
             env[record.ENV] = str(directory)
         # Output goes to a file, not a pipe, so a process a test leaves running cannot hold
         # the check open, and a test that prints much is not held in memory.

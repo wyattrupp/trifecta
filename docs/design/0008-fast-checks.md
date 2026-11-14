@@ -72,10 +72,16 @@ audit event not on its list of handled or known-harmless events marks the manife
 unstorable, and so does a change of working directory.
 
 Reads: an `open` for reading, and the source of a `shutil.copyfile` or the Windows
-`_winapi.CopyFile2` event, is a file input. Probes: it wraps `os.stat`, `os.lstat`,
+`_winapi.CopyFile2` event, is a file input, hashed only when it is a regular file;
+`/dev/null` and `/dev/urandom` are held by their kind, `device`, never read, and a read of
+any other device, a pipe or a socket, which another process can feed, refuses the run. A
+link the run makes
+may reach only what it made, a directory it created or a file it wrote, its links
+resolved; making one that reaches beyond is refused, since a read under a directory the run
+made, which is no input, would reach through it a file no key holds. Probes: it wraps `os.stat`, `os.lstat`,
 `os.access`, `os.readlink`, and `os.path.exists`, `isfile`, `isdir` and `islink`, which
 on Windows are C functions that call no wrapped `os.stat`, and records every probed path
-with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
+with its kind: file, directory, link, fifo, device, socket or absent. Listings: `os.listdir` and `os.scandir`
 record each entry with its kind. Imports: the import system's own lookups are recorded as
 the presence or absence of the names it looked for, not as whole listings. Every recorded process, the
 Sphinx build's included, runs with `-B` and with `pycache_prefix` set to an empty
@@ -83,7 +89,9 @@ directory, which its recorder makes and sets as it starts, so no `.pyc` in the t
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set
-the process environment as before; a variable the run set is its own. The locale's
+the process environment as before; a variable the run set is its own. Iterating or
+copying the mapping also records the digest of the names the process started with, so a
+variable that appears or vanishes runs the run again. The locale's
 variables, which the C library reads where the mapping cannot see, are recorded whether
 set or not. The recorder's own
 variables, `TRIFECTA_RECORD`, `TRIFECTA_RECORD_PARENT` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
@@ -109,9 +117,9 @@ other file read outside the repository is hashed in `outside`.
 Native code: a module of the lock built from C or Rust, such as `jsonschema_rs`,
 `minijinja`, `rpds`, PyYAML's `_yaml`, `markupsafe` and `charset_normalizer`, can open a
 file without any audited call. A test on Linux runs each recorded stage under
-`strace -f -e trace=%file,%network`, and reports every path inside the repository the
-system calls opened, probed or listed that the manifest does not hold, and any
-connection.
+`strace -f`, in the form {need}`DES_0009` lets through, and reports every path inside the
+repository the system calls opened, probed or listed that the manifest does not hold, and
+any connection.
 :::
 
 :::{component} Result store
@@ -246,10 +254,17 @@ any rule: it is a report.
 :constrained_by: DEC_0028, DEC_0039
 A JSON object with `version: 1`, `storable` and, when false, `why` and `reasons`; `files`,
 mapping each path read to its SHA-256; `probes`, mapping each path probed to its kind,
-`file`, `directory`, `link` or `absent`; `listings`, mapping each directory listed to its
-sorted entries, each with its kind; `lookups`, the import system's names found or not found;
+`file`, `directory`, `link`, `fifo`, `device`, `socket` or `absent`, or, for a link
+{need}`DES_0009` holds as the interpreter's ({need}`DEC_0045`), `link:` followed by the
+link's target as it reads, which a lookup reads again; `listings`, mapping each directory
+listed to its sorted entries, each with its kind; `lookups`, the import system's names found or not found;
 `environment`, mapping each variable read to the SHA-256 of its value, with the root's
-path replaced, or null when it is unset; `outside`, mapping
+path replaced, or null when it is unset, and, under the key `=names`, which no
+variable's name can be, when the run read the whole environment, the SHA-256 of the
+names of the variables the process started with, sorted, joined by NUL and less the
+recorder's own, which a lookup takes again from its environment; when a Python child's
+manifest holds the key, its parent's recorder records its own digest under it in place of
+the child's, since the child's environment is what its parent gave it; `outside`, mapping
 each file read outside the repository and the interpreter's prefixes to its SHA-256; and
 `uname`, mapping each field of `os.uname` other than the host name (`sysname`,
 `release`, `version`, `machine`) to the SHA-256 of its value, taken when the run starts,
@@ -263,6 +278,16 @@ file or variable (`HOSTNAME`, `COMPUTERNAME`, `/etc/hostname`,
 `/proc/sys/kernel/hostname`) is recorded as its SHA-256, as {need}`REQ_HOST_READS` allows.
 Paths inside the repository are relative to its root with forward slashes, as
 REQ_PORTABLE_FINDINGS writes locations.
+
+`programs` maps each program a run started other than the interpreter, which only a known
+program started on its terms can be ({need}`DES_0009`'s COMP_KNOWN_PROGRAMS), and each
+program that the command `strace` traced started, with its `#!` interpreter, followed
+again, and its ELF interpreter, to the SHA-256 of the file its path reaches, links
+followed, which a lookup takes again to match. A key inside the repository is relative to
+its root, as the other sections' are, and any other is absolute. A program under a
+directory the run made, a file it wrote, a directory a recorder prepared or one the run's
+configuration leaves out is not held, unless its path lands beyond them through a link,
+where it is held by where it lands; one under the interpreter's prefixes is held.
 
 `reasons` lists every distinct reason the run was refused: the run's own in the order
 raised, then each Python child's in the order the children started; `why` is the first,
@@ -430,4 +455,16 @@ any cleaning; the design's choices labelled; a module with no reason not listed.
 Reviewed with {need}`DES_0009`'s nested recorder in {need}`PLAN_0008`'s task 3. Folded in:
 `TRIFECTA_RECORD_PARENT` among the recorder's own variables; the store key holding both
 `.pth` files' hashes; a recorded child started without `-X pycache_prefix`.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_10
+:k: 2
+:date: 2026-11-13
+:digest: d35a072853089457a9093e77f9a7cac0c0e2e59defce2786b58d5fd9ea385283
+Reviewed with {need}`DES_0009`'s `strace` in {need}`PLAN_0008`'s task 4. Folded in:
+IF_MANIFEST's `programs` section and the environment's `=names` digest, closing a variable
+that appears or vanishes; a probe's `link:` value for the interpreter's own links; a link
+the run makes reaching only what it made; only regular files hashed, a device, pipe or
+socket read refused but `/dev/null` and `/dev/urandom`.
 :::

@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -78,8 +78,11 @@ forms").
 Here and below, "the whole environment" is every variable that reaches the program,
 inherited through `env=None` or copied into its mapping, each recorded as a hash at the
 start, less the recorder's own and those whose values the run itself set, as
-{need}`DES_0008`'s recorder treats them, so a path the run made is never part of a key;
-a test starts a program with `env=None` and shows an inherited variable is recorded.
+{need}`DES_0008`'s recorder treats them, so a path the run made is never part of a key,
+with the digest of the names of the variables the process started with, which
+IF_MANIFEST states, so a variable that appears or vanishes reruns the module; a test
+starts a program with `env=None` and shows an inherited variable is recorded, and that
+one appearing reruns.
 The environment must hold `GIT_CEILING_DIRECTORIES` at the made
 directory's parent, `GIT_CONFIG_NOSYSTEM=1`, an empty `GIT_CONFIG_GLOBAL`, and `HOME`
 and `XDG_CONFIG_HOME` on directories the run made, which the tests set; any other
@@ -112,18 +115,61 @@ no trace sees which variable Vale reads. On Windows the list is stated from Vale
 layout, as wyatt ruled for git.
 
 `strace`, under {need}`DEC_0037`: named by its path and hash, started by
-`test_record_trace` only, as `strace -f -y -s 4096 -qq -o LOG COMMAND...`, with `LOG`
-under the run's directory; it has no proof test of its own, since `strace` cannot run
-under another, and is trusted with the kernel, as {need}`DEC_0037` accepts. Its log
-gives the traced command's inputs: every path read, probed or listed outside the run's
-own directories, each failed `open`, `stat`, `access` or `readlink` as an absence, each
-program it starts by path and SHA-256, with its `#!` interpreter, followed again, and its
-ELF interpreter, which the kernel opens with no call in the log, and the command's whole environment, which no
-trace sees read. `/dev/null` and `/dev/urandom` are allowed, and in the traced processes' own `/proc`
-entries only listing `fd` and reading the `exe` link; any other read under `/proc` or
-`/dev`, and any `connect` or socket of a network family, refuse the run. The
-traced command runs under the recorder too, so the host name it sees is the fixed one of
-COMP_HOST_NAME.
+`test_record_trace`'s own process only, as `strace -f -y -s 4096 -qq -o LOG COMMAND...`.
+The recorder lets the start through only when `LOG` is new, does not start with `|` or `!`,
+and lies, its parent's links resolved, under a directory the run made, in no directory a
+recorder prepared and not under the interpreter's prefixes; `COMMAND` is named by its
+absolute path; the start has no shell, no `preexec_fn` and no `pass_fds`, closes the
+run's other descriptors, and its environment holds no `TRIFECTA_RECORD_PARENT`; and
+`strace`, found along `PATH` as subprocess finds it, each place searched before it recorded
+as probed, is a regular ELF file outside the repository and the run's own directories,
+started by the path it was found at. The form and these conditions are this design's, not
+rulings. `strace` has no proof test of its own, since it cannot run under another, and is
+trusted with the kernel, as {need}`DEC_0037` accepts. The recorder makes `LOG` and holds it
+open before `strace` starts, and once the run reaps `strace` reads the log through that
+descriptor, so what it reads is what `strace` wrote, whatever then becomes of the name; a
+call of the traced command on `LOG`, by any name under what the run made, a change to a
+directory that holds it, a write of the run's own to it by any name, and a log that does
+not start with its command's start each refuse the run. The recorder knows the log as it
+makes it, before `strace` starts, and, once `strace` is reaped, refuses the run when the
+run wrote the log by any name.
+
+The log gives the traced command's inputs, recorded as {need}`DES_0008`'s recorder records
+the run's own: every path read, probed or listed outside the run's own directories, each
+failed `open`, `stat`, `access` or `readlink` as what is there, absence for a path not
+found; a read keyed both by the name it was given and by the path the kernel opened, which
+`-y` gives, and refused when the name no longer reaches that path; each program it starts
+by path and SHA-256, keyed where its path lands, with its `#!` interpreter, followed again,
+and its ELF interpreter, which the kernel opens with no call in the log; and the command's
+whole environment, which no trace sees read. Under {need}`DEC_0044` only the interpreter's
+own trees, sysconfig's `stdlib`, `platstdlib`, `purelib`, `platlib`, `scripts` and
+`include` under `sys.prefix` and `sys.base_prefix`, are left to the environment key; every
+other path under the prefixes is keyed. The system's time zone is left out with the clock,
+which {need}`RFC_0008` puts out of scope, as the recorder leaves it out. A read, probe,
+listing or start of a path the run itself first wrote, or one under a directory it first
+made, while `strace` ran refuses the run, since the log does not say whether the command
+saw it before or after. A read of a pipe, a device or a socket, which another process can
+feed, refuses the run, and so does a process started with `CLONE_UNTRACED`, which no
+trace follows. `/dev/null` and `/dev/urandom` are allowed,
+and in the traced processes' own `/proc` entries, as `self` or by number, only listing
+`fd`, reading the `exe` link and, under {need}`DEC_0043`, reading `maps` and `cgroup`, none
+of them keyed; any other read under `/proc` or `/dev` refuses the run. A socket of a
+network family refuses it, but one of `AF_INET` or `AF_INET6` bound to a loopback address
+on which the command never connects, sends, listens or accepts, under {need}`DEC_0043`;
+any `connect`, and binding a local socket, refuse it too. A read through a link the run
+did not make refuses the run, as the recorder's own does, but two kinds of link. One is a
+link met resolving `sys.executable`, `sys.prefix`, `sys.base_prefix`,
+`sys.exec_prefix`, `sys.base_exec_prefix` or the `home` a virtual environment's
+`pyvenv.cfg` names, all the interpreter's, which {need}`DEC_0045` holds as the
+interpreter's: it is recorded as a probe of the link with its target, which a lookup reads
+again, and followed. The other is the C library's `/usr/share/locale/locale.alias`, which
+{need}`DEC_0043` names: it is recorded by the link, its target's content and the content
+the link reaches, which a lookup takes again following it. Making a link that reaches
+beyond what the run made refuses the run, as the recorder's own does, and so does a signal,
+or a pidfd, to a process `strace` does not trace, but for 0, the command's own process
+group, which holds `strace` and the run's own process too: a signal there can only end
+or stop what is recorded, which then leaves no result. The traced command runs under the recorder too,
+so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
 `strace` and fails on a path opened, probed or listed outside its stated inputs, a
@@ -349,4 +395,18 @@ it lands, the prepared directory's and the prefixes'; the ways a child runs code
 refused; the search path carried in the configuration until the recorder starts, which
 the security pass found raceable; a wrapper reached only through recorders' wrappers;
 an `rmtree` callback recorded as the run's code.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_5
+:k: 2
+:date: 2026-11-13
+:digest: 4a6507318dcaa9cd03495349e820dde0787fd20fc05e5157773ae85f70062e17
+Two rounds, a ruling round and a final check, one reviewer per lens, on
+COMP_KNOWN_PROGRAMS's `strace` as {need}`PLAN_0008`'s task 4 built it. Folded in: wyatt's
+rulings of 2026-11-13, recorded as {need}`DEC_0043`, {need}`DEC_0044` and
+{need}`DEC_0045`; the start's terms stated in full; the log made and held by the
+recorder, known before `strace` starts; reads keyed where the kernel opened them; links,
+signals, late writes, untraced children, pipes and devices refused, which the security
+passes found open; the environment's names keyed.
 :::

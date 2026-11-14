@@ -78,7 +78,7 @@ Module 1 of {need}`DEC_0032`'s order, the largest saving, and module 5, which ne
 :::{task} The traced build is keyed on its trace
 :id: TASK_0008_04
 :builds: COMP_KNOWN_PROGRAMS
-:gate: The tests show that `strace` is let through only by its path and hash, started by `test_record_trace` with `-f -y -s 4096 -qq -o LOG` and `LOG` under the run's directory, and refused when started by another module, with other arguments, or with `LOG` elsewhere; that the key taken from its log holds every path read, probed or listed, each failed probe as an absence, each program started with its `#!` and ELF interpreters by hash, a change to an interpreter rerunning the module, and the whole environment, an inherited variable under `env=None` included and only the recorder's own and those the run set left out; that a change to a document the build read reruns `test_record_trace` and a change to a test it did not read does not; that a connection, a socket of a network family, a read under `/proc` or `/dev` outside the allowed list, and a content read of a process's own `/proc` other than listing `fd` and reading the `exe` link are refused; that the traced command sees the fixed host name; and that `test_record_trace` is stored.
+:gate: The tests show that `strace` is let through only by its path and hash, started by `test_record_trace` with `-f -y -s 4096 -qq -o LOG` and `LOG` under the run's directory, and refused when started by another module, with other arguments, or with `LOG` elsewhere; that the key taken from its log holds every path read, probed or listed, each failed probe as an absence, each program started with its `#!` and ELF interpreters by hash, a change to an interpreter rerunning the module, and the whole environment, an inherited variable under `env=None` included and only the recorder's own and those the run set left out; that a change to a document the build read reruns `test_record_trace` and a change to a test it did not read does not; that a connection, a socket of a network family, a read under `/proc` or `/dev` outside the allowed list, and a content read of a process's own `/proc` other than listing `fd`, reading the `exe` link and reading `maps` and `cgroup` are refused, with {need}`DEC_0043`'s allowances let through and their neighbours refused: a socket of `AF_INET` or `AF_INET6` bound to a loopback address that never connects, sends, listens or accepts, and `/usr/share/locale/locale.alias` read through its link, recorded by the link, its target and what it reaches; that the traced command sees the fixed host name; and that `test_record_trace` is stored.
 Module 2.
 
 - [ ] **4.1** Let `strace` through on its terms and build the key from its log, as COMP_KNOWN_PROGRAMS states.
@@ -143,6 +143,15 @@ be run, "run in sdd", after {need}`PLAN_0007` was done.
 Reviewed with {need}`DES_0009` in this plan's task 3. Folded in: task 5 moves
 `test_store_reuse`'s two tests that start a child reading the host name, as wyatt ruled
 on 2026-11-13, "Move them, in task 5 (Recommended)", and stores that module.
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0008_3
+:k: 2
+:date: 2026-11-13
+:digest: fa007d8c77363c98b51d38a0f99842158114677fa940859129fe8d6770625759
+Reviewed with {need}`DES_0009` in this plan's task 4. Folded in: task 4's gate lets
+through {need}`DEC_0043`'s allowances and refuses their neighbours.
 :::
 
 ## As built

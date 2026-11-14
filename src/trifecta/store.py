@@ -124,6 +124,7 @@ class Hashes:
 
     def __init__(self):
         self.files: dict[str, str | None] = {}
+        self.programs: dict[str, str | None] = {}
         self.finders: dict[str, machinery.FileFinder] = {}
 
     def file(self, path: str) -> str | None:
@@ -135,6 +136,12 @@ class Hashes:
                 regular = False
             self.files[path] = record.file_hash(path) if regular else None
         return self.files[path]
+
+    def program(self, path: str) -> str | None:
+        """What a program's path reaches, its links followed, as the kernel starts it."""
+        if path not in self.programs:
+            self.programs[path] = record._program_hash(path)
+        return self.programs[path]
 
     def lookup(self, directory: str, name: str, root: Path) -> str | None:
         """What the import system finds for ``name`` in ``directory``, as the recorder
@@ -201,10 +208,18 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
         if hashes.file(at(key)) != digest:
             return f"file {key}"
     for key, digest in manifest["outside"].items():
-        if hashes.file(key) != digest:
+        # The one path read through a link the run did not make is taken following it.
+        now = hashes.program(key) if key in record.FOLLOWED_LINKS else hashes.file(key)
+        if now != digest:
             return f"file {key}"
+    for key, digest in manifest["programs"].items():
+        if hashes.program(key if os.path.isabs(key) else at(key)) != digest:
+            return f"program {key}"
     for key, kind in manifest["probes"].items():
-        if record.kind(key if os.path.isabs(key) else at(key)) != kind:
+        path = key if os.path.isabs(key) else at(key)
+        now = record.link_target(path) if kind.startswith(record.LINK_TO) else \
+            record.kind(path)
+        if now != kind:
             return f"path {key}"
     for key, entries in manifest["listings"].items():
         if record.listing(key if os.path.isabs(key) else at(key)) != entries:
@@ -216,6 +231,10 @@ def mismatch(manifest: dict, root: Path, environ: dict, hashes: Hashes) -> str |
             return f"import {key}"
     hold = placeholder(root)
     for name, digest in manifest["environment"].items():
+        if name == record.NAMES:
+            if record.names_digest(map(record._name, environ)) != digest:
+                return "the environment's names"
+            continue
         value = _get(environ, name)
         now = None if value is None else _sha(
             hold(value).encode("utf-8", "surrogateescape"))
