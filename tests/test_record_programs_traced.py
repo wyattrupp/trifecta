@@ -49,13 +49,19 @@ def unstated(paths, r: record.Recorder, root: Path, made: Path) -> list[str]:
     """``access path`` for each path traced outside what the run made that ``r`` did not
     record: a path is held by its key or its resolved key, an absence by a listing of a
     directory above it that lacks the next name on its way, and the root and the
-    directories above it, which are directories wherever the root is."""
+    directories above it, which are directories wherever the root is, as are those above a
+    program it holds: a program outside the root, as the Vale TRIFECTA_VALE names in a
+    fixture copy, walks its own path, and is held by what that path reaches (DEC_0047)."""
     keys, listed = held(r, root)
+    programs = [Path(k if os.path.isabs(k) else os.path.normpath(root / k))
+                for k in r.programs]
     out = []
     for path, access in sorted(paths):
         p = str(path)
         if path.is_relative_to(made) or p in record.TRACE_DEVICES or p in keys \
-                or os.path.realpath(p) in keys or Path(root).is_relative_to(path):
+                or os.path.realpath(p) in keys or Path(root).is_relative_to(path) \
+                or (access == "probe"
+                    and any(g != path and g.is_relative_to(path) for g in programs)):
             continue
         covered = False
         for directory, entries in listed.items():
