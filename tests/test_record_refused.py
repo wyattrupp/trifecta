@@ -302,6 +302,92 @@ class AfterTheManifest(unittest.TestCase):
         self.assertIn("adds an audit hook", [r["why"] for r in m["reasons"]])
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_signal_another_thread_raises_during_the_write_refuses_the_run(self):
+        # SIGINT where the system has no SIGUSR1, as Windows has not.
+        for exit_by in ("pass", "os._exit(0)"):
+            with self.subTest(exit_by=exit_by):
+                done, m = self.exits(f"""
+                    import os, signal, sys, threading
+                    number = getattr(signal, "SIGUSR1", signal.SIGINT)
+                    go, seen = [], []
+
+                    def handler(*_):
+                        f, names = sys._getframe(1), []
+                        while f is not None:
+                            names.append(f.f_code.co_name)
+                            f = f.f_back
+                        if "_seal" in names and not seen:  # inside the recorder's write
+                            seen.append(1)
+                            os.write(1, ("read " + open("a.txt").read()).encode())
+                    signal.signal(number, handler)
+
+                    def raising():
+                        while not go:
+                            pass
+                        while not seen:
+                            signal.raise_signal(number)
+                    threading.Thread(target=raising, daemon=True).start()
+                    go.append(1)
+                    {exit_by}
+                    """)
+                if "read a" in done.stdout:
+                    self.assertFalse(m["storable"], "the handler read inside the write")
+                    self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_refusal_that_cannot_be_written_fails_the_event_and_is_tried_again(self):
+        done, m = self.exits("""
+            import os, sys
+            recorder = sys.modules["_trifecta_record"]._recorder
+
+            class Kept:
+                def __del__(self, open=open, write=os.write, recorder=recorder):
+                    real = recorder.manifest_path
+                    # Neither the rewrite nor the removal can be done at this name.
+                    recorder.manifest_path = real + ".missing/manifest.json"
+                    try:
+                        open("a.txt").read()
+                        write(1, b"unblocked ")
+                    except BaseException:
+                        write(1, b"blocked ")
+                    recorder.manifest_path = real
+                    write(1, ("read " + open("a.txt").read()).encode())
+            kept = Kept()
+            """)
+        self.assertIn("blocked read a", done.stdout, "the read failed while it could not refuse")
+        self.assertNotIn("unblocked", done.stdout)
+        self.assertFalse(m["storable"], "the next event refused the run")
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_callable_kept_past_the_audit_hooks_refuses_the_run(self):
+        cases = [("import codecs; codecs.register(Kept())", "a codec search function"),
+                 ("import codecs; codecs.register_error('x-kept', Kept())",
+                  "a codec error handler"),
+                 ("import sys; sys.monitoring.use_tool_id(3, 'kept'); "
+                  "sys.monitoring.register_callback(3, sys.monitoring.events.PY_START, Kept())",
+                  "a monitoring callback")]
+        if hasattr(os, "register_at_fork"):
+            cases.append(("os.register_at_fork(before=Kept())", "a fork callback"))
+        for line, what in cases:
+            with self.subTest(what=what):
+                done, m = self.exits(f"""
+                    import os
+
+                    class Kept:
+                        def __call__(self, *args, **kwargs):
+                            return None
+
+                        def __del__(self, open=open, write=os.write):
+                            # Run as the interpreter clears its state, its hooks gone.
+                            write(1, ("read " + open("a.txt").read()).encode())
+                    {line}
+                    """)
+                self.assertFalse(m["storable"])
+                self.assertIn(f"registers {what}, which the interpreter keeps past its audit "
+                              "hooks", [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_link_at_the_temporary_name_writes_nothing_through_it(self):
         for kind in ("symlink", "link"):
             with self.subTest(kind=kind):
