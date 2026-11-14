@@ -727,9 +727,12 @@ class HeldLog(TracedTree):
             os.close(fd)
             self.skipTest("this system moves no directory that holds an open file")
         self.made.mkdir()
+        # The command the log names first is the run's own, in the directory now in place.
+        elf(self.made / "start")
         self.log.write_text(self.forged(), encoding="utf-8")
         r = recorder(self.root, [self.made])
         record._take_trace(r, self.trace(r, fd), 0)
+        self.assertEqual(whys(r), [])
         self.assertIn("docs/a.md", r.files)
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
