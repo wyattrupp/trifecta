@@ -133,7 +133,7 @@ further program started, a host-name read, or a connection.
 :::{component} Nested recorder
 :id: COMP_NESTED_RECORDER
 :satisfies: REQ_NESTED_RECORDING
-:constrained_by: DEC_0035
+:constrained_by: DEC_0035, DEC_0041, DEC_0042
 A second recorder, the parent's, loaded from a `.pth` file of its own whose name sorts
 before the test recorder's, so `site` runs it first, and a start source under a module
 name of its own, `_trifecta_record_parent`, when `TRIFECTA_RECORD_PARENT` names
@@ -151,14 +151,67 @@ this design's. The parent's recorder records the child as it
 records any Python child; the child's own manifest never stands for it. A start whose
 environment already holds `TRIFECTA_RECORD_PARENT` not set by the parent's recorder, and
 any write into a directory the parent's recorder prepared other than its own, keep the
-refusal. At each child start and at exit the parent's recorder checks that its audit
-hook and wrappers are in place.
+refusal. A test's wrapper above the parent's cannot drop the variable, since the parent's
+sets it last; a drop below the parent's wrapper starts a child that leaves no manifest,
+which is refused.
+
+A write is judged by where it lands, not by how it is spelled: once its links and `..`
+are resolved, and by the device and file number of each directory above it, so a link, a
+`/proc` path, a long-path prefix or a share that reaches the prepared directory is
+refused, and so is opening for writing another name of a file in it. `os.rename`,
+`os.replace`, `os.link` and the copies `shutil` makes, from a path in it, are refused
+too; a copy the run makes by reading and then writing is a read. A write, a move, a copy
+or a link that lands under the interpreter's prefixes, judged the same way, is refused,
+since a `.pth` file or a module there runs in every child before the recorder, and so is
+moving or linking a file out of them. A path the run reaches through a share or a device
+namespace, as a long-path prefix spells it, is refused by that name.
+
+Under {need}`DEC_0042`, a Python child is refused when it can run code of the run's
+before `site` starts the recorder: its final environment sets `PYTHONHOME`,
+`PYTHONPLATLIBDIR`, `PYTHONSTARTUP`, `PYTHON_FROZEN_MODULES` or `PYTHONPYCACHEPREFIX`
+without `-E` or `-I`; it is started with `-X frozen_modules=off` or
+`-X pycache_prefix`, with or without them; a `-W` option or a `PYTHONWARNINGS` item names
+a category whose module is not the standard library's, with or without them; or its
+`PYTHONPATH` has an entry, its links resolved and an empty one read as the child's
+working directory, that lies outside the repository root and the interpreter's
+prefixes, that is not a directory, as a zip is, or that lies outside the prefixes and
+holds a name of the standard library, which would load in place of a module the
+interpreter or the recorder imports as it starts. The check and the Sphinx build start
+a recorded child without `-X pycache_prefix`, since its recorder sets the prefix itself.
+A recorded child that honours the environment gets no `PYTHONPATH` in it: the parent's
+recorder, as it judges the start, or the check, for the build it starts, writes the
+entries it judged, resolved, and the variable's value into the child's configuration, and
+the child's recorder, once it has started, puts the entries into `sys.path` ahead of the
+standard library, where the variable would have put them, and the variable back into the
+environment for the run's own children; so an entry swapped or written after the judgment
+runs nothing before the recorder, and what is imported from it later is recorded as any
+import is. The variable is recorded. A recorder refuses its run when it starts under prefixes other
+than its parent's, which its directory's configuration names; when a module is loaded
+that is not of the standard library, the recorders' own and `__main__` aside, or one of
+the standard library's name from outside the prefixes, a check that holds while the
+recorders' `.pth` files sort first, so a `.pth` file of another package named to sort
+before them that imports a module refuses every run; or when its `PYTHONPATH` fails
+the checks above, an entry swapped since its start was judged among them; and it lists
+each entry in its repository as an input. The test's recorder in a process the parent's
+records too counts the parent's repository as inside as well, since the test chose its
+own root and the parent's recorder, which judges against the repository's, lists those
+entries. These checks
+see what was loaded and what the entries hold as the recorder starts: a module that ran
+before it and then removed both its file and its entry in `sys.modules` is not found, a
+limit {need}`DEC_0042` records. A callback that `shutil.rmtree` calls on an error is
+recorded as the run's own code. At each child start and at exit the parent's recorder
+checks that its audit hook still sees an event and that each wrapper it installed is
+still reached from its attribute through `__wrapped__`, each step a wrapper some
+recorder in the process installed, so a function that only names a wrapper is a
+replacement; a check that fails to run refuses the run too.
 
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`
 and its closure, `os._Environ.__getitem__` past the recording mapping, and
-`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless. A way
-the list does not hold, found later, reopens that decision.
+`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless; and
+{need}`DEC_0041` adds, for the same tests, tampering with a recorder's own state from
+inside the process, through `sys.modules`, `gc`, frames or a trace function. A way the
+list does not hold, found later, reopens those decisions.
 :::
 
 :::{component} Host name
@@ -187,7 +240,10 @@ The stored unit stays the module. The lifts are built in {need}`DEC_0032`'s orde
 shared lift with the first module that needs it. Tests move into modules that stay fresh
 and are never stored: the bash tests of `test_init` and `test_planning`;
 `test_adoption`'s guide test; `test_record`'s `-S` test and its tests whose children
-do a refused thing on purpose; and the Windows junction and ctypes tests of `test_init`,
+do a refused thing on purpose; the two tests of `test_store_reuse` that start a child
+reading the host name on purpose (wyatt, 2026-11-13: "Move them, in task 5
+(Recommended)"); the nested recorder's own tests, in `test_record_nested`, which run
+three recorders deep under the module's; and the Windows junction and ctypes tests of `test_init`,
 `test_planning` and `test_record`. `test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
 that leaves a malformed manifest keeps the refusal until the task that stores
@@ -277,4 +333,20 @@ measurements noted, with this RFC's plan held.
 Reviewed with {need}`DES_0008`'s amendment in {need}`PLAN_0008`'s task 1. Folded in: a
 manifest without the new sections is malformed and never reused, since a lookup requires
 every section, not read as before.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_4
+:k: 2
+:date: 2026-11-13
+:digest: 114d03f084b343c31825ae8f62a40702e94abc0c8b1e809616b5b47e1c097e46
+Four rounds, one reviewer per lens, on COMP_NESTED_RECORDER and COMP_LIFTED_REASONS as
+{need}`PLAN_0008`'s task 3 built them, the fourth narrowed to one finding past the usual
+three. Folded in: wyatt's rulings of 2026-11-13, recorded as {need}`DEC_0041` and
+{need}`DEC_0042`, and the move of `test_store_reuse`'s two tests; a write judged by where
+it lands, the prepared directory's and the prefixes'; the ways a child runs code before
+`site`, by environment, option, search path, warning filter and cache prefix, each
+refused; the search path carried in the configuration until the recorder starts, which
+the security pass found raceable; a wrapper reached only through recorders' wrappers;
+an `rmtree` callback recorded as the run's code.
 :::

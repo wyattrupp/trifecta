@@ -78,15 +78,15 @@ on Windows are C functions that call no wrapped `os.stat`, and records every pro
 with its kind: file, directory, link or absent. Listings: `os.listdir` and `os.scandir`
 record each entry with its kind. Imports: the import system's own lookups are recorded as
 the presence or absence of the names it looked for, not as whole listings. Every recorded process, the
-Sphinx build's included, runs with `-B` and with `-X pycache_prefix` set to an empty
-directory the run creates, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
+Sphinx build's included, runs with `-B` and with `pycache_prefix` set to an empty
+directory, which its recorder makes and sets as it starts, so no `.pyc` in the tree is read or written; at the end the recorder adds the source
 of every module in `sys.modules`. Environment: `os.environ` and `os.environb` become
 mappings that record each key asked for, and every key when iterated or copied, each with
 a hash of its value, never the value, since a store CI publishes is public, and still set
 the process environment as before; a variable the run set is its own. The locale's
 variables, which the C library reads where the mapping cannot see, are recorded whether
 set or not. The recorder's own
-variables, `TRIFECTA_RECORD` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
+variables, `TRIFECTA_RECORD`, `TRIFECTA_RECORD_PARENT` and `TRIFECTA_STORE`, are never recorded. A file, listing or probe under a
 directory the run or one of its children created is not an input, and neither is that
 directory as an entry of a listing; the run's own control
 files, such as the test child's channel and plan, are not either.
@@ -123,8 +123,8 @@ A directory of entries, `docs/_build/cache/` by default, kept out of the clean b
 Sphinx build, or the directory `TRIFECTA_STORE` names, which replaces
 `TRIFECTA_PROOF_CACHE`. An entry is filed under its identity: the stage; for a test
 module, its name and the tests left out of it; the environment key, made of `os.name`,
-`sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hash of the
-recorder's `.pth` file, the entries of the site directories, and the name, version and
+`sys.version`, `sys.executable` with the root replaced, `RUNNER_OS`, the hashes of the
+recorder's two `.pth` files, the test's and the parent's, the entries of the site directories, and the name, version and
 `RECORD` hash of every installed distribution; and a hash of every file of the package that runs the stage, which an
 editable install's `RECORD` does not cover. Under one identity the store keeps the
 manifests stored with their results, newest first, and a lookup takes the first whose
@@ -420,4 +420,14 @@ restored; the order, the rules `valid()` checks and the child's name stated as b
 where home and the temporary directory are read; paths cut before a reason is formatted
 and a place replaced only where no other path character follows; the bound reached before
 any cleaning; the design's choices labelled; a module with no reason not listed.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0008_9
+:k: 2
+:date: 2026-11-13
+:digest: 7ce082357bf9c981b54c53ebcb5277b57035a5dc4b27aaaf214ff1ae587ac769
+Reviewed with {need}`DES_0009`'s nested recorder in {need}`PLAN_0008`'s task 3. Folded in:
+`TRIFECTA_RECORD_PARENT` among the recorder's own variables; the store key holding both
+`.pth` files' hashes; a recorded child started without `-X pycache_prefix`.
 :::

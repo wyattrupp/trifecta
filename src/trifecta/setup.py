@@ -228,22 +228,25 @@ def _is_this_project(root: Path) -> bool:
 
 
 def install_recorder() -> Path | None:
-    """Install the recorder's .pth file (COMP_RECORDER), in a virtual environment only:
-    outside one it would go into the interpreter every program on the machine shares."""
+    """Install the recorder's .pth files (COMP_RECORDER), the parent's among them
+    (COMP_NESTED_RECORDER), in a virtual environment only: outside one they would go into
+    the interpreter every program on the machine shares. Returns the test's .pth file."""
     if sys.prefix == sys.base_prefix:
         print("not in a virtual environment: the recorder's .pth file is not installed, "
               "so no run is stored for reuse", file=sys.stderr)
         return None
-    target = Path(sysconfig.get_paths()["purelib"]) / record.PTH_NAME
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".trifecta-record-")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as out:
-            out.write(record.PTH_LINE)
-        os.replace(tmp, target)  # replaces a link, never writes through one
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-    return target
+    purelib = Path(sysconfig.get_paths()["purelib"])
+    for name, line in record.PTH_FILES:
+        target = purelib / name
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".trifecta-record-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as out:
+                out.write(line)
+            os.replace(tmp, target)  # replaces a link, never writes through one
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    return purelib / record.PTH_NAME
 
 
 def main(argv: list[str] | None = None) -> int:

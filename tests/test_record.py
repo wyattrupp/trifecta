@@ -44,8 +44,10 @@ def run(root: Path, code: str, *flags: str, env: dict | None = None) -> dict:
     """Run ``code`` as a recorded child in ``root``; its manifest."""
     directory = root.parent / f"record-{len(list(root.parent.glob('record-*')))}"
     record.prepare(str(directory), str(root))
+    # Without the search path this process has, as the fixture runner gives it, unless the
+    # test gives one: its entries lie in the repository, outside the root given here.
     environment = {k: v for k, v in (env if env is not None else os.environ).items()
-                   if k not in record.OWN}
+                   if k not in record.OWN and (env is not None or k.upper() != record.PATH_ENV)}
     environment[record.ENV] = str(directory)
     subprocess.run([sys.executable, *flags, "-c", textwrap.dedent(code)], cwd=root,
                    env=environment, check=True, capture_output=True)
@@ -56,8 +58,9 @@ class Installed(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     def test_the_pth_file_is_installed_in_this_virtual_environment(self):
         self.assertNotEqual(sys.prefix, sys.base_prefix, "the check runs in a virtual environment")
-        pth = Path(sysconfig.get_paths()["purelib"]) / record.PTH_NAME
-        self.assertEqual(pth.read_text(encoding="utf-8"), record.PTH_LINE)
+        for name, line in record.PTH_FILES:
+            pth = Path(sysconfig.get_paths()["purelib"]) / name
+            self.assertEqual(pth.read_text(encoding="utf-8"), line)
 
     @proves("REQ_REUSE_SOUND")
     def test_the_pth_line_imports_nothing_when_the_variable_is_unset(self):
@@ -65,9 +68,11 @@ class Installed(unittest.TestCase):
         # site, which reads .pth files, has imported os by then.
         code = ("import os, sys; before = set(sys.modules); exec(LINE); "
                 "print(sorted(set(sys.modules) - before))")
-        out = subprocess.run([sys.executable, "-S", "-c", f"LINE = {record.PTH_LINE!r}; {code}"],
-                             env=env, capture_output=True, encoding="utf-8", check=True).stdout
-        self.assertEqual(out.strip(), "[]")
+        for _, line in record.PTH_FILES:
+            out = subprocess.run([sys.executable, "-S", "-c", f"LINE = {line!r}; {code}"],
+                                 env=env, capture_output=True, encoding="utf-8",
+                                 check=True).stdout
+            self.assertEqual(out.strip(), "[]")
 
 
 class SetupInstalls(unittest.TestCase):
@@ -86,7 +91,8 @@ class SetupInstalls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target, err = self.install(Path(tmp), in_venv=True)
             self.assertEqual(target, Path(tmp) / record.PTH_NAME)
-            self.assertEqual(target.read_bytes(), record.PTH_LINE.encode("utf-8"))
+            for name, line in record.PTH_FILES:
+                self.assertEqual((Path(tmp) / name).read_bytes(), line.encode("utf-8"))
         self.assertEqual(err, "")
 
     @proves("REQ_REUSE_SOUND")

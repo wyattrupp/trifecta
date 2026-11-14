@@ -18,6 +18,8 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # wyatt, 2026-11-13: "90 minutes (Recommended)", about 1.5 times the slowest recent pass.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -129,6 +131,8 @@ jobs:
   # failing command fails its step.
   check-windows:
     runs-on: windows-2025
+    # wyatt, 2026-11-13: "90 minutes (Recommended)", about 1.5 times the slowest recent pass.
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash

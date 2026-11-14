@@ -90,10 +90,10 @@ Module 2.
 :::{task} The recorder's own tests
 :id: TASK_0008_05
 :builds: COMP_LIFTED_REASONS
-:gate: The tests show that `test_record`'s `-S` test, its tests whose children do a refused thing on purpose, and its Windows ctypes tests run in a module of their own that is never stored, with their `@proves` and assertions unchanged, and that `test_record` is stored on both platforms.
-Module 3.
+:gate: The tests show that `test_record`'s `-S` test, its tests whose children do a refused thing on purpose, and its Windows ctypes tests run in a module of their own that is never stored, and so do `test_store_reuse`'s two tests that start a child reading the host name on purpose (wyatt, 2026-11-13: "Move them, in task 5 (Recommended)"), each with its `@proves` and assertions unchanged, and that `test_record` and `test_store_reuse` are stored on both platforms.
+Module 3, and what is left of module 5.
 
-- [ ] **5.1** Move those tests into a module of their own, unchanged.
+- [ ] **5.1** Move those tests, `test_store_reuse`'s two among them, into modules of their own, unchanged.
 - [ ] **5.2** Record in the As built entry the profiles before and after, and `test_record`'s saving against {need}`RFC_0009`'s bound less the moved tests' share.
 :::
 
@@ -133,6 +133,16 @@ Modules 6 and 7, and what is left of `test_adoption`. The last task, so it also 
 The reviews recorded as {need}`REV_RFC_0009_5` and {need}`REV_RFC_0009_6` covered this
 document's tasks; this record marks it active, wyatt having asked on 2026-11-12 that it
 be run, "run in sdd", after {need}`PLAN_0007` was done.
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0008_2
+:k: 2
+:date: 2026-11-13
+:digest: 5527093548db7c4c695b7df5afa26d4c25621f7c87cbe7ba16ecc5cce3e8a511
+Reviewed with {need}`DES_0009` in this plan's task 3. Folded in: task 5 moves
+`test_store_reuse`'s two tests that start a child reading the host name, as wyatt ruled
+on 2026-11-13, "Move them, in task 5 (Recommended)", and stores that module.
 :::
 
 ## As built
