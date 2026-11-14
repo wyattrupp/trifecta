@@ -413,15 +413,17 @@ class GitPlaces(unittest.TestCase):
         # Git for Windows 2.56 ships ucrt64 where 2.50 shipped mingw64 (wyatt, 2026-11-14:
         # "State ucrt64 too (Recommended)").
         flavours = ("mingw64", "ucrt64")
+        # Every build the launcher knows; besides the stated one each must be absent.
+        builds = (*flavours, "clangarm64", "mingw32", "mingw")
+        more = "runs a git whose installation holds more than one build"
         for flavour in flavours:
             with self.subTest(flavour):
                 install = self.tmp / flavour / "Git"
-                (other,) = [f for f in flavours if f != flavour]
                 real = install / flavour / "bin" / "git.exe"
                 for path in (install / "cmd" / "git.exe", install / "bin" / "git.exe", real):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(b"MZ")
-                absent = install / other / "bin" / "git.exe"
+                others = [install / b / "bin" / "git.exe" for b in builds if b != flavour]
                 for found in (install / "cmd" / "git.exe", install / "bin" / "git.exe", real):
                     r = recorder(self.root, [])
                     why, executables, templates, places = record._git_layout(r, str(found))
@@ -430,19 +432,34 @@ class GitPlaces(unittest.TestCase):
                     self.assertEqual(templates, str(install / flavour / "share" / "git-core"
                                                     / "templates"))
                     self.assertEqual(places, (str(install), str(install / flavour)))
-                    # The other build is probed, and one appearing runs the module again.
-                    self.assertEqual(r.probes[str(absent)], "absent")
+                    # Every other build is probed, and one appearing runs the module again.
+                    for absent in others:
+                        self.assertEqual(r.probes[str(absent)], "absent")
                     self.assertIsNone(store.mismatch(manifest_of(r), self.root, {},
                                                      store.Hashes()))
-                absent.parent.mkdir(parents=True)
-                absent.write_bytes(b"MZ")
-                self.assertIsNotNone(store.mismatch(manifest_of(r), self.root, {},
-                                                    store.Hashes()))
-                # With both, the start is refused.
-                why, executables, _, _ = record._git_layout(recorder(self.root, []), str(real))
-                self.assertEqual(why, "runs a git whose installation holds both mingw64 and "
-                                      "ucrt64")
-                self.assertEqual(executables, [])
+                for absent in others:
+                    with self.subTest(flavour=flavour, other=absent.parent.parent.name):
+                        absent.parent.mkdir(parents=True)
+                        absent.write_bytes(b"MZ")
+                        self.assertIsNotNone(store.mismatch(manifest_of(r), self.root, {},
+                                                            store.Hashes()))
+                        # With another build beside it, a file or a link, the start is
+                        # refused: the launcher could run what is never hashed.
+                        why, executables, _, _ = record._git_layout(recorder(self.root, []),
+                                                                    str(real))
+                        self.assertEqual((why, executables), (more, []))
+                        absent.unlink()
+                        os.symlink(real, absent)
+                        why, executables, _, _ = record._git_layout(recorder(self.root, []),
+                                                                    str(real))
+                        self.assertEqual((why, executables), (more, []))
+                        shutil.rmtree(absent.parent.parent)
+                # The stated build's own git.exe as a link is not the layout stated.
+                real.unlink()
+                os.symlink(install / "cmd" / "git.exe", real)
+                why, _, _, _ = record._git_layout(recorder(self.root, []),
+                                                  str(install / "cmd" / "git.exe"))
+                self.assertEqual(why, "runs a git whose layout the design does not state")
 
 
 # --- Vale --------------------------------------------------------------------------------

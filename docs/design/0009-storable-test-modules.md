@@ -121,9 +121,12 @@ no record. On Windows the list is stated from Git for Windows' layout: git is fo
 CreateProcess finds it, in the interpreter's own directory, the working directory, the
 system's directories and then along `PATH`, each place before it recorded as probed; its
 launcher in `cmd` or `bin`, which starts the build's `bin/git.exe`, the build being
-`mingw64` or `ucrt64`, of which exactly one must hold `bin/git.exe`: the other's is
-recorded as probed, so an installation that adds it reruns the module, and an installation
-with both is refused (wyatt, 2026-11-14: "State ucrt64 too (Recommended)"); and that
+`mingw64` or `ucrt64` (wyatt, 2026-11-14: "State ucrt64 too (Recommended)"), whose
+`bin/git.exe` must be a file; every other build the launcher knows, the other of those two,
+`clangarm64`, `mingw32` and `mingw`, must have no `bin/git.exe`, neither file nor link,
+each recorded as probed absent, so an installation that adds one reruns the module, and an
+installation holding more than one build is refused, since the launcher could start what
+is never hashed; and that
 program, found in the build's `bin` or through a launcher, each by
 path and SHA-256, with each DLL either imports from that directory, followed again, and
 each other name it imports probed there, a DLL found neither there nor in the system's

@@ -2865,6 +2865,9 @@ def _git_environment(r: Recorder, final: dict, target: str) -> str | None:
 #: The directories of Git for Windows' own build, of which an installation holds exactly
 #: one: wyatt, 2026-11-14: "State ucrt64 too (Recommended)".
 GIT_FLAVOURS = ("mingw64", "ucrt64")
+#: Every build Git for Windows' launcher knows: besides the one stated build each must be
+#: absent, so the launcher never starts a git that is not hashed.
+GIT_BUILDS = GIT_FLAVOURS + ("clangarm64", "mingw32", "mingw")
 
 
 def _git_layout(r: Recorder, found: str,
@@ -2873,7 +2876,8 @@ def _git_layout(r: Recorder, found: str,
     on Windows, its installation with the directory of its build: on Linux the program and
     the compiled-in places beside its prefix; on Windows, Git for Windows' layout, its
     launcher in ``cmd`` or ``bin`` starting ``mingw64/bin/git.exe`` or
-    ``ucrt64/bin/git.exe``, exactly one of the two present and the other probed."""
+    ``ucrt64/bin/git.exe``, that one a file and every other build the launcher knows
+    absent and probed."""
     if os.name != "nt":
         prefix = os.path.dirname(os.path.dirname(found))
         return None, [found], os.path.join(prefix, "share", "git-core", "templates"), None
@@ -2886,17 +2890,17 @@ def _git_layout(r: Recorder, found: str,
             install = os.path.dirname(install)
     else:
         return unstated, [], None, None
-    reals = {flavour: os.path.join(install, flavour, "bin", "git.exe")
-             for flavour in GIT_FLAVOURS}
-    present = [flavour for flavour, real in reals.items() if kind(real) == "file"]
+    reals = {build: os.path.join(install, build, "bin", "git.exe") for build in GIT_BUILDS}
+    kinds = {build: kind(real) for build, real in reals.items()}
+    present = [build for build, k in kinds.items() if k != "absent"]
     if len(present) > 1:
-        return "runs a git whose installation holds both mingw64 and ucrt64", [], None, None
-    if not present:
+        return "runs a git whose installation holds more than one build", [], None, None
+    if not present or present[0] not in GIT_FLAVOURS or kinds[present[0]] != "file":
         return unstated, [], None, None
     flavour = present[0]
     for other, real in reals.items():
         if other != flavour:
-            # An installation that adds it runs the module again.
+            # Absent, as judged; an installation that adds it runs the module again.
             r.probe(real)
     build = os.path.join(install, flavour)
     executables = list(dict.fromkeys([found, reals[flavour]]))
