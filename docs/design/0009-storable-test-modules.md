@@ -357,15 +357,25 @@ three recorders deep under the module's; the Windows junction and ctypes tests o
 `json` shadowed from a temporary directory (wyatt, 2026-11-14: "Move both (Recommended)").
 `test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
-that leaves a malformed manifest keeps the refusal until the task that stores
-`test_planning` finds its cause and fixes it. The check starts the
+that left a malformed manifest was its share-path test's, on Linux, as measured in
+{need}`PLAN_0008`'s task 7: the guard turned `\\localhost\c$` into a POSIX path
+beginning `//`, which the recorder kept as a probe key that `valid()` rejects. The recorder
+has refused such a path by name since {need}`PLAN_0008`'s task 3, so the child leaves a
+valid refused manifest, and the test, moved as above, no longer keeps `test_planning`
+from being stored. The check starts the
 Sphinx build in `docs/`, so the change into the configuration's directory is no change,
-and maps Sphinx's warning paths as before. The recorder wraps `os._exit`: in the process
-it started in, it takes its lock, writes the manifest as the `atexit` path writes it,
-and holds the lock through the real exit, so another thread's
-audit hook blocks before its operation. It writes the manifest under a temporary name
-and renames it into place as its last step before the real exit; an event that reaches
-the hook after the snapshot without blocking rewrites it as refused. The manifest holds
+and maps Sphinx's warning paths as before. The recorder wraps `os._exit`. It first takes
+the status as an `int` the real exit accepts, so code of the run's, as an `__index__`,
+runs before any snapshot; a status that is none goes to the real exit with nothing
+written. In the process it started in, it then takes its lock, writes the manifest as the
+`atexit` path writes it, and holds the lock through the real exit, so another thread's
+audit hook blocks before its operation and another thread's `os._exit` waits for the
+exit. It writes the manifest under a temporary name and renames it into place as its
+last step before the real exit. The recorder is quiet only in its own calls: an event
+that reaches the hook after the snapshot without blocking, in any thread, the exiting one
+included, rewrites the manifest as refused, and the collector and, where the system
+allows, signals are held off from the snapshot through the exit. Should the real exit
+return or raise, the manifest is rewritten as refused. The manifest holds
 no exit status: the status is passed on to the real exit as given, and a test reads it as
 the child's return code (wyatt, 2026-11-14: "Pass-through is enough (Recommended)"). A
 fork is already refused by the recorder.
