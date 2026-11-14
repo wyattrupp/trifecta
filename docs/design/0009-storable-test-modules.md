@@ -58,7 +58,7 @@ names here and below are this design's, not rulings.
 :::{component} Known programs
 :id: COMP_KNOWN_PROGRAMS
 :satisfies: REQ_KNOWN_PROGRAM
-:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045
+:constrained_by: DEC_0033, DEC_0037, DEC_0038, DEC_0043, DEC_0044, DEC_0045, DEC_0046, DEC_0047, DEC_0048
 The recorder's wrapper of `subprocess.Popen._execute_child` lets a start through,
 unrefused, only when its executable resolves to one of three programs and its whole
 argument list matches one of that program's forms below, and records the program's path
@@ -115,35 +115,40 @@ each other name it imports probed there; the installation's `etc/gitconfig`,
 whole environment, `USERPROFILE` among it. Another layout is refused. git on this
 repository stays refused.
 
-Vale, under {need}`DEC_0038`: `bin/vale` under the repository, whose SHA-256 the recorder
-checks before the start against a pin of the binary itself per platform, a new constant
-in the toolchain, read from the recorder's package as loaded when the run began and
-trusted as the recorder is; the file holding the pin is a recorded input; a mismatch
-refuses, and the stamp file is never trusted for it. It is started as `vale --version`
-or as `vale --config=FILE --no-global --output=line --no-exit DIR...`, where `FILE` and
-each `DIR` are under the build directory the run made, the highest directory the run
-made that holds `FILE`, as `run_vale` starts it with `--no-global` added, so no
-configuration outside them is searched. The configuration may hold only `StylesPath`,
-`MinAlertLevel`, `IgnoredClasses` and `Vocab` at its top and, in a section of files,
-`BasedOnStyles` and a rule's toggle, `Style.Rule` set to `YES`, `NO` or a level, each
-style it names a directory under `StylesPath`; a `[formats]` or `[asciidoctor]` section
-is refused. Every path in it, `StylesPath` and the vocabularies it reaches among them,
-must resolve under that build directory, and the styles directory may hold only styles
-of rule files, each extending `existence` or `substitution` with only the keys those
-rules take, and the vocabularies' `accept.txt` and `reject.txt`; a configuration that
-fails this is refused. A configuration with `Packages`, the `sync` command, any other
-option, a linted file of a format for which Vale starts a program, any file it lints but
-`.html` among them, and any `VALE_*` variable are refused. So is a start with `TERM` set:
-a trace shows Vale then looks the user up, through the name service and its socket, and
-reads the terminal's description. Each name Vale looks for a configuration by, `.vale`,
+Vale, under {need}`DEC_0038`: `bin/vale` under the repository, or, under
+{need}`DEC_0047`, the Vale at the path `TRIFECTA_VALE` names, as the fixture runner sets it
+for a copy, whose SHA-256 the recorder checks before the start against a pin of the binary
+itself per platform, a new constant in the toolchain, read from the recorder's package as
+loaded when the run began and trusted as the recorder is; the binary is recorded by its
+path with its hash, which is what is trusted; the file holding the pin is a recorded input;
+a mismatch refuses, a Vale the run made is refused whatever its hash, and the stamp file is
+never trusted for it. It is started as `vale --version` or as
+`vale --config=FILE --no-global --output=line --no-exit DIR...`, where `FILE` and each
+`DIR` are under the build directory the run made, the highest directory the run made that
+holds `FILE`, as `run_vale` starts it with `--no-global` added, so no configuration outside
+them is searched. The configuration's stated keys, this design's from what `run_vale`'s
+configurations use, are `StylesPath`, `MinAlertLevel`, `IgnoredClasses` and `Vocab` at its
+top and, in a section of files, `BasedOnStyles` and a rule's toggle, `Style.Rule` set to
+`YES`, `NO` or a level, each style it names a directory under `StylesPath`; a `[formats]`
+or `[asciidoctor]` section is refused. Every path in it, `StylesPath` and the vocabularies
+it reaches among them, must resolve under that build directory, and the styles directory
+may hold only styles of rule files and the vocabularies' `accept.txt` and `reject.txt`;
+the rule kinds, this design's too, are `existence` and `substitution`, with only the keys
+those rules take; a configuration that fails this is refused. A configuration with
+`Packages`, the `sync` command, any other option, a linted file of a format for which Vale
+starts a program, and any `VALE_*` variable are refused; the files Vale may lint, this
+design's choice, are `.html` only. Under {need}`DEC_0048` so is a start with `TERM` set: a
+trace shows Vale then looks the user up, through the name service and its socket, and reads
+the terminal's description. Each name Vale looks for a configuration by, `.vale`,
 `.vale.ini`, `_vale`, `_vale.ini` and `vale.ini`, is probed in the working directory and
 each directory above it, and one present refuses the start. It records the binary, the
 pin's file and the whole environment, since no trace sees which variable Vale reads, and
-on Linux the loader's files, as for git, and `/proc/version`. Vale's runtime on Linux
-also reads, as the trace shows, its own `/proc/self/maps`, `mountinfo` and `cgroup`,
-`/sys/kernel/mm/transparent_hugepage/hpage_pmd_size`, `/sys/devices/system/cpu/online`
-and its control group's `cpu.max`, which no key can hold; until wyatt rules on them, the
-recorder refuses Vale on Linux. On Windows the list is stated from Vale's layout, as
+on Linux the loader's files, as for git, and `/proc/version`. Under {need}`DEC_0046`, its
+runtime's other reads on Linux, which no key can hold, are allowed unkeyed and no others:
+its own `maps`, `mountinfo` and `cgroup` under `/proc`, as `self` or by its own number,
+`/sys/kernel/mm/transparent_hugepage/hpage_pmd_size`, `/sys/devices/system/cpu/online` and
+its own control group's `cpu.max`; any other read under `/proc` or `/sys` is outside the
+list, and the trace test fails on it. On Windows the list is stated from Vale's layout, as
 wyatt ruled for git: the binary, each name it imports probed beside it, and the
 configuration names above.
 
@@ -206,8 +211,8 @@ so the host name it sees is the fixed one of COMP_HOST_NAME.
 
 git and Vale each have a test, on Linux, that runs the program in its forms under
 `strace` and fails on a path opened, probed or listed outside its stated inputs, a
-further program started, a host-name read, or a connection; Vale's shows that the reads
-of its runtime above are all that is left. The tests are in a module of their own, which
+further program started, a host-name read, or a connection, Vale's past the reads of its
+runtime {need}`DEC_0046` allows. The tests are in a module of their own, which
 stays fresh on Linux, since only `test_record_trace`'s own process may start `strace`.
 :::
 
