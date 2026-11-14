@@ -1,13 +1,16 @@
 """Where Vale lives, and how Vale names its release files (REQ_PLATFORM_TOOLCHAIN).
 
 Shared by the setup script, which fetches Vale, and the check, which runs it and checks
-the setup script's table. Holds no table of its own.
+the setup script's table. Holds no table of release files of its own; it holds the pins
+of the Vale binary each release file holds, which the recorder reads (DEC_0038).
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from .record import MOVING
 
 #: Platform key -> the suffix of the file Vale releases for it, after ``vale_<version>_``.
 VALE_SUFFIXES = {
@@ -16,6 +19,17 @@ VALE_SUFFIXES = {
     "macos-x86_64": "macOS_64-bit.tar.gz",
     "macos-arm64": "macOS_arm64.tar.gz",
     "windows-x86_64": "Windows_64-bit.zip",
+}
+
+
+#: Platform key -> the SHA-256 of the Vale binary itself that the release file for it holds,
+#: which the recorder checks ``bin/vale`` against before it lets Vale start (DEC_0038,
+#: COMP_KNOWN_PROGRAMS). The recorder reads this table from this file's text as it starts,
+#: so it holds one literal line per platform; a platform without a line has no Vale the
+#: recorder lets through.
+VALE_BINARIES = {
+    "linux-x86_64": "ddb47535314ba22a5253a2eef8fac496ed51799a025714aff3267e6faf9d32df",
+    "windows-x86_64": "7dd08eea81d4c7eaa1efc3d60d07218e4253cfe440c3b4ddea6789a56babf719",
 }
 
 
@@ -43,6 +57,14 @@ def inside(path: Path, root: Path) -> Path:
 #: Names the Vale executable in place of the repository's own; the fixture runner sets it,
 #: so each repository copy runs the Vale its original set up.
 VALE_ENV = "TRIFECTA_VALE"
+
+
+def program_env() -> dict[str, str]:
+    """The environment the check starts git and Vale with: this process's, less the
+    variables that move what they or their loader read, which the recorder refuses
+    (DEC_0049)."""
+    moving = {name.upper() for name in MOVING}
+    return {k: v for k, v in os.environ.items() if k.upper() not in moving}
 
 
 def bin_vale(root: Path) -> Path:

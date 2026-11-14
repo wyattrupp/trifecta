@@ -28,7 +28,7 @@ import zipfile
 from pathlib import Path
 
 from . import record
-from .toolchain import bin_vale, corpus_root
+from .toolchain import bin_vale, corpus_root, program_env
 
 VALE_VERSION = "3.13.0"
 #: Platform key -> (release file, SHA-256, size in bytes), compared with Vale's checksum file.
@@ -69,7 +69,8 @@ def _is_link(path: Path) -> bool:
 def bin_dir(root: Path) -> Path:
     path = root / "bin"
     listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
-                            capture_output=True, encoding="utf-8", errors="replace").stdout
+                            capture_output=True, encoding="utf-8", errors="replace",
+                            env=program_env()).stdout
     # Case-blind, as the check reads it, since Windows and macOS put Bin/ and bin/ in one place.
     tracked = [n for n in listed.split("\0") if n.lower().startswith("bin/")]
     if tracked:
@@ -209,7 +210,8 @@ def install_vale(root: Path) -> Path:
                 os.unlink(tmp)
         stamp.write_text(want, encoding="utf-8")
     version = subprocess.run([str(target), "--version"], capture_output=True,
-                             encoding="utf-8", errors="replace", check=True).stdout
+                             encoding="utf-8", errors="replace", check=True,
+                             env=program_env()).stdout
     if not re.search(rf"(?<![\w.]){re.escape(VALE_VERSION)}(?![\w.])", version):
         raise SetupError(f"{target} reports {version.strip()!r}, expected {VALE_VERSION}")
     return target

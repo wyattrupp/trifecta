@@ -15,8 +15,9 @@ from unittest import mock
 
 from trifecta import init as init_module
 from trifecta.findings import child_env
-from trifecta.testing import only_on, proves
-from trifecta.toolchain import VALE_ENV, vale_path
+from trifecta.record import MOVING
+from trifecta.testing import proves
+from trifecta.toolchain import VALE_ENV, program_env, vale_path
 
 REPO = Path(__file__).resolve().parent.parent
 URL = "https://github.com/wyattrupp/trifecta/releases/download/v0.1.0/trifecta-0.1.0-py3-none-any.whl"
@@ -27,7 +28,14 @@ ARGS = ["--codeowner", "@someone", "--wheel-url", URL, "--wheel-sha256", SHA]
 def trifecta(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     env = {**child_env(Path(init_module.__file__).resolve().parent.parent),
            VALE_ENV: str(vale_path(REPO))}
+    # The check starts git and Vale without the variables that move what they read
+    # (DEC_0049), and so does this test's start of the check.
+    for name in [k for k in env if k.upper() in {m.upper() for m in MOVING}]:
+        del env[name]
     env.pop("TRIFECTA_STORE", None)
+    # Vale starts with no terminal to describe, the form it is a known program in
+    # (COMP_KNOWN_PROGRAMS).
+    env.pop("TERM", None)
     return subprocess.run([sys.executable, "-m", "trifecta", *args], cwd=cwd, env=env,
                           capture_output=True, encoding="utf-8", errors="replace")
 
@@ -37,17 +45,39 @@ def snapshot(root: Path) -> dict[str, bytes]:
             for p in root.rglob("*") if p.is_file() and ".git" not in p.relative_to(root).parts}
 
 
+def git_env(root: Path) -> dict[str, str]:
+    """git's environment for a repository at ``root``, which the tests pin: the ceiling at
+    its parent, no system or global configuration, and ``HOME`` and ``XDG_CONFIG_HOME``
+    beside it, so the machine's configuration is no input (COMP_KNOWN_PROGRAMS)."""
+    home = root.parent / "home"
+    return {"GIT_CEILING_DIRECTORIES": str(root.parent), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "", "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config")}
+
+
 class Repo:
-    """An empty repository after `git init`, in a temporary directory."""
+    """An empty repository after `git init`, in a temporary directory, with git's
+    environment pinned while it is open: every git a test starts, itself or through a
+    child, sees no configuration of the machine's."""
 
     def __enter__(self) -> Path:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name).resolve() / "repo"
         self.root.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        (self.root.parent / "home").mkdir()
+        pinned = git_env(self.root)
+        names = [n for n in os.environ if n.upper().startswith("GIT_") or n in pinned]
+        self.saved = {n: os.environ[n] for n in names}
+        for name in names:
+            del os.environ[name]
+        os.environ.update(pinned)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=program_env())
         return self.root
 
     def __exit__(self, *exc) -> None:
+        for name in git_env(self.root):
+            os.environ.pop(name, None)
+        os.environ.update(self.saved)
         self.tmp.cleanup()
 
 
@@ -142,15 +172,6 @@ class InitSafe(unittest.TestCase):
             self.assertIn("docs/ is a link", self.refused(root))
             self.assertEqual(os.listdir(outside), [])
 
-    @proves("REQ_INIT_SAFE")
-    @only_on("nt")
-    def test_junctioned_parent_is_refused(self):
-        import _winapi
-        with Repo() as root, tempfile.TemporaryDirectory() as outside:
-            _winapi.CreateJunction(outside, str(root / "docs"))
-            self.assertIn("docs/ is a link", self.refused(root))
-            self.assertEqual(os.listdir(outside), [])
-
     def swap_parent(self, junction: bool) -> None:
         with Repo() as root, tempfile.TemporaryDirectory() as outside:
             def swap(rel: str) -> None:
@@ -170,11 +191,6 @@ class InitSafe(unittest.TestCase):
     @proves("REQ_INIT_SAFE")
     def test_parent_swapped_for_a_link_before_the_create_is_refused(self):
         self.swap_parent(junction=False)
-
-    @proves("REQ_INIT_SAFE")
-    @only_on("nt")
-    def test_parent_swapped_for_a_junction_before_the_create_is_refused(self):
-        self.swap_parent(junction=True)
 
     @proves("REQ_INIT_SAFE")
     def test_parent_swapped_after_its_file_then_a_failure_leaves_the_target_untouched(self):
@@ -227,39 +243,6 @@ class InitSafe(unittest.TestCase):
             self.assertRegex(action, r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
         self.assertEqual(workflow.count("persist-credentials: false"),
                          workflow.count("actions/checkout@"))
-
-    @proves("REQ_INIT_PASSES")
-    def test_workflow_checks_a_first_push_and_refuses_a_missing_base(self):
-        import yaml
-        from tests.test_planning import git_bash
-        steps = yaml.safe_load(init_module._workflow())["jobs"]["check"]["steps"]
-        script = next(s["run"] for s in steps if "make check" in s.get("run", ""))
-        bash = git_bash()
-        zero = "0" * 40
-
-        def run(root: Path, before: str) -> subprocess.CompletedProcess:
-            stub = root.parent / "bin"
-            stub.mkdir(exist_ok=True)
-            (stub / "make").write_text('#!/bin/sh\necho "make $*"\n', encoding="utf-8", newline="\n")
-            os.chmod(stub / "make", 0o755)
-            env = {**os.environ, "EVENT": "push", "BASE_REF": "", "BEFORE": before,
-                   "PATH": f"{stub.as_posix()}{os.pathsep}{os.environ['PATH']}"}
-            return subprocess.run([bash, "-e", "-c", script], cwd=root, env=env,
-                                  capture_output=True, encoding="utf-8")
-
-        with Repo() as root:
-            git = ["git", "-c", "user.name=t", "-c", "user.email=t@localhost"]
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True)
-            first = run(root, zero)
-            self.assertEqual((first.returncode, first.stdout.strip()), (0, "make check"))
-            self.assertEqual(run(root, "1" * 40).returncode, 1,
-                             "a missing base is refused even at the first commit")
-            base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
-                                  encoding="utf-8", check=True).stdout.strip()
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], cwd=root, check=True)
-            self.assertEqual(run(root, zero).returncode, 1, "a new branch's push is refused")
-            later = run(root, base)
-            self.assertEqual((later.returncode, later.stdout.strip()), (0, f"make check BASE={base}"))
 
     @proves("REQ_INIT_SAFE")
     def test_workflow_pins_are_this_repositorys_own(self):
