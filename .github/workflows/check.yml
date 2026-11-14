@@ -37,49 +37,6 @@ jobs:
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
           echo "PIP_CACHE_DIR=$RUNNER_TEMP/downloads/pip" >> "$GITHUB_ENV"
           echo "TRIFECTA_DOWNLOADS=$RUNNER_TEMP/downloads/vale" >> "$GITHUB_ENV"
-      - name: Diagnostic (temporary)
-        run: |
-          which -a git; git --version; git --exec-path
-          ls -la /usr/share/locale
-          find /usr/share/locale -maxdepth 2 -type l -ls
-          python - <<'PYEOF'
-          import os, sys, shutil, subprocess, types
-          sys.path.insert(0, "src")
-          from trifecta import record as R
-          print("MESSAGES_DIR", R.MESSAGES_DIR)
-          cwd = os.getcwd()
-          r = types.SimpleNamespace(written=set(), created=[], ignore=[],
-                                    top=R._norm(os.path.join(cwd, "__none__")),
-                                    nroot=R._norm(cwd), root=cwd,
-                                    note=lambda *a: print("  note", a),
-                                    refuse=lambda *a: print("  refuse", a))
-          found = R._found(r, "git", dict(os.environ), cwd)
-          print("_found:", found)
-          why, res = R._outside_program(r, found, "git")
-          print("_outside_program:", why, res)
-          if res:
-              print("_git_layout(found):", R._git_layout(r, res))
-          if os.name == "nt":
-              out = subprocess.run(["where", "git"], capture_output=True, text=True).stdout
-              for c in out.splitlines():
-                  print("candidate", c, "realpath", os.path.realpath(c), "->", R._git_layout(r, c))
-          else:
-              d = R.MESSAGES_DIR
-              for name, k in R.listing(d) or ():
-                  p = os.path.join(d, name)
-                  if k == "link":
-                      print("LANG LINK", p, "->", os.readlink(p))
-                  elif k == "directory":
-                      m = os.path.join(p, "LC_MESSAGES")
-                      if R.kind(m) == "link":
-                          print("LC_MESSAGES LINK", m, "->", os.readlink(m))
-                      g = os.path.join(m, "git.mo")
-                      if R.kind(g) != "absent":
-                          print("git.mo", g, R.kind(g))
-              s = types.SimpleNamespace(list=lambda *a: None, probe=lambda *a: None, read=lambda *a: None)
-              print("_catalogs:", R._catalogs(s, d, "git", "git"))
-          PYEOF
-          exit 1
       # Downloads only, never bin/ or a result; setup checks the hash of everything it
       # restores (COMP_CI_CACHE).
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -197,50 +154,6 @@ jobs:
           echo "$RUNNER_TEMP/venv/Scripts" >> "$GITHUB_PATH"
           echo "PIP_CACHE_DIR=$RUNNER_TEMP/downloads/pip" >> "$GITHUB_ENV"
           echo "TRIFECTA_DOWNLOADS=$RUNNER_TEMP/downloads/vale" >> "$GITHUB_ENV"
-      - name: Diagnostic (temporary)
-        run: |
-          which -a git; where git; cygpath -w "$(which git)"; git --version; git --exec-path
-          echo "PATH=$PATH"
-          ls -la "/c/Program Files/Git" "/c/Program Files/Git/cmd" "/c/Program Files/Git/bin" || true
-          ls -d /c/Program\ Files/Git/*/bin || true
-          python - <<'PYEOF'
-          import os, sys, shutil, subprocess, types
-          sys.path.insert(0, "src")
-          from trifecta import record as R
-          print("MESSAGES_DIR", R.MESSAGES_DIR)
-          cwd = os.getcwd()
-          r = types.SimpleNamespace(written=set(), created=[], ignore=[],
-                                    top=R._norm(os.path.join(cwd, "__none__")),
-                                    nroot=R._norm(cwd), root=cwd,
-                                    note=lambda *a: print("  note", a),
-                                    refuse=lambda *a: print("  refuse", a))
-          found = R._found(r, "git", dict(os.environ), cwd)
-          print("_found:", found)
-          why, res = R._outside_program(r, found, "git")
-          print("_outside_program:", why, res)
-          if res:
-              print("_git_layout(found):", R._git_layout(r, res))
-          if os.name == "nt":
-              out = subprocess.run(["where", "git"], capture_output=True, text=True).stdout
-              for c in out.splitlines():
-                  print("candidate", c, "realpath", os.path.realpath(c), "->", R._git_layout(r, c))
-          else:
-              d = R.MESSAGES_DIR
-              for name, k in R.listing(d) or ():
-                  p = os.path.join(d, name)
-                  if k == "link":
-                      print("LANG LINK", p, "->", os.readlink(p))
-                  elif k == "directory":
-                      m = os.path.join(p, "LC_MESSAGES")
-                      if R.kind(m) == "link":
-                          print("LC_MESSAGES LINK", m, "->", os.readlink(m))
-                      g = os.path.join(m, "git.mo")
-                      if R.kind(g) != "absent":
-                          print("git.mo", g, R.kind(g))
-              s = types.SimpleNamespace(list=lambda *a: None, probe=lambda *a: None, read=lambda *a: None)
-              print("_catalogs:", R._catalogs(s, d, "git", "git"))
-          PYEOF
-          exit 1
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: downloads
         with:
