@@ -507,3 +507,14 @@ lists stated in full, the design's own choices labelled; a quoted or commented
 a DLL from elsewhere and Vale swapped while it ran refused, which the security passes
 found open; what a running git or Vale reads held until the run reaps it.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_8
+:k: 2
+:date: 2026-11-14
+:digest: b0cfbf8a5b9fd6f68287e91e9b3bd469403ce876635ccd6aebba7a226fb36df9
+Two rounds, one reviewer for both lenses, on the fixes CI's runners called for: wyatt's
+rulings of 2026-11-14 on Ubuntu's `locale.alias` link and Git for Windows' `ucrt64`
+build. Folded in: every other build the launcher knows is held absent, file or link,
+which the security pass found open as a link at the other build's `git.exe`.
+:::
