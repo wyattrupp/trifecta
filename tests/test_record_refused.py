@@ -1,6 +1,8 @@
 """REQ_REUSE_SOUND, REQ_REFUSALS_NAMED, REQ_HOST_READS: the recorder's tests that are
 refused on purpose, moved from ``test_record`` unchanged (COMP_LIFTED_REASONS): its ``-S``
-test, its tests whose children do a refused thing on purpose, and its Windows ctypes test.
+test, its tests whose children do a refused thing on purpose, its Windows ctypes test, and
+its test of two copies, whose ``PYTHONPATH`` names a copy outside the repository (wyatt,
+2026-11-13: "Move it too (Recommended)").
 
 Each refuses the run of this module under its own recorder, as it exists to, so this
 module is never stored, and ``test_record``, which keeps the rest, is.
@@ -362,3 +364,23 @@ class ShortNames(unittest.TestCase):
         self.assertTrue(m["storable"], m.get("why"))
         self.assertEqual(m["outside"], {})
         self.assertIn("a.txt", m["files"])
+
+
+class Portable(unittest.TestCase):
+    @proves("REQ_REUSE_SOUND")
+    def test_same_run_in_two_copies_gives_the_same_manifest(self):
+        code = """
+            import os, mod_here
+            open("a.txt").read(); os.listdir("sub"); os.path.exists("gone")
+            os.environ.get("PYTHONPATH")
+            """
+        manifests = []
+        with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
+            for tmp in (one, two):
+                root = repository(Path(tmp).resolve() / "deeper" / os.path.basename(tmp))
+                env = {**os.environ, "PYTHONPATH": str(root)}
+                manifests.append(run(root, code, env=env))
+        self.assertTrue(manifests[0]["storable"], manifests[0].get("why"))
+        self.assertEqual(manifests[0], manifests[1])
+        # Read by the interpreter as it started, before any code of the run.
+        self.assertIn("PYTHONPATH", manifests[0]["environment"])

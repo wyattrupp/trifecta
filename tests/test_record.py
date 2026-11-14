@@ -5,7 +5,8 @@ Each test runs a short Python program in a child, as a recorded run, in a small
 repository in a temporary directory, and reads the manifest the child leaves. The
 children record themselves through the .pth file setup installs, so these tests run in
 the virtual environment setup made. The tests that are refused on purpose, the ``-S``
-test and the Windows ctypes test are in ``test_record_refused``, which is never stored.
+test, the Windows ctypes test and the test of two copies are in ``test_record_refused``,
+which is never stored, so this module is stored.
 """
 
 from __future__ import annotations
@@ -233,8 +234,9 @@ class Inputs(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
     def test_a_pipe_read_is_refused_by_the_recorder_and_in_a_trace(self):
-        # A pipe another process feeds holds what no key holds. This process makes it, so
-        # this module's own recorder refuses the module; task 5 moves such tests out.
+        # A pipe another process feeds holds what no key holds. This process makes it in a
+        # directory it made and judges it with recorders of its own, never opening it, so
+        # this module's own recorder does not refuse the module.
         fifo = self.tmp / "fifo"
         os.mkfifo(fifo)
         self.assertEqual(record.kind(str(fifo)), "fifo")
@@ -703,23 +705,3 @@ class Shape(unittest.TestCase):
             with self.subTest(fields=fields):
                 self.assertFalse(record.valid(
                     {**GOOD, "uname": {f: "0" * 64 for f in fields}}))
-
-
-class Portable(unittest.TestCase):
-    @proves("REQ_REUSE_SOUND")
-    def test_same_run_in_two_copies_gives_the_same_manifest(self):
-        code = """
-            import os, mod_here
-            open("a.txt").read(); os.listdir("sub"); os.path.exists("gone")
-            os.environ.get("PYTHONPATH")
-            """
-        manifests = []
-        with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
-            for tmp in (one, two):
-                root = repository(Path(tmp).resolve() / "deeper" / os.path.basename(tmp))
-                env = {**os.environ, "PYTHONPATH": str(root)}
-                manifests.append(run(root, code, env=env))
-        self.assertTrue(manifests[0]["storable"], manifests[0].get("why"))
-        self.assertEqual(manifests[0], manifests[1])
-        # Read by the interpreter as it started, before any code of the run.
-        self.assertIn("PYTHONPATH", manifests[0]["environment"])
