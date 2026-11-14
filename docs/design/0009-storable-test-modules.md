@@ -412,3 +412,13 @@ recorder, known before `strace` starts; reads keyed where the kernel opened them
 signals, late writes, untraced children, pipes and devices refused, which the security
 passes found open; the environment's names keyed.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_6
+:k: 2
+:date: 2026-11-13
+:digest: ab5de98d262f2b36edf7bccbc49fb5da73ce363378d0d5b8e368ba00f643c7ae
+One round, one reviewer per lens, on {need}`PLAN_0008`'s task 5. Folded in: wyatt's ruling of
+2026-11-13 moving `test_record`'s test of two copies, "Move it too (Recommended)"; the
+host-name tests of `test_store_reuse` counted as measured, one.
+:::

@@ -154,6 +154,16 @@ Reviewed with {need}`DES_0009` in this plan's task 4. Folded in: task 4's gate l
 through {need}`DEC_0043`'s allowances and refuses their neighbours.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0008_4
+:k: 2
+:date: 2026-11-13
+:digest: 655edae7a2843b6517787cd02bf9b082a256d219f41541f7a8b846d094b30d5d
+One round, one reviewer per lens, on this plan's task 5. Folded in: wyatt's ruling of
+2026-11-13 moving `test_record`'s test of two copies, "Move it too (Recommended)"; the
+host-name tests of `test_store_reuse` counted as measured, one.
+:::
+
 ## As built
 
 ### Task 1 (2026-11-13)
