@@ -105,7 +105,13 @@ PTH_FILES = ((PARENT_PTH_NAME, PARENT_PTH_LINE), (PTH_NAME, PTH_LINE))
 CHECK_EVENT = "trifecta.record.check"
 SECTIONS = ("files", "probes", "listings", "lookups", "environment", "outside", "uname",
             "programs")
-KINDS = ("file", "directory", "link", "absent")
+KINDS = ("file", "directory", "link", "absent", "fifo", "device", "socket")
+#: What is not a regular file and holds content another process can feed: never read as an
+#: input, but the devices that hold nothing a run depends on, as kind alone.
+NOT_REGULAR = ("fifo", "device", "socket")
+#: The devices a read of which is held by kind: /dev/null holds nothing, /dev/urandom
+#: chance, which RFC_0008 leaves out of scope with the clock.
+HELD_DEVICES = ("/dev/null", "/dev/urandom")
 #: What a probe of one of the interpreter's own links holds in a trace (DEC_0045): this
 #: prefix, then the link's target as it reads, which a lookup reads again.
 LINK_TO = "link:"
@@ -287,14 +293,25 @@ def _write(path: str, text: str) -> None:
 # --- what is at a path ----------------------------------------------------------------
 
 def kind(path: str) -> str:
-    """``file``, ``directory``, ``link`` or ``absent``, not following a link or junction."""
+    """``file``, ``directory``, ``link``, ``fifo``, ``device``, ``socket`` or ``absent``, not
+    following a link or junction: what is neither a regular file nor a directory is told
+    apart, since a pipe or a device can be fed what no key holds."""
     try:
         st = _lstat(path)
     except (OSError, ValueError):
         return "absent"
-    if stat.S_ISLNK(st.st_mode) or getattr(st, "st_reparse_tag", 0):
+    mode = st.st_mode
+    if stat.S_ISLNK(mode) or getattr(st, "st_reparse_tag", 0):
         return "link"
-    return "directory" if stat.S_ISDIR(st.st_mode) else "file"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    if stat.S_ISREG(mode):
+        return "file"
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    return "device"
 
 
 def regular(path: str) -> bool:
@@ -701,7 +718,16 @@ class Recorder:
         name = "files" if section == "repo" else "outside"
         if key in getattr(self, name):
             return
-        # Only a regular file is hashed; a device or a pipe is held by its kind.
+        # Only a regular file is hashed; a pipe, a device or a socket another process can
+        # feed is refused, but the devices that hold nothing the run depends on, held by
+        # their kind.
+        found_kind = kind(absolute)
+        if found_kind in NOT_REGULAR:
+            if absolute in HELD_DEVICES:
+                self.probe(absolute)
+            else:
+                self.refuse(f"reads {self.shown(key)}, which is not a regular file")
+            return
         digest = file_hash(absolute) if regular(absolute) else None
         if digest is None:
             self.probe(absolute)
@@ -758,6 +784,14 @@ class Recorder:
         if path is None:
             return
         absolute = os.path.abspath(os.path.join(_getcwd(), path))
+        if not follows and getattr(self.local, "tracing", False) \
+                and _norm(absolute) in self.interpreter_links():
+            # The interpreter's link, as lstat sees it, is held with its target too, so a
+            # call that follows it later finds it held as the lookup must take it.
+            found, target = self.where(absolute), link_target(absolute)
+            if found is not None and target is not None:
+                self.note("probes", found[1], target)
+                return
         if follows:
             absolute = self.through(absolute, "probes")
             if absolute is None:
@@ -2080,7 +2114,7 @@ def _whole_environment(r: Recorder, env, final: dict) -> None:
 
 
 def _strace_start(r: Recorder, argv: list[str], program: str, env, final: dict,
-                  cwd: str, shell, preexec_fn, close_fds, pass_fds,
+                  cwd: str, shell, preexec_fn, close_fds, pass_fds, owner=None,
                   ) -> tuple[str | None, _Trace | None, str | None]:
     """Why a start of strace is refused, or None with what its log is taken with and the
     path it is executed by: strace is let through only when the module's own process is
@@ -2124,13 +2158,18 @@ def _strace_start(r: Recorder, argv: list[str], program: str, env, final: dict,
         return "runs strace with its log outside a directory the run made", None, None
     if kind(log) != "absent":
         return "runs strace with a log that is already there", None, None
-    try:
-        fd = open_log(log)
-    except OSError:
-        return "runs strace with a log the recorder cannot make", None, None
+    with r.lock:
+        try:
+            fd = open_log(log)
+        except OSError:
+            return "runs strace with a log the recorder cannot make", None, None
+        trace = _Trace(log, cwd, fd, r.written, r.created)
+        # Known as the log is made, under the lock the run's events take, so no write of
+        # the run's reaches it unjudged before strace starts.
+        r.traces[id(owner)] = (owner, trace)
     _note_program(r, resolved, cwd)
     _whole_environment(r, env, final)
-    return None, _Trace(log, cwd, fd, r.written, r.created), resolved
+    return None, trace, resolved
 
 
 #: The calls a traced command makes that name no path, or name one only through a
@@ -2512,6 +2551,9 @@ class _TraceReader:
             return
         if name in _CLONES:
             flags = self.cloning.pop(pid, None) or ",".join(args)
+            if "CLONE_UNTRACED" in flags or "CLONE_UNTRACED" in ",".join(args):
+                r.refuse("starts a process no trace follows")
+                return
             child = re.match(r"(\d+)", result)
             if ok and child and int(child.group(1)) not in self.cwd:
                 self.inherit(int(child.group(1)), pid, flags)
@@ -2570,8 +2612,10 @@ class _TraceReader:
             r.refuse(f"makes a call the recorder does not list: {name}")
 
     def signal(self, name: str, args: list[str]) -> None:
-        """A signal, or a pidfd, only for a traced process, or 0 for its own group: no
-        other process, the run's and strace's among them, is reached."""
+        """A signal, or a pidfd, only for a traced process, or 0, the command's own
+        process group: no other process is reached by its number. That group is the one
+        the run started strace in, so it holds strace and the run's own process too; a
+        signal there can only end or stop what is recorded, which leaves no result."""
         pids = []
         for arg in args[:_SIGNALS[name]]:
             try:
@@ -2642,6 +2686,9 @@ class _TraceReader:
                     self.write(place)
             else:
                 self.probe(path, follows)
+        elif ok and "O_PATH" not in flags and kind(opened) in NOT_REGULAR:
+            # A pipe, a device or a socket under a path: fed what no key holds.
+            self.r.refuse(f"reads {self.r.shown(opened)}, which is not a regular file")
         elif ok and "O_PATH" not in flags and kind(opened) == "file":
             if path in FOLLOWED_LINKS and kind(path) == "link":
                 self.once(("followed", path), lambda: self.followed(path))
@@ -2783,6 +2830,9 @@ def _take_trace(r: Recorder, trace: _Trace, returncode) -> None:
         if not isinstance(returncode, int) or returncode < 0:
             r.refuse("strace did not finish")
             return
+        if _written_log(r, trace):
+            r.refuse("the run wrote strace's log")
+            return
         try:
             _TraceReader(r, trace).take(_read_fd(trace.fd))
         except _Unreadable as exc:
@@ -2795,6 +2845,15 @@ def _take_trace(r: Recorder, trace: _Trace, returncode) -> None:
             os.close(trace.fd)
         except OSError:
             pass
+
+
+def _written_log(r: Recorder, trace: _Trace) -> bool:
+    """Whether the run wrote strace's log, by its name or by another with its device and
+    file number: a backstop to the refusal of the write itself."""
+    if _norm(trace.log) in r.written:
+        return True
+    return trace.identity is not None and any(
+        _identity(path) == trace.identity for path in list(r.written))
 
 
 def _read_fd(fd: int) -> bytes:
@@ -2871,13 +2930,12 @@ def _watch_children(r: Recorder) -> None:
             result = original(self, *args)
         except BaseException:
             if isinstance(trace, _Trace):
+                with r.lock:
+                    r.traces.pop(id(self), None)
                 os.close(trace.fd)
             raise
         finally:
             r.local.child, r.local.popen, r.local.known = False, False, False
-        if isinstance(trace, _Trace):
-            with r.lock:
-                r.traces[id(self)] = (self, trace)
         return result
 
     def _known(popen, args: list, named: str):
@@ -2895,7 +2953,7 @@ def _watch_children(r: Recorder) -> None:
             with r.lock:
                 why, trace, resolved = _strace_start(
                     r, argv, named, env, final, cwd, args[shell_at], args[preexec_at],
-                    args[close_at], args[pass_at])
+                    args[close_at], args[pass_at], owner=popen)
         except Exception as exc:
             why = f"the recorder failed on a start of strace: {type(exc).__name__}"
         finally:

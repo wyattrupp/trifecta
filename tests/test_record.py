@@ -270,10 +270,40 @@ class Inputs(unittest.TestCase):
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
     def test_a_device_is_held_by_its_kind_never_read(self):
-        m = run(self.root, "import os; os.stat('/dev/urandom'); os.lstat('/dev/zero')")
+        m = run(self.root, "import os; os.stat('/dev/urandom'); os.lstat('/dev/zero'); "
+                           "open('/dev/urandom', 'rb').read(8)")
         self.assertTrue(m["storable"], m.get("why"))
         self.assertNotIn("/dev/urandom", m["outside"])
-        self.assertEqual(m["probes"]["/dev/urandom"], "file")
+        self.assertEqual(m["probes"]["/dev/urandom"], "device")
+        self.assertEqual(m["probes"]["/dev/zero"], "device")
+        # Any other device read could be fed what no key holds: refused.
+        why = self.refused_in(self.root, "open('/dev/zero', 'rb').read(8)")
+        self.assertIn("which is not a regular file", why)
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_pipe_read_is_refused_by_the_recorder_and_in_a_trace(self):
+        # A pipe another process feeds holds what no key holds. This process makes it, so
+        # this module's own recorder refuses the module; task 5 moves such tests out.
+        fifo = self.tmp / "fifo"
+        os.mkfifo(fifo)
+        self.assertEqual(record.kind(str(fifo)), "fifo")
+        config = {"root": str(self.root), "recorder": record.__file__, "ignore": []}
+        r = record.Recorder(str(self.tmp / "recorder"), config)
+        r.read(str(fifo))
+        self.assertIn("which is not a regular file", r.why or "")
+        log = self.tmp / "made" / "trace.log"
+        log.parent.mkdir()
+        (log.parent / "start").write_text("#!/bin/sh\n", encoding="utf-8")
+        log.write_text(f'100 execve("{log.parent}/start", ["start"], 0x0 /* 0 vars */) = 0\n'
+                       f'100 openat(AT_FDCWD, "{fifo}", O_RDONLY|O_NONBLOCK) = 3<{fifo}>\n',
+                       encoding="utf-8")
+        r = record.Recorder(str(self.tmp / "recorder"), config)
+        r.created.add(record._norm(str(log.parent)))
+        record._take_trace(r, record._Trace(str(log), str(self.root),
+                                            os.open(log, os.O_RDONLY)), 0)
+        self.assertTrue(any("which is not a regular file" in x["why"] for x in r.reasons),
+                        r.reasons)
 
     @proves("REQ_REUSE_SOUND")
     def test_environment_reads_and_iteration(self):
@@ -910,7 +940,7 @@ class Shape(unittest.TestCase):
             {"files": {"../outside": "0" * 64}}, {"files": {"/abs": "0" * 64}},
             {"files": {"C:/x": "0" * 64}}, {"files": {"a\\b": "0" * 64}},
             {"files": {"a": "not a hash"}}, {"outside": {"relative": "0" * 64}},
-            {"probes": {"a": "socket"}}, {"listings": {"d": [["a/b", "file"]]}},
+            {"probes": {"a": "door"}}, {"listings": {"d": [["a/b", "file"]]}},
             {"lookups": {"./not a name": None}}, {"lookups": {"./m": "/abs/m.py"}},
             {"environment": {"HOME": "the value itself"}}, {"environment": {"A=B": None}},
             {"uname": {"nodename": "0" * 64}}, {"uname": {"release": "6.8.0"}},

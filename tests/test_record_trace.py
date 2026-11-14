@@ -536,6 +536,18 @@ class TraceLog(TracedTree):
 
     @proves("REQ_REUSE_SOUND")
     @only_on("posix")
+    def test_a_child_no_trace_follows_is_refused(self):
+        for line in ('100 clone(child_stack=NULL, flags=CLONE_UNTRACED|SIGCHLD) = 101',
+                     '100 clone3({flags=CLONE_VM|CLONE_UNTRACED, exit_signal=SIGCHLD}, 88) '
+                     '= 101'):
+            with self.subTest(line=line):
+                self.assertEqual(whys(self.take(line + "\n")),
+                                 ["starts a process no trace follows"])
+        self.assertEqual(whys(self.take('100 clone(child_stack=NULL, flags=SIGCHLD) = 101\n')),
+                         [])
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
     def test_signals_reach_only_what_is_traced(self):
         for line in ('100 kill(0, SIGTERM) = 0', '100 kill(100, SIGTERM) = 0',
                      '100 tgkill(100, 100, SIGABRT) = 0', '100 pidfd_open(100, 0) = 3'):
@@ -649,6 +661,18 @@ class InterpreterLinks(TracedTree):
     @only_on("posix")
     def test_a_retargeted_interpreter_link_reruns(self):
         r = self.take(self.LOG)
+        self.home.unlink()
+        self.home.symlink_to(self.tmp / "outside" / "python-3.12.20")
+        self.assertEqual(self.differs(r), f"path {self.home}")
+
+    @proves("REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_link_seen_first_without_following_is_held_with_its_target(self):
+        r = self.take('100 lstat("OUTSIDE/python-3.12", {st_mode=S_IFLNK|0777, ...}) = 0\n'
+                      + self.LOG)
+        self.assertEqual(whys(r), [])
+        self.assertEqual(r.probes[str(self.home)],
+                         record.LINK_TO + str(self.tmp / "outside" / "python-3.12.16"))
         self.home.unlink()
         self.home.symlink_to(self.tmp / "outside" / "python-3.12.20")
         self.assertEqual(self.differs(r), f"path {self.home}")
@@ -911,37 +935,79 @@ class StraceTerms(TracedTree):
         inside = self.root / "bin"
         shutil.copy(self.strace, inside / "strace")
         form = self.form()
+        module = "runs strace, which only test_record_trace's own process may start"
+        args = "runs strace with arguments other than -f -y -s 4096 -qq -o LOG"
+        code = "runs strace with code before it starts or descriptors it inherits"
+        outside = "runs strace with its log outside a directory the run made"
         cases = {
-            "another module": (form, {"module": "tests.test_store"}),
-            "no module": (form, {"module": None}),
-            "-e": (["strace", "-e", "trace=%file", *form[1:]], {}),
-            "no -y": ([form[0], "-f", *form[3:]], {}),
-            "-s 1024": ([*form[:4], "1024", *form[5:]], {}),
-            "an option for a command": ([*form[:8], "-p", "1"], {}),
-            "no command": (form[:8], {}),
-            "a command along PATH": ([*form[:8], "true"], {}),
-            "the log piped into a command": (self.form("|cat"), {}),
-            "the log elsewhere": (self.form(elsewhere / "x.log"), {}),
-            "the log through a link": (self.form(self.made / "out" / "x.log"), {}),
-            "the log already there": (self.form(self.made / "there.log"), {}),
-            "a shell": (form, {"shell": True}),
-            "code before it starts": (form, {"preexec_fn": print}),
-            "descriptors": (form, {"pass_fds": (3,)}),
-            "every descriptor": (form, {"close_fds": False}),
-            "the parent's variable": (form, {"env": {record.PARENT_ENV: "x"}}),
-            "a script": (form, {"path": str(script)}),
-            "in the repository": (form, {"path": str(inside)}),
-            "not found": (form, {"path": str(self.tmp / "nowhere")}),
+            "another module": (form, {"module": "tests.test_store"}, module),
+            "no module": (form, {"module": None}, module),
+            "-e": (["strace", "-e", "trace=%file", *form[1:]], {}, args),
+            "no -y": ([form[0], "-f", *form[3:]], {}, args),
+            "-s 1024": ([*form[:4], "1024", *form[5:]], {}, args),
+            "an option for a command": ([*form[:8], "-p", "1"], {}, args),
+            "no command": (form[:8], {}, args),
+            "a command along PATH": ([*form[:8], "true"], {},
+                                     "runs strace on a command not named by its absolute path"),
+            "the log piped into a command": (self.form("|cat"), {},
+                                             "runs strace with its log piped into a command"),
+            "the log run as a command": (self.form("!cat"), {},
+                                         "runs strace with its log piped into a command"),
+            "the log elsewhere": (self.form(elsewhere / "x.log"), {}, outside),
+            "the log through a link": (self.form(self.made / "out" / "x.log"), {}, outside),
+            "the log already there": (self.form(self.made / "there.log"), {},
+                                      "runs strace with a log that is already there"),
+            "a shell": (form, {"shell": True}, "runs strace through a shell"),
+            "code before it starts": (form, {"preexec_fn": print}, code),
+            "descriptors": (form, {"pass_fds": (3,)}, code),
+            "every descriptor": (form, {"close_fds": False}, code),
+            "the parent's variable": (form, {"env": {record.PARENT_ENV: "x"}},
+                                      f"runs strace with {record.PARENT_ENV} already set"),
+            "a script": (form, {"path": str(script)}, "runs a strace that is not an ELF program"),
+            "in the repository": (form, {"path": str(inside)},
+                                  "runs a strace under the repository or one the run made"),
+            "not found": (form, {"path": str(self.tmp / "nowhere")},
+                          "runs strace, which is not found"),
         }
-        for name, (argv, given) in cases.items():
+        for name, (argv, given, expected) in cases.items():
             with self.subTest(name):
                 module = given.pop("module", record.STRACE_MODULE)
                 r = recorder(self.root, [self.made], module=module)
                 r, why, trace, _ = self.start(argv, r, **given)
-                self.assertIsNotNone(why)
+                self.assertEqual(why, expected)
                 self.assertIsNone(trace)
-                self.assertIn("strace", why)
                 self.assertEqual(r.programs, {})
+                self.assertEqual(r.traces, {})
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_log_is_known_as_it_is_made(self):
+        # The start registers the trace before strace starts, under the lock the run's
+        # events take: a write of the run's to the log the moment it exists is refused.
+        r, why, trace, _ = self.start(self.form())
+        self.assertIsNone(why)
+        self.assertEqual([t for _, t in r.traces.values()], [trace])
+        r.wrote(str(self.log))
+        self.assertIn("writes the log of a strace still running", whys(r))
+        os.close(trace.fd)
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_log_the_run_wrote_is_refused_when_taken(self):
+        for name in ("the log", "another name of it"):
+            with self.subTest(name):
+                r, why, trace, _ = self.start(self.form())
+                self.assertIsNone(why)
+                written = self.log if name == "the log" else self.made / "alias"
+                if written != self.log:
+                    os.link(self.log, written)
+                self.write_log(START)
+                # As if a write had been let through: the backstop finds it written.
+                r.written.add(record._norm(str(written)))
+                record._take_trace(r, trace, 0)
+                self.assertIn("the run wrote strace's log", whys(r))
+                for path in (self.log, self.made / "alias"):
+                    path.unlink(missing_ok=True)
 
     @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
     @only_on("posix")
