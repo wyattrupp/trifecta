@@ -896,3 +896,26 @@ class OsExit(unittest.TestCase):
             """)])
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertTrue(manifest_at(directory)["storable"])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_handler_reads_back_as_the_run_gave_it(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import signal, unittest
+
+            def h(*_):
+                pass
+            old = signal.signal(signal.SIGINT, h)
+            print(signal.getsignal(signal.SIGINT) is h, signal.signal(signal.SIGINT, old) is h,
+                  signal.getsignal(signal.SIGINT) is signal.default_int_handler)
+            unittest.installHandler()  # a SIGINT then stops the run, never interrupts it
+            result = unittest.TestResult()
+            unittest.registerResult(result)
+            try:
+                signal.raise_signal(signal.SIGINT)
+                print("stopped", result.shouldStop)
+            except KeyboardInterrupt:
+                print("interrupted")
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.split(), ["True", "True", "True", "stopped", "True"])
+        self.assertTrue(manifest_at(directory)["storable"])

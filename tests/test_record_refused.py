@@ -335,6 +335,62 @@ class AfterTheManifest(unittest.TestCase):
                     self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_handler_given_past_signal_signal_is_still_wrapped(self):
+        # Through _signal, which signal.signal calls, and marked as a recorder's own wrapper
+        # was once marked: either way the run's handler inside the write refuses the run.
+        for install in ("import _signal; _signal.signal(number, handler)",
+                        "handler.recorded_handler = True; signal.signal(number, handler)"):
+            with self.subTest(install=install):
+                done, m = self.exits(f"""
+                    import os, signal, sys, threading
+                    number = getattr(signal, "SIGUSR1", signal.SIGINT)
+                    go, seen = [], []
+
+                    def handler(*_):
+                        f, names = sys._getframe(1), []
+                        while f is not None:
+                            names.append(f.f_code.co_name)
+                            f = f.f_back
+                        if "_seal" in names and not seen:
+                            seen.append(1)
+                            os.write(1, ("read " + open("a.txt").read()).encode())
+                    {install}
+
+                    def raising():
+                        while not go:
+                            pass
+                        while not seen:
+                            signal.raise_signal(number)
+                    threading.Thread(target=raising, daemon=True).start()
+                    go.append(1)
+                    os._exit(0)
+                    """)
+                if "read a" in done.stdout:
+                    self.assertFalse(m["storable"], "the handler read inside the write")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_codec_function_dressed_as_the_standard_librarys_is_refused(self):
+        for register in ("codecs.register(f)", "codecs.register_error('x-dressed', f)"):
+            with self.subTest(register=register):
+                done, m = self.exits(f"""
+                    import codecs, json, os
+
+                    class Kept:
+                        def __del__(self, open=open, write=os.write):
+                            write(1, ("read " + open("a.txt").read()).encode())
+
+                    def f(*args, _keep=Kept()):
+                        return None
+                    f.__module__, f.__qualname__ = "json", "f"  # as json names it
+                    json.f = f
+                    {register}
+                    del json.f, f
+                    """)
+                self.assertFalse(m["storable"])
+                self.assertTrue(any(r["why"].startswith("registers a codec")
+                                    for r in m["reasons"]))
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_refusal_that_cannot_be_written_fails_the_event_and_is_tried_again(self):
         done, m = self.exits("""
             import os, sys

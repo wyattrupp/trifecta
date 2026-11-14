@@ -599,6 +599,8 @@ class Recorder:
         #: The fork callbacks the run gave, which the recorder holds in the interpreter's
         #: place, by token, until the manifest is written.
         self.kept: dict[object, object] = {}
+        #: Each wrapper of a signal handler this recorder made, to the run's handler.
+        self.signal_wrappers: dict[object, object] = {}
 
     def in_rmtree(self) -> bool:
         """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
@@ -4421,18 +4423,40 @@ def _watch_rmtree(r: Recorder) -> None:
 
 
 def _watch_signals(r: Recorder) -> None:
-    """Each handler the run gives ``signal.signal`` is wrapped, so the recorder knows when
-    it runs (COMP_LIFTED_REASONS)."""
-    import signal
-    original = signal.signal
+    """Each handler the run installs is wrapped, so the recorder knows when it runs
+    (COMP_LIFTED_REASONS). The wrapping is in ``_signal``, which ``signal.signal`` and
+    ``signal.getsignal`` call each time; what the run reads back is its own handler, never
+    the wrapper, and a handler that is no Python code of the run's, ``SIG_DFL``,
+    ``SIG_IGN`` or ``default_int_handler``, is passed as it is."""
+    import _signal
+    set_handler, get_handler = _signal.signal, _signal.getsignal
+    as_given = r.signal_wrappers  # each wrapper this recorder made, to the run's handler
+
+    def given(handler):
+        return as_given.get(handler, handler) if _hashable(handler) else handler
 
     def handled(signalnum, handler):
-        if callable(handler) and not getattr(handler, "recorded_handler", False):
-            handler = _recorded_handler(r, handler)
-        return original(signalnum, handler)
+        if callable(handler) and handler is not _signal.default_int_handler \
+                and not (_hashable(handler) and handler in as_given):
+            run = _recorded_handler(r, handler)
+            as_given[run] = handler
+            handler = run
+        return given(set_handler(signalnum, handler))
 
-    handled.__wrapped__ = original
-    r.install(signal, "signal", handled, "signal.signal")
+    def current(signalnum):
+        return given(get_handler(signalnum))
+
+    handled.__wrapped__, current.__wrapped__ = set_handler, get_handler
+    r.install(_signal, "signal", handled, "_signal.signal")
+    r.install(_signal, "getsignal", current, "_signal.getsignal")
+
+
+def _hashable(value) -> bool:
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
 
 
 def _recorded_handler(r: Recorder, handler):
@@ -4440,40 +4464,40 @@ def _recorded_handler(r: Recorder, handler):
         r.signal_ran()
         return handler(*args)
 
-    run.recorded_handler = True
     run.__wrapped__ = handler
     return run
 
 
 #: Places the interpreter clears only after its audit hooks, at its teardown: a callable a
 #: run puts there can run code no hook sees (COMP_LIFTED_REASONS). A codec search function
-#: or error handler that is not the interpreter's own is refused as it is registered; the
-#: names are the design's.
+#: or error handler that is not one of the interpreter's own, the very objects it held as
+#: the recorder started, is refused as it is registered; the names are the design's.
 CODEC_REGISTRIES = (("codecs", "register", "a codec search function"),
                     ("_codecs", "register", "a codec search function"),
                     ("codecs", "register_error", "a codec error handler"),
                     ("_codecs", "register_error", "a codec error handler"))
 
 
-def _interpreters_own(r: Recorder, fn) -> bool:
-    """Whether ``fn`` is a function of the interpreter's own: one its module, from a file
-    under the interpreter's prefixes or built in, names by its qualified name. Anything
-    else, a callable object, a partial or a method, which holds an object of its own, can
-    hold a finalizer of the run's."""
-    if not isinstance(fn, types.FunctionType):
-        return False
-    module = sys.modules.get(fn.__module__ or "")
-    path = getattr(module, "__file__", None)
-    if not (isinstance(path, str) and os.path.isabs(path)
-            and any(_under(_norm(path), p) for p in r.prefixes)):
-        return False
-    found = module
-    for part in fn.__qualname__.split("."):
-        found = getattr(found, part, None) if isinstance(found, (types.ModuleType, type))             else None
-    return found is fn
+def _interpreters_codecs() -> list:
+    """The codec callables of the interpreter's own, taken as the recorder starts, before
+    any code of the run's: the standard search function and the built-in error handlers.
+    Only these are let through when registered again, judged by identity."""
+    import codecs
+    own = []
+    encodings = sys.modules.get("encodings")
+    if encodings is not None and callable(getattr(encodings, "search_function", None)):
+        own.append(encodings.search_function)
+    for name in ("strict", "ignore", "replace", "xmlcharrefreplace", "backslashreplace",
+                 "namereplace", "surrogateescape", "surrogatepass"):
+        try:
+            own.append(codecs.lookup_error(name))
+        except LookupError:
+            pass
+    return own
 
 
 def _watch_kept(r: Recorder) -> None:
+    own = _interpreters_codecs()
     for module, name, what in CODEC_REGISTRIES:
         owner = sys.modules.get(module)
         original = getattr(owner, name, None)
@@ -4482,7 +4506,7 @@ def _watch_kept(r: Recorder) -> None:
 
         def kept(*args, _original=original, _what=what, **kwargs):
             def judge():
-                if not all(_interpreters_own(r, fn) for fn in [*args, *kwargs.values()]
+                if not all(any(fn is o for o in own) for fn in [*args, *kwargs.values()]
                            if callable(fn)):
                     r.refuse(f"registers {_what}, which the interpreter keeps past its "
                              f"audit hooks")
