@@ -323,8 +323,9 @@ class AroundAWrapper(_TmpRepo):
     @proves("REQ_NESTED_RECORDING")
     def test_an_audit_hook_the_run_adds(self):
         # The run's hook is called for the events a recorder raises while it is at work,
-        # when it notes nothing.
-        outer = self.unseen("""
+        # when it notes nothing: a run that adds one is refused (wyatt, 2026-11-14:
+        # "Refuse it (Recommended)").
+        outer, _ = nested(self.root, """
             import sys
             done = []
             def hook(event, args):
@@ -334,8 +335,8 @@ class AroundAWrapper(_TmpRepo):
             sys.addaudithook(hook)
             open("a.txt").read()
             """)
-        self.assertIn("a.txt", outer["files"])
-        self.assertNotIn("b.txt", outer["files"])
+        self.assertFalse(outer["storable"])
+        self.assertIn("adds an audit hook", whys(outer))
 
     @proves("REQ_NESTED_RECORDING")
     def test_object_setattr_on_what_the_recorder_made(self):

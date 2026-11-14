@@ -315,10 +315,13 @@ replacement; a check that fails to run refuses the run too.
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`
 and its closure, `os._Environ.__getitem__` past the recording mapping, and
-`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless; and
+`object.__setattr__`, which the recorder lists as harmless; and
 {need}`DEC_0041` adds, for the same tests, tampering with a recorder's own state from
 inside the process, through `sys.modules`, `gc`, frames or a trace function. A way the
-list does not hold, found later, reopens those decisions.
+list does not hold, found later, reopens those decisions. A run that adds an audit hook,
+which {need}`DEC_0035` listed too, is refused: the hook is called inside the recorder's
+own calls, as while it writes the manifest, where what it does is in no manifest (wyatt,
+2026-11-14: "Refuse it (Recommended)").
 :::
 
 :::{component} Host name

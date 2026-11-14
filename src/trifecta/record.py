@@ -1844,7 +1844,7 @@ HARMLESS = frozenset({
     "builtins.id", "object.__getattr__", "object.__setattr__", "object.__delattr__",
     "compile", "exec", "marshal.loads", "marshal.load", "marshal.dumps",
     "code.__new__", "function.__new__", "sys._getframe", "sys._getframemodulename",
-    "sys._current_frames", "sys._current_exceptions", "sys.addaudithook",
+    "sys._current_frames", "sys._current_exceptions",
     "sys.excepthook", "sys.unraisablehook", "sys.settrace", "sys.setprofile",
     "sys.set_asyncgen_hooks_firstiter", "sys.set_asyncgen_hooks_finalizer",
     "sys.monitoring.register_callback", "sys.setrecursionlimit",
@@ -1864,6 +1864,9 @@ HARMLESS = frozenset({
     "winreg.ConnectRegistry",
 })
 REFUSED = {
+    # A hook the run adds is called inside the recorder's own calls, where what it does
+    # is in no manifest (wyatt, 2026-11-14: "Refuse it (Recommended)").
+    "sys.addaudithook": "adds an audit hook",
     "socket.connect": "makes a network connection", "socket.getaddrinfo": "looks up a host",
     "socket.gethostname": "reads the host name", "socket.gethostbyname": "looks up a host",
     "socket.gethostbyaddr": "looks up a host", "socket.getnameinfo": "looks up a host",

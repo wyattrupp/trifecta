@@ -286,6 +286,22 @@ class AfterTheManifest(unittest.TestCase):
                             "the handler's read is in the manifest or refuses the run")
 
     @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_hook_that_reads_during_the_recorders_write_refuses_the_run(self):
+        done, m = self.exits("""
+            import os, sys
+            seen = []
+
+            def hook(event, args):
+                if event == "open" and str(args[0]).endswith(".tmp") and not seen:
+                    seen.append(1)  # the recorder writing its manifest
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            sys.addaudithook(hook)
+            """)
+        self.assertIn("read a", done.stdout, "the hook read during the write")
+        self.assertFalse(m["storable"])
+        self.assertIn("adds an audit hook", [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
     def test_a_link_at_the_temporary_name_writes_nothing_through_it(self):
         for kind in ("symlink", "link"):
             with self.subTest(kind=kind):
