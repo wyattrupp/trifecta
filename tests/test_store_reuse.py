@@ -5,8 +5,8 @@ others, reuses nothing with ``--fresh``, and gives the same findings either way.
 Each test runs the test stage on a small repository in a temporary directory, with a
 store of its own, so its children record themselves through the .pth file setup
 installs. Each such child records into a directory of its own, which the module's own
-recorder follows as its parent's (COMP_NESTED_RECORDER); a test here whose child reads
-the host name on purpose keeps this module from being stored.
+recorder follows as its parent's (COMP_NESTED_RECORDER). The test whose child reads the
+host name on purpose is in ``test_store_reuse_refused``, so this module is stored.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from trifecta import profiler, store
-from trifecta.proofs import ModuleRun, check_proofs, run_modules
+from trifecta.proofs import ModuleRun, check_proofs
 from trifecta.testing import proves
 
 MODULE_A = '''
@@ -135,47 +135,6 @@ class Reuse(unittest.TestCase):
                          self.whys)
         self.assertEqual(self.stage()[2], {"tests.test_a": True, "tests.test_b": True},
                          self.whys)
-
-
-MODULE_REFUSED = """
-import socket
-import unittest
-from trifecta.testing import proves
-
-
-class R(unittest.TestCase):
-    @proves("REQ_R")
-    def test_r(self):
-        socket.gethostname()
-"""
-
-
-class Named(unittest.TestCase):
-    setUp, tearDown = Reuse.setUp, Reuse.tearDown
-
-    @proves("REQ_REFUSALS_NAMED")
-    def test_a_module_not_stored_names_its_reasons_and_its_tests_times(self):
-        (self.root / "tests" / "test_r.py").write_text(MODULE_REFUSED, encoding="utf-8")
-        names = ["tests.test_b", "tests.test_r"]
-        for fresh in (False, True):
-            with self.subTest(fresh=fresh):
-                _, runs = run_modules(self.root, names, [], None, fresh, self.store)
-                stored, refused = runs
-                self.assertEqual((stored.unstored, stored.reasons, stored.tests),
-                                 (False, [], []))
-                self.assertTrue(refused.unstored)
-                self.assertEqual(refused.reasons,
-                                 [{"process": None, "why": "reads the host name"}])
-                self.assertEqual([t["name"] for t in refused.tests], ["R.test_r"])
-                self.assertIsInstance(refused.tests[0]["seconds"], float)
-        # The refused module ran again; the stored one was reused, as before.
-        _, runs = run_modules(self.root, names, [], None, False, self.store)
-        self.assertEqual([r.reused for r in runs], [True, False])
-        # A storable run the store did not keep is named so; nothing is named empty.
-        with mock.patch.object(store.Store, "put", return_value=False):
-            _, runs = run_modules(self.root, ["tests.test_b"], [], None, True, self.store)
-        self.assertEqual(runs[0].reasons, [{"process": None,
-                                            "why": "the store did not store it"}])
 
 
 class Scoped(unittest.TestCase):
