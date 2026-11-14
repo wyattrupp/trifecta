@@ -14,6 +14,8 @@ from trifecta.check import package_url_problem
 from trifecta.testing import proves
 
 ROOT = Path(__file__).resolve().parent.parent
+#: Builds the wheel into the directory given, run in the root.
+BUILD = "import sys; from flit_core.buildapi import build_wheel; build_wheel(sys.argv[1])"
 
 #: Every part REQ_ONE_PACKAGE lists, as a path in the wheel.
 PARTS = {
@@ -43,8 +45,9 @@ class WheelHoldsTheToolchain(unittest.TestCase):
     @proves("REQ_ONE_PACKAGE")
     def test_every_part_is_in_the_wheel(self):
         with tempfile.TemporaryDirectory() as out:
-            subprocess.run([sys.executable, "-m", "pip", "wheel", "--no-deps",
-                            "--no-build-isolation", "-q", "-w", out, str(ROOT)], check=True)
+            # The build backend itself, as pip would call it, without pip's own reads of the
+            # host (COMP_LIFTED_REASONS, DEC_0036).
+            subprocess.run([sys.executable, "-c", BUILD, out], cwd=ROOT, check=True)
             (wheel,) = Path(out).glob("trifecta-*.whl")
             with zipfile.ZipFile(wheel) as archive:
                 names = set(archive.namelist())

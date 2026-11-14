@@ -67,7 +67,7 @@ and a `.claude/settings.json`, into which it merges its hook: move any other cla
 file under `docs/` is checked as a typed document, so move other documentation out of
 `docs/` too. Replace `@<you>` with your GitHub name or team; init refuses the placeholder.
 
-<!-- adoption-steps: tests/test_adoption.py runs this block in an empty repository -->
+<!-- adoption-steps: tests/test_adoption_guide.py runs this block in an empty repository -->
 ```sh
 (
 set -euo pipefail

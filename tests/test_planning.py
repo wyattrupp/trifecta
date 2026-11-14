@@ -1,5 +1,8 @@
 """The planning files init adds for Claude Code: REQ_PLANNING_DEFAULT, REQ_HOOK_FAILS_CLOSED,
-and the CLAUDE.md append and the settings merge under REQ_INIT_SAFE."""
+and the CLAUDE.md append and the settings merge under REQ_INIT_SAFE. The bash test, the
+Windows junction and ctypes tests, and the hook tests of a share path and of a shadowed
+``json`` are in ``test_planning_refused``, which is never stored, so this module is
+stored."""
 
 from __future__ import annotations
 
@@ -16,9 +19,8 @@ from unittest import mock
 
 from tests.test_init import SHA, URL, Repo, snapshot
 from trifecta import init as init_module
-from trifecta.init import CLAUDE_MD, COMMAND, ENTRY, HOOK, MATCHER, NEW, SETTINGS, SKILL
+from trifecta.init import CLAUDE_MD, ENTRY, HOOK, MATCHER, NEW, SETTINGS, SKILL
 from trifecta.testing import only_on, proves
-from trifecta.toolchain import program_env
 
 SECTION = init_module.section()
 HEADING = SECTION.splitlines()[0]
@@ -385,15 +387,6 @@ class SettingsMerge(unittest.TestCase):
             self.assertEqual(os.listdir(outside), ["settings.json"])
 
     @proves("REQ_INIT_SAFE")
-    @only_on("nt")
-    def test_settings_in_a_junctioned_directory_is_refused(self):
-        import _winapi
-        with Repo() as root, tempfile.TemporaryDirectory() as outside:
-            write(Path(outside) / "settings.json", b"{}")
-            _winapi.CreateJunction(outside, str(root / ".claude"))
-            refused(self, root, ".claude/ is a link")
-
-    @proves("REQ_INIT_SAFE")
     @only_on("posix")
     def test_settings_fifo_is_refused(self):
         with Repo() as root:
@@ -438,16 +431,6 @@ class SettingsMerge(unittest.TestCase):
                 self.settings_race(change)
 
     @proves("REQ_INIT_SAFE")
-    @only_on("nt")
-    def test_settings_directory_swapped_for_a_junction_before_the_move_is_refused(self):
-        import _winapi
-
-        def junction(root, outside):
-            (root / ".claude").rename(root / ".claude-moved")
-            _winapi.CreateJunction(outside, str(root / ".claude"))
-        self.settings_race(junction)
-
-    @proves("REQ_INIT_SAFE")
     def test_failed_merge_leaves_settings_and_removes_what_the_run_created(self):
         with Repo() as root:
             original = b'{"model": "x"}\n'
@@ -477,38 +460,6 @@ def git_bash() -> str:
     if not found:
         raise AssertionError("no bash on PATH")
     return found
-
-
-class HookCommand(unittest.TestCase):
-    @proves("REQ_INIT_SAFE", "REQ_HOOK_FAILS_CLOSED")
-    def test_command_with_a_space_in_the_path_and_no_interpreter_exits_2(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve() / "my repo"
-            root.mkdir()
-            subprocess.run(["git", "init", "-q", str(root)], check=True, env=program_env())
-            run_init(root)
-            settings = json.loads((root / SETTINGS).read_bytes())
-            command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-            self.assertEqual(command, COMMAND)
-            bash = git_bash()
-            empty = Path(tmp) / "empty-path"
-            empty.mkdir()
-            env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), "PATH": str(empty)}
-            call = json.dumps({"tool_name": "Write", "tool_input": {"file_path": "docs/rfcs/x.md"}})
-            done = subprocess.run([bash, "-c", command], input=call, env=env,
-                                  capture_output=True, encoding="utf-8")
-            self.assertEqual(done.returncode, 2, done.stderr)
-            # With an interpreter on PATH the same command allows an allowed write.
-            shim = Path(tmp) / "shim"
-            shim.mkdir()
-            exe = Path(sys.executable).as_posix()
-            script = "#!/bin/sh\n" + f'exec "{exe}" "$@"' + "\n"
-            (shim / "python3").write_text(script, encoding="utf-8", newline="\n")
-            os.chmod(shim / "python3", 0o755)
-            env["PATH"] = str(shim)
-            done = subprocess.run([bash, "-c", command], input=call, env=env,
-                                  capture_output=True, encoding="utf-8")
-            self.assertEqual(done.returncode, 0, done.stderr)
 
 
 # --- the hook --------------------------------------------------------------------------
@@ -570,50 +521,12 @@ class Hook(unittest.TestCase):
             self.assertEqual(hook(root, write_call(outside)), 0)
 
     @proves("REQ_HOOK_FAILS_CLOSED")
-    @only_on("nt")
-    def test_refuses_a_share_path_it_cannot_relate_to_the_project(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            share = "\\\\localhost\\c$\\work\\docs\\superpowers\\y.md"
-            self.assertEqual(hook(Path(tmp).resolve(), write_call(share)), 2)
-
-    @proves("REQ_HOOK_FAILS_CLOSED")
     def test_resolves_a_link_into_docs_superpowers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             (root / "docs" / "superpowers").mkdir(parents=True)
             os.symlink(root / "docs" / "superpowers", root / "notes", target_is_directory=True)
             self.assertEqual(hook(root, write_call("notes/x.md")), 2)
-
-    @proves("REQ_HOOK_FAILS_CLOSED")
-    @only_on("nt")
-    def test_resolves_a_junction_and_a_short_name(self):
-        import ctypes
-        import _winapi
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            target = root / "docs" / "superpowers"
-            target.mkdir(parents=True)
-            _winapi.CreateJunction(str(target), str(root / "notes"))
-            self.assertEqual(hook(root, write_call("notes/x.md")), 2)
-            buf = ctypes.create_unicode_buffer(1024)
-            ctypes.windll.kernel32.GetShortPathNameW(str(target), buf, 1024)
-            short = Path(buf.value).name
-            self.assertNotEqual(short.casefold(), "superpowers", "8.3 names are off here")
-            self.assertEqual(hook(root, write_call(f"docs/{short}/x.md")), 2)
-
-    @proves("REQ_HOOK_FAILS_CLOSED")
-    def test_refuses_input_it_cannot_read_and_any_exception(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            for raw in ("not json", "[]", '{"tool_name": "Write"}',
-                        '{"tool_name": "Write", "tool_input": {"file_path": 3}}'):
-                with self.subTest(raw):
-                    self.assertEqual(hook(root, None, raw=raw), 2)
-            shadow = root / "shadow"
-            shadow.mkdir()
-            (shadow / "json.py").write_text("raise RuntimeError('broken import')\n", encoding="utf-8")
-            self.assertEqual(hook(root, write_call("docs/rfcs/x.md"),
-                                  env={"PYTHONPATH": str(shadow)}), 2)
 
 
 if __name__ == "__main__":

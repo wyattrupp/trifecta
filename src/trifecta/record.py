@@ -27,15 +27,18 @@ package a run imports is the run's own, never the recorder's.
 from __future__ import annotations
 
 import atexit
+import gc
 import hashlib
 import inspect
 import io
 import json
+import operator
 import os
 import re
 import stat
 import sys
 import threading
+import types
 
 #: The variables the C library reads for the locale, recorded whether set or not.
 LOCALE_VARIABLES = ("LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY",
@@ -172,6 +175,7 @@ MAX_DEPTH = 256
 #: examines of a path the run touched is its own work, not the run's.
 _lstat, _stat, _scandir, _getcwd, _open = os.lstat, os.stat, os.scandir, os.getcwd, io.open
 _realpath = os.path.realpath
+_os_open, _unlink = os.open, os.unlink
 #: The one lock every recorder in a process takes. Each recorder's hook and wrappers run
 #: inside the other's work, as a path one resolves passes the other's wrapper of
 #: ``os.lstat`` and an event one raises reaches the other's hook: with a lock each, two
@@ -286,7 +290,15 @@ def _prefixes() -> list[str]:
 
 
 def _write(path: str, text: str) -> None:
-    with _open(path, "w", encoding="utf-8", newline="\n") as f:
+    """Write ``text`` to a new file at ``path``: whatever the name held, a link or a hard
+    link to another file among them, is removed first, and the file is made afresh, never
+    through a link, so nothing outside is written (COMP_LIFTED_REASONS)."""
+    try:
+        _unlink(path)
+    except FileNotFoundError:
+        pass
+    with _open(_os_open(path, _WRITE_FLAGS, 0o600), "w", encoding="utf-8",
+               newline="\n") as f:
         f.write(text)
 
 
@@ -567,6 +579,28 @@ class Recorder:
         self.registry: set[int] = set()
         self.seq = 0
         self.first: dict[tuple[str, str], int] = {}
+        #: The process the recorder started in: only there does ``os._exit`` write the
+        #: manifest (COMP_LIFTED_REASONS).
+        self.pid = os.getpid()
+        #: The thread that called ``os._exit``, from before the snapshot through the real
+        #: exit; and whether an event reached the hook in another thread meanwhile without
+        #: blocking on the lock, which refuses the run.
+        self.exiting: int | None = None
+        self.late = False
+        #: Held by the exiting thread through the real exit: such an event waits on it.
+        self.exit_lock = threading.Lock()
+        #: The manifest as written at exit, after which every event that is no recorder's
+        #: own refuses the run; whether it has been rewritten as refused; the refused
+        #: manifest's bytes, made as it was written; and where it lies.
+        self.sealed: dict | None = None
+        self.sealed_refused = False
+        self.sealed_text = b""
+        self.manifest_path = os.path.join(self.directory, MANIFEST)
+        #: The fork callbacks the run gave, which the recorder holds in the interpreter's
+        #: place, by token, until the manifest is written.
+        self.kept: dict[object, object] = {}
+        #: Each wrapper of a signal handler this recorder made, to the run's handler.
+        self.signal_wrappers: dict[object, object] = {}
 
     def in_rmtree(self) -> bool:
         """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
@@ -1035,22 +1069,49 @@ class Recorder:
         if event == CHECK_EVENT:  # the recorder's own check that this hook still runs
             self.local.audited = args[0] if args else None
             return
+        if self.sealed is not None:
+            # The manifest is written: an event that is no recorder's own, in any thread,
+            # is in no manifest, so the run is refused (COMP_LIFTED_REASONS).
+            if event not in TEARDOWN and not self.own():
+                self.refuse_sealed()
+            return
         if self.quiet() or self.in_rmtree():
+            exiting = self.exiting
+            if exiting is not None and exiting != threading.get_ident():
+                # After the snapshot and past the lock: the run is refused, and the
+                # operation waits until the manifest is written, or for the exit.
+                self.late = True
+                self.exit_lock.acquire()
+                self.exit_lock.release()
+                if self.sealed is not None and not self.own():
+                    self.refuse_sealed()
             return  # rmtree's calls name entries by descriptor; its tree is written
+        if self.exiting is not None and self.exiting == threading.get_ident():
+            # In the thread writing the manifest, after the snapshot, outside the
+            # recorders' own calls: code the run gave, as a finalizer or a signal handler.
+            if not self.own():
+                self.late = True
+            return
         self.local.busy = True
+        sealed = False
         try:
             with self.lock:
-                handler = HANDLERS.get(event)
-                if handler is not None:
-                    handler(self, args)
-                elif event in REFUSED:
-                    self.refuse(REFUSED[event])
-                elif event not in HARMLESS:
-                    self.refuse(f"raises an audit event the recorder does not list: {event}")
+                sealed = self.sealed is not None  # written while this event waited
+                if not sealed:
+                    handler = HANDLERS.get(event)
+                    if handler is not None:
+                        handler(self, args)
+                    elif event in REFUSED:
+                        self.refuse(REFUSED[event])
+                    elif event not in HARMLESS:
+                        self.refuse(
+                            f"raises an audit event the recorder does not list: {event}")
         except Exception as exc:  # a recorder that cannot follow an event stores nothing
             self.refuse(f"the recorder failed on {event}: {type(exc).__name__}")
         finally:
             self.local.busy = False
+        if sealed:
+            self.refuse_sealed()
 
     def guarded(self, action) -> None:
         """Run ``action`` as the recorder, when the run is still being recorded."""
@@ -1154,28 +1215,233 @@ class Recorder:
                         and self.first.get((name, k), 0) > started]:
                 del section[key]
 
+    def signal_ran(self) -> None:
+        """A handler the run installed is about to run (COMP_LIFTED_REASONS). Python runs
+        it between two instructions of whatever the main thread is running, the
+        recorder's own calls among them, where the hook is quiet: there its work is in no
+        manifest, so the run is refused, or, once the snapshot is taken, marked late, or,
+        once the manifest is written, rewritten as refused."""
+        if self.sealed is not None:
+            self.refuse_sealed()
+        elif self.exiting is not None:
+            self.late = True
+        elif self.own():
+            self.refuse("runs a signal handler inside the recorder's own work")
+
+    def own(self) -> bool:
+        """Whether this thread is in a recorder's own calls, this one's or another's in
+        this process."""
+        return any(r.quiet() for r in _recorders(self))
+
+    def refuse_sealed(self, _unlink=os.unlink, _os_open=os.open, _os_write=os.write,
+                      _close=os.close, _replace=os.replace, _getattr=getattr,
+                      _missing=FileNotFoundError) -> None:
+        """Rewrite the written manifest as refused, once: something happened after it was
+        written. Should the rewrite fail, the manifest is removed; should that fail too,
+        this raises, so the event's operation fails, and the next event tries again. It
+        reaches only what it bound when defined and what ``_seal`` prepared, since the
+        interpreter's teardown empties the recorder's module (COMP_LIFTED_REASONS)."""
+        with self.lock:
+            if self.sealed_refused or self.sealed is None:
+                return
+            busy, self.local.busy = _getattr(self.local, "busy", False), True
+            try:
+                target = self.manifest_path
+                try:
+                    try:
+                        _unlink(target + ".tmp")
+                    except _missing:
+                        pass
+                    fd = _os_open(target + ".tmp", _WRITE_FLAGS, 0o600)
+                    try:
+                        text = self.sealed_text
+                        while text:
+                            text = text[_os_write(fd, text):]
+                    finally:
+                        _close(fd)
+                    _replace(target + ".tmp", target)
+                except BaseException:
+                    _unlink(target)  # raises when it fails: the event's operation fails
+                self.sealed_refused = True
+            finally:
+                self.local.busy = busy
+
     def finish(self) -> None:
+        """At exit: the manifest, written as ``exit_process`` writes it, under the lock,
+        the collector and signals held off; afterwards every event that is no recorder's
+        own refuses the run, and the recorder is quiet no longer."""
+        if self.exiting is not None or self.sealed is not None:
+            return
+        held = _hold_signals()
+        collecting = gc.isenabled()
+        gc.disable()
+        self.lock.acquire()
+        self.exit_lock.acquire()
+        self.exiting = threading.get_ident()
+        try:
+            self._seal(self.manifest_path)
+        except BaseException:
+            pass  # no manifest under the final name: the run is refused
+        finally:
+            self.exiting = None
+            self.local.busy = False
+            self.exit_lock.release()
+            self.lock.release()
+            if collecting:
+                gc.enable()
+            _release_signals(held)
+        # What the run's fork callbacks hold is let go now, the hooks still listening.
+        kept, self.kept = self.kept, {}
+        kept.clear()
+
+    def _seal(self, target: str) -> dict:
+        """Write the manifest under its temporary name and rename it into place, the
+        recorder quiet only in its own calls; refused when an event came between. The
+        caller holds the locks and names this thread as the one writing; the data written."""
         self.local.busy = True
+        try:
+            data = self._write_tmp(target)
+        finally:
+            self.local.busy = False
+        self.local.busy = True
+        try:
+            if self.late:
+                data = _refused(data, LATE)
+                _write(target + ".tmp", json.dumps(data, sort_keys=True))
+            # What a refusal after this writes, made now, while the module is whole.
+            self.sealed_text = json.dumps(_refused(data, LATE), sort_keys=True).encode()
+            os.replace(target + ".tmp", target)
+            self.sealed = data
+        finally:
+            self.local.busy = False
+        if self.late:  # an event between the check and the rename
+            self.refuse_sealed()
+        return data
+
+    def _write_tmp(self, target: str) -> dict:
+        """Take the snapshot and write it under the manifest's temporary name, with what
+        the run made beside it; the data written."""
         with self.lock:
             self.check_intact()
         data = self.manifest()
-        target = os.path.join(self.directory, MANIFEST)
         if os.path.exists(target):  # another process wrote here: whose reads is unknown
-            why = "two processes recorded into one place"
-            first = {"process": None, "why": why}
-            data = {**data, "storable": False, "why": why,
-                    "reasons": [first, *(r for r in data.get("reasons", [])
-                                         if r != first)][:MAX_REASONS]}
+            data = _refused(data, "two processes recorded into one place", first=True)
         _write(os.path.join(self.directory, MADE),
                json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
-        os.replace(target + ".tmp", target)
+        return data
+
+    def exit_process(self, original, *args, **kwargs):
+        """``os._exit`` as the recorder wraps it (COMP_LIFTED_REASONS). The status is taken
+        as an ``int`` the real exit accepts before anything else, so no code of the run's
+        runs once the snapshot is taken; one that is none goes to the real exit with
+        nothing written. In the process the recorder started in, it takes the lock and
+        holds it through the real exit, so another thread's hook blocks before its
+        operation, and another thread's ``os._exit`` waits for the exit; it writes the
+        manifest as ``finish`` does, under its temporary name, and renames it into place
+        last. The recorder is quiet only in its own calls: any event after the snapshot
+        refuses the run, and the collector and signals are held off meanwhile. Elsewhere,
+        as in a forked child, no manifest is written, so the run is refused."""
+        try:
+            if kwargs or len(args) != 1:
+                raise TypeError("os._exit takes one status")
+            status = int.__index__(operator.index(args[0]))  # the run's __index__, now
+            if not -2**31 <= status < 2**31:
+                raise OverflowError("a status the real exit refuses")
+        except Exception:
+            return original(*args, **kwargs)  # it raises, and nothing is written
+        if os.getpid() != self.pid or not self.started:
+            return original(status)
+        me = threading.get_ident()
+        if self.exiting == me:  # the run's code inside this wrapper: refused by the hook
+            return original(status)
+        while self.exiting is not None:  # another thread is exiting: wait for its exit
+            self.exit_lock.acquire()
+            self.exit_lock.release()
+        held = _hold_signals()  # a handler pending runs here, recorded, before the lock
+        collecting = gc.isenabled()
+        gc.disable()
+        self.lock.acquire()  # held through the real exit
+        self.exit_lock.acquire()
+        self.exiting = me
+        target = os.path.join(self.directory, MANIFEST)
+        renamed = False
+        try:
+            data = self._seal(target)
+            renamed = True
+        except BaseException:
+            pass  # no manifest under the final name: the run is refused
+        try:
+            original(status)
+        finally:
+            # The real exit returned or raised: the manifest cannot vouch for what follows.
+            self.local.busy = True
+            try:
+                if renamed:
+                    _write(target + ".tmp", json.dumps(
+                        _refused(data, RETURNED), sort_keys=True))
+                    os.replace(target + ".tmp", target)
+            except BaseException:
+                pass
+            finally:
+                self.local.busy = False
+                self.exiting = None
+                self.exit_lock.release()
+                self.lock.release()
+                if collecting:
+                    gc.enable()
+                _release_signals(held)
+
+
+#: How the recorder makes each file in its directory: afresh, never through a link.
+_WRITE_FLAGS = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_BINARY", 0))
+
+
+def _hold_signals():
+    """Block every signal in this thread, where the system allows it, and let a handler
+    already pending run now; the mask before, or None."""
+    import signal
+    if not hasattr(signal, "pthread_sigmask"):
+        return None
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
+    _pending()
+    return held
+
+
+def _pending() -> None:
+    """A call: the interpreter runs a pending signal handler as it enters one."""
+
+
+def _release_signals(held) -> None:
+    if held is not None:
+        import signal
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
 
 
 #: Bounds on what a manifest read from a store may hold, which is data from another run.
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 #: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
 MAX_REASONS = 64
+#: Why a run is refused when an event that is no recorder's own came after its snapshot;
+#: the wording is not ruled.
+LATE = "does something after the recorder took its snapshot"
+#: Events at the interpreter's teardown that no run's code raises: the audit hooks cleared.
+TEARDOWN = frozenset({"cpython._PySys_ClearAuditHooks"})
+#: Why a run is refused when the real exit returned or raised after the manifest was in
+#: place; the wording is not ruled.
+RETURNED = "goes on after os._exit"
+
+
+def _refused(data: dict, why: str, first: bool = False) -> dict:
+    """``data`` refused for ``why`` as well: first, or after the reasons it holds."""
+    reason = {"process": None, "why": why}
+    others = [r for r in data.get("reasons", []) if r != reason]
+    reasons = ([reason, *others] if first or not others else [*others, reason])
+    return {**data, "storable": False, "why": reasons[0]["why"],
+            "reasons": reasons[:MAX_REASONS]}
+
+
 def _recorders(r: Recorder) -> list[Recorder]:
     """``r`` and every other recorder started in this process."""
     found = [r]
@@ -1582,8 +1848,20 @@ def _dlsym(r: Recorder, args) -> None:
         r.refuse("loads native code through ctypes")
 
 
+def _add_audit_hook(r: Recorder, args) -> None:
+    """A hook the run adds is called inside the recorder's own calls, as while it writes
+    the manifest, where what it does is in no manifest: refused (wyatt, 2026-11-14:
+    "Refuse it (Recommended)"). The event names no hook; one added in a recorder's own
+    call, as the test's recorder adds its own under the parent's, is let through
+    (COMP_NESTED_RECORDER)."""
+    # This recorder is at work in its own hook here: only another's own call counts.
+    if not any(other.quiet() for other in _recorders(r) if other is not r):
+        r.refuse("adds an audit hook")
+
+
 HANDLERS = {
     "open": _open_event,
+    "sys.addaudithook": _add_audit_hook,
     "os.rename": _rename, "os.replace": _rename,
     "os.remove": _remove, "os.rmdir": _remove,
     "os.mkdir": _mkdir,
@@ -1626,10 +1904,10 @@ HARMLESS = frozenset({
     "builtins.id", "object.__getattr__", "object.__setattr__", "object.__delattr__",
     "compile", "exec", "marshal.loads", "marshal.load", "marshal.dumps",
     "code.__new__", "function.__new__", "sys._getframe", "sys._getframemodulename",
-    "sys._current_frames", "sys._current_exceptions", "sys.addaudithook",
+    "sys._current_frames", "sys._current_exceptions",
     "sys.excepthook", "sys.unraisablehook", "sys.settrace", "sys.setprofile",
     "sys.set_asyncgen_hooks_firstiter", "sys.set_asyncgen_hooks_finalizer",
-    "sys.monitoring.register_callback", "sys.setrecursionlimit",
+    "sys.setrecursionlimit",
     "cpython.run_command", "cpython.run_module", "cpython.run_file", "cpython.run_startup",
     "cpython.run_interactivehook",
     "cpython.PyInterpreterState_Clear", "cpython._PySys_ClearAuditHooks",
@@ -1646,6 +1924,8 @@ HARMLESS = frozenset({
     "winreg.ConnectRegistry",
 })
 REFUSED = {
+    "sys.monitoring.register_callback":
+        "registers a monitoring callback, which the interpreter keeps past its audit hooks",
     "socket.connect": "makes a network connection", "socket.getaddrinfo": "looks up a host",
     "socket.gethostname": "reads the host name", "socket.gethostbyname": "looks up a host",
     "socket.gethostbyaddr": "looks up a host", "socket.getnameinfo": "looks up a host",
@@ -4149,6 +4429,143 @@ def _watch_rmtree(r: Recorder) -> None:
     r.install(shutil, "rmtree", rmtree, "shutil.rmtree")
 
 
+def _watch_signals(r: Recorder) -> None:
+    """Each handler the run installs is wrapped, so the recorder knows when it runs
+    (COMP_LIFTED_REASONS). The wrapping is in ``_signal``, which ``signal.signal`` and
+    ``signal.getsignal`` call each time; what the run reads back is its own handler, never
+    the wrapper, and a handler that is no Python code of the run's, ``SIG_DFL``,
+    ``SIG_IGN`` or ``default_int_handler``, is passed as it is."""
+    import _signal
+    set_handler, get_handler = _signal.signal, _signal.getsignal
+    as_given = r.signal_wrappers  # each wrapper this recorder made, to the run's handler
+
+    def given(handler):
+        return as_given.get(handler, handler) if _hashable(handler) else handler
+
+    def handled(signalnum, handler):
+        if callable(handler) and handler is not _signal.default_int_handler \
+                and not (_hashable(handler) and handler in as_given):
+            run = _recorded_handler(r, handler)
+            as_given[run] = handler
+            handler = run
+        return given(set_handler(signalnum, handler))
+
+    def current(signalnum):
+        return given(get_handler(signalnum))
+
+    handled.__wrapped__, current.__wrapped__ = set_handler, get_handler
+    r.install(_signal, "signal", handled, "_signal.signal")
+    r.install(_signal, "getsignal", current, "_signal.getsignal")
+
+
+def _hashable(value) -> bool:
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
+
+
+def _recorded_handler(r: Recorder, handler):
+    def run(*args):
+        r.signal_ran()
+        return handler(*args)
+
+    run.__wrapped__ = handler
+    return run
+
+
+#: Places the interpreter clears only after its audit hooks, at its teardown: a callable a
+#: run puts there can run code no hook sees (COMP_LIFTED_REASONS). A codec search function
+#: or error handler that is not one of the interpreter's own, the very objects it held as
+#: the recorder started, is refused as it is registered; the names are the design's.
+CODEC_REGISTRIES = (("codecs", "register", "a codec search function"),
+                    ("_codecs", "register", "a codec search function"),
+                    ("codecs", "register_error", "a codec error handler"),
+                    ("_codecs", "register_error", "a codec error handler"))
+
+
+def _interpreters_codecs() -> list:
+    """The codec callables of the interpreter's own, taken as the recorder starts, before
+    any code of the run's: the standard search function and the built-in error handlers.
+    Only these are let through when registered again, judged by identity."""
+    import codecs
+    own = []
+    encodings = sys.modules.get("encodings")
+    if encodings is not None and callable(getattr(encodings, "search_function", None)):
+        own.append(encodings.search_function)
+    for name in ("strict", "ignore", "replace", "xmlcharrefreplace", "backslashreplace",
+                 "namereplace", "surrogateescape", "surrogatepass"):
+        try:
+            own.append(codecs.lookup_error(name))
+        except LookupError:
+            pass
+    return own
+
+
+def _watch_kept(r: Recorder) -> None:
+    own = _interpreters_codecs()
+    for module, name, what in CODEC_REGISTRIES:
+        owner = sys.modules.get(module)
+        original = getattr(owner, name, None)
+        if original is None:
+            continue
+
+        def kept(*args, _original=original, _what=what, **kwargs):
+            def judge():
+                if not all(any(fn is o for o in own) for fn in [*args, *kwargs.values()]
+                           if callable(fn)):
+                    r.refuse(f"registers {_what}, which the interpreter keeps past its "
+                             f"audit hooks")
+            r.guarded(judge)
+            return _original(*args, **kwargs)
+
+        kept.__wrapped__ = original
+        r.install(owner, name, kept, f"{module}.{name}")
+    # A fork callback: the interpreter keeps what it is given past its hooks, and the
+    # standard library registers some as it is imported. The recorder registers a
+    # forwarder in its place and holds the callable itself, dropping it once the manifest
+    # is written, while the hooks still see what a finalizer it held does.
+    for module in ("os", "posix"):
+        owner = sys.modules.get(module)
+        original = getattr(owner, "register_at_fork", None)
+        if original is None:
+            continue
+
+        def at_fork(*args, _original=original, **kwargs):
+            if args or not kwargs or not all(map(callable, kwargs.values())):
+                return _original(*args, **kwargs)  # it refuses them as given
+            forwarders = {}
+            for key, fn in kwargs.items():
+                token = object()
+                r.kept[token] = fn
+                forwarders[key] = _forwarder(r, token)
+            return _original(**forwarders)
+
+        at_fork.__wrapped__ = original
+        r.install(owner, "register_at_fork", at_fork, f"{module}.register_at_fork")
+
+
+def _forwarder(r: Recorder, token: object):
+    def forward():
+        fn = r.kept.get(token)
+        if fn is not None:
+            fn()
+    return forward
+
+
+def _watch_exit(r: Recorder) -> None:
+    """``os._exit`` runs no ``atexit``: wrapped, it writes the manifest first
+    (COMP_LIFTED_REASONS)."""
+    original = os._exit
+
+    def _exit(*args, **kwargs):
+        r.exit_process(original, *args, **kwargs)
+
+    _exit.__wrapped__ = original
+    r.install(os, "_exit", _exit, "os._exit")
+
+
 def _watch_open(r: Recorder) -> None:
     """os.open's audit event leaves out ``dir_fd``: a path relative to a descriptor is
     refused here, where the argument is seen."""
@@ -4466,9 +4883,16 @@ def start(directory: str, config: dict) -> Recorder:
     _watch_rmtree(r)
     _watch_open(r)
     _watch_scandir(r)
+    _watch_exit(r)
+    _watch_signals(r)
+    _watch_kept(r)
     # After the import watch, so a platform module on PYTHONPATH is a lookup it records.
     _fix_host_name(r)
-    sys.addaudithook(r.hook)
+    r.local.busy = True  # its own hook: no run's (COMP_NESTED_RECORDER)
+    try:
+        sys.addaudithook(r.hook)
+    finally:
+        r.local.busy = False
     r.started = True
     atexit.register(r.finish)
     return r

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -122,8 +123,9 @@ class Unstorable(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     def test_child_leaving_no_manifest(self):
+        # The interpreter's own exit, past the recorder's wrapper of os._exit.
         why = self.refused("import subprocess, sys; subprocess.run([sys.executable, '-c', "
-                           "'import os; os._exit(0)'])")
+                           "'import os, sys; sys.modules[os.name]._exit(0)'])")
         self.assertIn("no manifest", why)
 
     @proves("REQ_REUSE_SOUND")
@@ -152,6 +154,343 @@ class Unstorable(unittest.TestCase):
         why = self.refused(f"import subprocess; subprocess.run({other!r}, capture_output=True, "
                            "stdin=subprocess.DEVNULL)")
         self.assertIn("runs ", why)
+
+
+class OsExit(unittest.TestCase):
+    """COMP_LIFTED_REASONS: what ``os._exit``'s manifest cannot vouch for is refused."""
+
+    setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_signal_handler_reads_nothing_the_manifest_lacks(self):
+        # Moved from test_record: the timer fires every tenth of a millisecond, inside the
+        # recorder's own work too, where the handler refuses the run, as it should.
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, signal
+            seen = []
+
+            def handler(*_):
+                if not seen:
+                    seen.append(1)
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = test_record.manifest_at(directory)
+        if "read a" in done.stdout:
+            self.assertTrue(not m["storable"] or "a.txt" in m["files"],
+                            "the handler's read is in the manifest or refuses the run")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_an_event_past_the_lock_after_the_snapshot_rewrites_the_manifest_as_refused(self):
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, sys, threading, time
+            rec = sys.modules["_trifecta_record"]
+            go = threading.Event()
+
+            def late():
+                # Past the lock, as a recorder's own work is in this thread.
+                for name in ("_trifecta_record", "_trifecta_record_parent"):
+                    if name in sys.modules:
+                        sys.modules[name]._recorder.local.busy = True
+                go.wait()
+                open("late.txt", "w").close()
+            threading.Thread(target=late, daemon=True).start()
+            write = rec._write
+
+            def seam(path, text):
+                if path.endswith(".tmp") and not rec._recorder.late:
+                    go.set()
+                    for _ in range(1000):  # until the event has reached the hook
+                        if rec._recorder.late:
+                            break
+                        time.sleep(0.01)
+                write(path, text)
+            rec._write = seam
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = test_record.manifest_at(directory)
+        self.assertTrue(record.valid(m))
+        self.assertFalse(m["storable"])
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+        self.assertFalse((self.root / "late.txt").exists(), "the open waited for the exit")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_process_that_dies_between_the_write_and_the_rename_is_refused(self):
+        inner = textwrap.dedent("""
+            import os, sys
+            rec = sys.modules["_trifecta_record"]
+            write = rec._write
+
+            def seam(path, text):
+                write(path, text)
+                if path.endswith(".tmp"):
+                    sys.modules[os.name]._exit(0)  # the interpreter's own: no rename
+            rec._write = seam
+            os._exit(0)
+            """)
+        m = run(self.root, f"import subprocess, sys; subprocess.run([sys.executable, '-c', {inner!r}])")
+        self.assertFalse(m["storable"])
+        self.assertIn("a Python child left no manifest", [r["why"] for r in m["reasons"]])
+        (directory,) = sorted(self.root.parent.glob("record-*"))
+        (child,) = (directory / "children").iterdir()
+        self.assertTrue((child / (record.MANIFEST + ".tmp")).is_file())
+        self.assertFalse((child / record.MANIFEST).exists())
+
+
+class AfterTheManifest(unittest.TestCase):
+    """COMP_LIFTED_REASONS: what runs after the manifest is written at a normal exit, and a
+    link planted at its temporary name."""
+
+    setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
+
+    def exits(self, code: str, missing: bool = False) -> tuple[subprocess.CompletedProcess,
+                                                                dict | None]:
+        """The run's output and manifest; with ``missing``, None when it left none, which
+        refuses it as much as a refused manifest does."""
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent(code)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        if missing and not (directory / record.MANIFEST).exists():
+            return done, None
+        m = test_record.manifest_at(directory)
+        self.assertTrue(record.valid(m))
+        return done, m
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_finalizer_at_teardown_refuses_the_run(self):
+        done, m = self.exits("""
+            import os
+
+            class Kept:
+                def __del__(self, open=open, write=os.write):
+                    write(1, ("read " + open("a.txt").read()).encode())
+            kept = Kept()
+            """)
+        self.assertIn("read a", done.stdout, "the finalizer ran at teardown")
+        self.assertFalse(m["storable"])
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_cycle_collected_at_teardown_refuses_the_run(self):
+        done, m = self.exits("""
+            import gc, os
+
+            class Finalized:
+                def __del__(self, open=open, write=os.write):
+                    write(1, ("read " + open("a.txt").read()).encode())
+
+            def cycle():
+                a = Finalized()
+                a.self = a
+            gc.disable()  # collected only once the interpreter tears down
+            cycle()
+            """)
+        if "read a" in done.stdout:
+            self.assertFalse(m["storable"], "the finalizer read after the manifest")
+            self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_signal_handler_at_exit_reads_nothing_the_manifest_lacks(self):
+        done, m = self.exits("""
+            import atexit, os, signal
+            exiting, seen = [], []
+
+            def handler(*_):
+                if exiting and not seen:
+                    seen.append(1)
+                    signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm left for teardown
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
+            atexit.register(exiting.append, 1)  # runs just before the recorder writes
+            """)
+        if "read a" in done.stdout:
+            self.assertTrue(not m["storable"] or "a.txt" in m["files"],
+                            "the handler's read is in the manifest or refuses the run")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_hook_that_reads_during_the_recorders_write_refuses_the_run(self):
+        done, m = self.exits("""
+            import os, sys
+            seen = []
+
+            def hook(event, args):
+                if event == "open" and str(args[0]).endswith(".tmp") and not seen:
+                    seen.append(1)  # the recorder writing its manifest
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            sys.addaudithook(hook)
+            """)
+        self.assertIn("read a", done.stdout, "the hook read during the write")
+        self.assertFalse(m["storable"])
+        self.assertIn("adds an audit hook", [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_signal_another_thread_raises_during_the_write_refuses_the_run(self):
+        # SIGINT where the system has no SIGUSR1, as Windows has not.
+        for exit_by in ("pass", "os._exit(0)"):
+            with self.subTest(exit_by=exit_by):
+                done, m = self.exits(missing=True, code=f"""
+                    import os, signal, sys, threading
+                    number = getattr(signal, "SIGUSR1", signal.SIGINT)
+                    go, seen = [], []
+
+                    def handler(*_):
+                        f, names = sys._getframe(1), []
+                        while f is not None:
+                            names.append(f.f_code.co_name)
+                            f = f.f_back
+                        if "_seal" in names and not seen:  # inside the recorder's write
+                            seen.append(1)
+                            os.write(1, ("read " + open("a.txt").read()).encode())
+                    signal.signal(number, handler)
+
+                    def raising():
+                        while not go:
+                            pass
+                        while not seen:
+                            signal.raise_signal(number)
+                    threading.Thread(target=raising, daemon=True).start()
+                    go.append(1)
+                    {exit_by}
+                    """)
+                if "read a" in done.stdout and m is not None:
+                    self.assertFalse(m["storable"], "the handler read inside the write")
+                    self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_handler_given_past_signal_signal_is_still_wrapped(self):
+        # Through _signal, which signal.signal calls, and marked as a recorder's own wrapper
+        # was once marked: either way the run's handler inside the write refuses the run.
+        for install in ("import _signal; _signal.signal(number, handler)",
+                        "handler.recorded_handler = True; signal.signal(number, handler)"):
+            with self.subTest(install=install):
+                done, m = self.exits(missing=True, code=f"""
+                    import os, signal, sys, threading
+                    number = getattr(signal, "SIGUSR1", signal.SIGINT)
+                    go, seen = [], []
+
+                    def handler(*_):
+                        f, names = sys._getframe(1), []
+                        while f is not None:
+                            names.append(f.f_code.co_name)
+                            f = f.f_back
+                        if "_seal" in names and not seen:
+                            seen.append(1)
+                            os.write(1, ("read " + open("a.txt").read()).encode())
+                    {install}
+
+                    def raising():
+                        while not go:
+                            pass
+                        while not seen:
+                            signal.raise_signal(number)
+                    threading.Thread(target=raising, daemon=True).start()
+                    go.append(1)
+                    os._exit(0)
+                    """)
+                if "read a" in done.stdout and m is not None:
+                    self.assertFalse(m["storable"], "the handler read inside the write")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_codec_function_dressed_as_the_standard_librarys_is_refused(self):
+        for register in ("codecs.register(f)", "codecs.register_error('x-dressed', f)"):
+            with self.subTest(register=register):
+                done, m = self.exits(f"""
+                    import codecs, json, os
+
+                    class Kept:
+                        def __del__(self, open=open, write=os.write):
+                            write(1, ("read " + open("a.txt").read()).encode())
+
+                    def f(*args, _keep=Kept()):
+                        return None
+                    f.__module__, f.__qualname__ = "json", "f"  # as json names it
+                    json.f = f
+                    {register}
+                    del json.f, f
+                    """)
+                self.assertFalse(m["storable"])
+                self.assertTrue(any(r["why"].startswith("registers a codec")
+                                    for r in m["reasons"]))
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_refusal_that_cannot_be_written_fails_the_event_and_is_tried_again(self):
+        done, m = self.exits("""
+            import os, sys
+            recorder = sys.modules["_trifecta_record"]._recorder
+
+            class Kept:
+                def __del__(self, open=open, write=os.write, recorder=recorder):
+                    real = recorder.manifest_path
+                    # Neither the rewrite nor the removal can be done at this name.
+                    recorder.manifest_path = real + ".missing/manifest.json"
+                    try:
+                        open("a.txt").read()
+                        write(1, b"unblocked ")
+                    except BaseException:
+                        write(1, b"blocked ")
+                    recorder.manifest_path = real
+                    write(1, ("read " + open("a.txt").read()).encode())
+            kept = Kept()
+            """)
+        self.assertIn("blocked read a", done.stdout, "the read failed while it could not refuse")
+        self.assertNotIn("unblocked", done.stdout)
+        self.assertFalse(m["storable"], "the next event refused the run")
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_callable_kept_past_the_audit_hooks_refuses_the_run(self):
+        kept = "registers {}, which the interpreter keeps past its audit hooks".format
+        cases = [("import codecs; codecs.register(Kept())", kept("a codec search function")),
+                 ("import codecs; codecs.register_error('x-kept', Kept())",
+                  kept("a codec error handler")),
+                 ("import sys; sys.monitoring.use_tool_id(3, 'kept'); "
+                  "sys.monitoring.register_callback(3, sys.monitoring.events.PY_START, Kept())",
+                  kept("a monitoring callback"))]
+        if hasattr(os, "register_at_fork"):
+            # The recorder holds a fork callback itself and lets it go once the manifest is
+            # written, the hooks still listening: its finalizer refuses the run then.
+            cases.append(("os.register_at_fork(before=Kept())", record.LATE))
+        for line, why in cases:
+            with self.subTest(why=why):
+                done, m = self.exits(f"""
+                    import os
+
+                    class Kept:
+                        def __call__(self, *args, **kwargs):
+                            return None
+
+                        def __del__(self, open=open, write=os.write):
+                            # Run as the interpreter clears its state, its hooks gone.
+                            write(1, ("read " + open("a.txt").read()).encode())
+                    {line}
+                    """)
+                self.assertFalse(m["storable"])
+                self.assertIn(why, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_link_at_the_temporary_name_writes_nothing_through_it(self):
+        for kind in ("symlink", "link"):
+            with self.subTest(kind=kind):
+                victim = self.root / "b.txt"
+                directory = self.root.parent / f"record-{len(list(self.root.parent.glob('record-*')))}"
+                planted = directory / (record.MANIFEST + ".tmp")
+                for exit_by in ("pass", "import os; os._exit(0)"):
+                    done, m = self.exits(f"""
+                        import os
+                        os.{kind}({str(victim)!r}, {str(planted)!r})
+                        {exit_by}
+                        """)
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "b",
+                                     "the file the link names is untouched")
+                    self.assertFalse(m["storable"])
+                    directory = self.root.parent / f"record-{len(list(self.root.parent.glob('record-*')))}"
+                    planted = directory / (record.MANIFEST + ".tmp")
 
 
 class HostName(unittest.TestCase):

@@ -329,10 +329,14 @@ replacement; a check that fails to run refuses the run too.
 The ways code can step around a wrapper without replacing it are listed and accepted by
 {need}`DEC_0035` for the repository's own tests: a wrapper's original in `__wrapped__`
 and its closure, `os._Environ.__getitem__` past the recording mapping, and
-`sys.addaudithook` and `object.__setattr__`, which the recorder lists as harmless; and
+`object.__setattr__`, which the recorder lists as harmless; and
 {need}`DEC_0041` adds, for the same tests, tampering with a recorder's own state from
 inside the process, through `sys.modules`, `gc`, frames or a trace function. A way the
-list does not hold, found later, reopens those decisions.
+list does not hold, found later, reopens those decisions. A run that adds an audit hook,
+which {need}`DEC_0035` listed too, is refused: the hook is called inside the recorder's
+own calls, as while it writes the manifest, where what it does is in no manifest (wyatt,
+2026-11-14: "Refuse it (Recommended)"); the hook a recorder adds in its own start, as the
+test's recorder does under the parent's, is let through.
 :::
 
 :::{component} Host name
@@ -366,19 +370,64 @@ copy outside the repository (wyatt, 2026-11-13: "Move it too (Recommended)"); th
 `test_store_reuse` that starts a child reading the host name on purpose (wyatt,
 2026-11-13: "Move them, in task 5 (Recommended)", ruled as two tests; as measured, the
 module has one, on both platforms); the nested recorder's own tests, in `test_record_nested`, which run
-three recorders deep under the module's; and the Windows junction and ctypes tests of `test_init`,
-`test_planning` and `test_record`. `test_package` builds its wheel through
+three recorders deep under the module's; the Windows junction and ctypes tests of `test_init`,
+`test_planning` and `test_record`; and `test_planning`'s hook tests of a share path and of a
+`json` shadowed from a temporary directory (wyatt, 2026-11-14: "Move both (Recommended)").
+`test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
-that leaves a malformed manifest keeps the refusal until the task that stores
-`test_planning` finds its cause and fixes it. The check starts the
+that left a malformed manifest was its share-path test's, on Linux, as measured in
+{need}`PLAN_0008`'s task 7: the guard turned `\\localhost\c$` into a POSIX path
+beginning `//`, which the recorder kept as a probe key that `valid()` rejects. The recorder
+has refused such a path by name since {need}`PLAN_0008`'s task 3, so the child leaves a
+valid refused manifest, and the test, moved as above, no longer keeps `test_planning`
+from being stored. The check starts the
 Sphinx build in `docs/`, so the change into the configuration's directory is no change,
-and maps Sphinx's warning paths as before. The recorder wraps `os._exit`: in the process
-it started in, it takes its lock, writes the manifest with the exit status as the
+and maps Sphinx's warning paths as before. The recorder wraps `os._exit`. It first takes
+the status as an `int` the real exit accepts, so code of the run's, as an `__index__`,
+runs before any snapshot; a status that is none goes to the real exit with nothing
+written. In the process it started in, it then takes its lock, writes the manifest as the
 `atexit` path writes it, and holds the lock through the real exit, so another thread's
-audit hook blocks before its operation. It writes the manifest under a temporary name
-and renames it into place as its last step before the real exit; an event that reaches
-the hook after the snapshot without blocking rewrites it as refused. A fork is already
-refused by the recorder.
+audit hook blocks before its operation and another thread's `os._exit` waits for the
+exit. It writes the manifest under a temporary name and renames it into place as its
+last step before the real exit. The recorder is quiet only in its own calls: an event
+that reaches the hook after the snapshot without blocking, in any thread, the exiting one
+included, rewrites the manifest as refused, and the collector and, where the system
+allows, signals are held off from the snapshot through the exit. Should the real exit
+return or raise, the manifest is rewritten as refused. At a normal exit the recorder
+writes the manifest the same way, and once it is in place the recorder is quiet no
+longer: an event after it that is no recorder's own, in any thread, as a finalizer's or
+a signal handler's at teardown, rewrites the manifest as refused (wyatt, 2026-11-14: "Fix
+in task 7 (Recommended)"). Should that rewrite and the manifest's removal both fail, the
+event's operation fails, and the next event tries again; the rewrite is made as the
+manifest is written and reaches only what it bound then, since the interpreter's teardown
+empties the recorder's module. The recorder wraps each handler the run installs, in
+`_signal`, which `signal.signal` calls, telling its own wrappers by identity, and the run
+reads back its own handler from `signal.getsignal` and `signal.signal`, since Python runs a handler in the main thread between any two of its
+instructions, the recorder's own among them, wherever another thread raised the signal:
+a handler that runs inside the recorder's own calls refuses the run (wyatt, 2026-11-14:
+"Keep it in task 7 (Recommended)"), after the snapshot marks it late, and once the
+manifest is written rewrites it as refused. The exit paths
+see events only until the interpreter clears its audit hooks at teardown: what runs
+after, as an object the interpreter keeps until it clears its own state, is seen by no
+hook. So a codec search function or error handler that is not one of the interpreter's
+own, the very objects it held as the recorder started, and any `sys.monitoring` callback
+are refused as they are registered; a fork callback, which the standard library registers as it is
+imported, the recorder holds in the interpreter's place and lets go once the manifest is
+written, while the hooks still see what a finalizer it held does (wyatt, 2026-11-14: "Keep
+the stub (Recommended)"). These close the ways a run registers a callable of its own
+there; an object a run hangs on what the interpreter already keeps there is not seen, an
+open class the Risks name. The other places a run can leave an object at
+teardown, measured with a finalizer that reads, end refused or never run it: the
+context's variables, the asynchronous generator hooks, a trace or profile function,
+`sys` and `builtins` attributes, `threading.local`, `sys.excepthook`,
+`sys.unraisablehook`, `copyreg`, `atexit` and a weak reference's callback (wyatt,
+2026-11-14: "Fix in task 7 (Recommended)"). Each file the recorder writes in its directory, the temporary
+name among them, is made afresh: what the name held, a link or a hard link to another
+file, is removed first, and the file is created exclusively, never through a link
+(wyatt, 2026-11-14: "Fix in task 7 (Recommended)"). The manifest holds
+no exit status: the status is passed on to the real exit as given, and a test reads it as
+the child's return code (wyatt, 2026-11-14: "Pass-through is enough (Recommended)"). A
+fork is already refused by the recorder.
 
 Each lift has tests, declared for {need}`REQ_REUSE_SOUND`: a change to each input it
 records reruns the module; a start outside its terms is refused; and each input it does
@@ -410,7 +459,20 @@ does. Until this design's host-name task lands, after {need}`PLAN_0007` (wyatt,
 2026-11-11: "Move the host-name fix too"), the recorder as built lets a run read the host
 name through `os.uname` unrecorded, so a store published from main can hold such runs,
 `test_profile`'s among them. The fresh modules, `test_adoption`'s guide above all, keep
-their cost, which the profile shows.
+their cost, which the profile shows. Two openings in the recorder's ordinary handling,
+which predate this design's last task, are known and deferred to a follow-up plan
+(wyatt, 2026-11-14: "Follow-up plan (Recommended)"): run code that fires inside the
+recorder's own work, a finalizer the collector runs there, whose events the quiet
+recorder does not see; and a run's own method the recorder calls while it is at work, as
+`__fspath__` on a path it is given, whose reads go unrecorded and whose audit hook the
+refusal of `sys.addaudithook` does not see. A signal handler there is refused, as
+COMP_LIFTED_REASONS states. With them the same follow-up plan takes a third open class
+(wyatt, 2026-11-14: "Stop; defer the class (Recommended)"): an object a run hangs on
+what the interpreter keeps past its audit hooks, whose finalizer runs after them, as on
+the codec lookup cache, on a built-in function's `__module__` or a function's
+`__defaults__`, on the fork callbacks `threading` and `random` register before the run,
+or reached past a wrapper, as the original `_signal.signal` through `__wrapped__`; and a
+trace function the run sets, which runs inside the recorder's judging.
 
 ## Review
 
@@ -532,4 +594,20 @@ On the fix CI's fixtures called for: git and Vale stat `PWD`, which a fixture co
 inherits from the original checkout. Folded in: wyatt's ruling of 2026-11-14, recorded as
 {need}`DEC_0050`; the check starts them without it and a recorded start holding it is
 refused.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_10
+:k: 2
+:date: 2026-11-14
+:digest: 28921d1f7b7bb85d9e6242207a09b54fba18a1353763ef9aa02587e01592067b
+Three rounds, one reviewer per lens, on COMP_LIFTED_REASONS as {need}`PLAN_0008`'s task 7
+built it: the `os._exit` wrapper, the normal exit's seal and what may run after it.
+Folded in: wyatt's rulings of 2026-11-14, quoted where they apply; a status taken before
+the snapshot, run code in the seal, a second exit, finalizers and signal handlers at
+teardown, a refusal that cannot be written, a link at the temporary name, a run's own
+audit hook, codec and monitoring callables kept past the hooks, and signal handlers read
+back as given, which the security passes found open. Deferred to a follow-up plan, as
+Risks states: run code inside the recorder's ordinary work, and objects a run hangs on
+what the interpreter keeps past its audit hooks.
 :::

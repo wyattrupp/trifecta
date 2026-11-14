@@ -323,8 +323,9 @@ class AroundAWrapper(_TmpRepo):
     @proves("REQ_NESTED_RECORDING")
     def test_an_audit_hook_the_run_adds(self):
         # The run's hook is called for the events a recorder raises while it is at work,
-        # when it notes nothing.
-        outer = self.unseen("""
+        # when it notes nothing: a run that adds one is refused (wyatt, 2026-11-14:
+        # "Refuse it (Recommended)").
+        outer, _ = nested(self.root, """
             import sys
             done = []
             def hook(event, args):
@@ -334,8 +335,8 @@ class AroundAWrapper(_TmpRepo):
             sys.addaudithook(hook)
             open("a.txt").read()
             """)
-        self.assertIn("a.txt", outer["files"])
-        self.assertNotIn("b.txt", outer["files"])
+        self.assertFalse(outer["storable"])
+        self.assertIn("adds an audit hook", whys(outer))
 
     @proves("REQ_NESTED_RECORDING")
     def test_object_setattr_on_what_the_recorder_made(self):
@@ -663,8 +664,11 @@ class Prefixes(_TmpRepo):
 
     @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
     def test_a_write_under_the_prefixes_is_refused(self):
-        purelib = Path(sysconfig.get_paths()["purelib"])
-        probe = purelib / f"zz-trifecta-probe-{os.getpid()}.txt"
+        # The probe lands at the prefix itself, not in the site directories: the store's
+        # identity lists those (store.environment_key), so a probe there would change the
+        # identity of every module running beside this one.
+        prefix = Path(sys.prefix)
+        probe = prefix / f"zz-trifecta-probe-{os.getpid()}.txt"
         routes = {
             "written": f"open({str(probe)!r}, 'w').close()",
             # Across devices the move or link fails; its audit event came first.
@@ -676,7 +680,7 @@ class Prefixes(_TmpRepo):
                          f"shutil.copyfile('made.txt', {str(probe)!r})",
         }
         if os.name == "posix":
-            routes["through a link"] = (f"os.symlink({str(purelib)!r}, 'site'); "
+            routes["through a link"] = (f"os.symlink({str(prefix)!r}, 'site'); "
                                         f"open(os.path.join('site', {probe.name!r}), 'w')"
                                         f".close()")
         try:

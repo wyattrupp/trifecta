@@ -113,7 +113,7 @@ Module 4, and the git `test_planning` needs.
 :::{task} The last modules
 :id: TASK_0008_07
 :builds: COMP_LIFTED_REASONS
-:gate: The tests show that a process that exits through `os._exit` writes its manifest with its exit status under a temporary name and renames it into place last; that another thread's audited operation begun after `os._exit` was called does not complete before the exit; that an event after the snapshot rewrites the manifest as refused; that a process that dies between the write and the rename leaves no manifest under the final name and is refused; that a recorded hook child that exits through `os._exit(2)` is stored with exit status 2; that the hook child that left a malformed manifest no longer does, its cause recorded; that `test_package` builds its wheel through `flit_core.buildapi.build_wheel` and is stored on both platforms; that `test_planning` is stored on both platforms, with its bash test and its Windows junction and ctypes tests in modules that stay fresh; that `test_adoption`'s guide test runs in a module of its own that is never stored; and that `trifecta fixtures` and `trifecta fixtures --fresh` give the same result for every fixture on Linux and Windows.
+:gate: The tests show that a process that exits through `os._exit` writes its manifest under a temporary name, renames it into place last and passes its status to the real exit (wyatt, 2026-11-14: "Pass-through is enough (Recommended)"); that another thread's audited operation begun after `os._exit` was called does not complete before the exit; that an event after the snapshot rewrites the manifest as refused; that a process that dies between the write and the rename leaves no manifest under the final name and is refused; that a recorded hook child that exits through `os._exit(2)` is stored and passes status 2 to the real exit; that the hook child that left a malformed manifest no longer does, its cause recorded; that `test_package` builds its wheel through `flit_core.buildapi.build_wheel` and is stored on both platforms; that `test_planning` is stored on both platforms, with its bash test and its Windows junction and ctypes tests in modules that stay fresh; that `test_adoption`'s guide test runs in a module of its own that is never stored; and that `trifecta fixtures` and `trifecta fixtures --fresh` give the same result for every fixture on Linux and Windows.
 Modules 6 and 7, and what is left of `test_adoption`. The last task, so it also closes the design.
 
 - [ ] **7.1** Wrap `os._exit` as COMP_LIFTED_REASONS states, and find and fix the cause of the malformed hook manifest.
@@ -162,6 +162,15 @@ through {need}`DEC_0043`'s allowances and refuses their neighbours.
 One round, one reviewer per lens, on this plan's task 5. Folded in: wyatt's ruling of
 2026-11-13 moving `test_record`'s test of two copies, "Move it too (Recommended)"; the
 host-name tests of `test_store_reuse` counted as measured, one.
+:::
+
+:::{review} Correctness; security
+:id: REV_PLAN_0008_5
+:k: 2
+:date: 2026-11-14
+:digest: 8668772a555f2042851fca6a41e5a6b95c43fb106152b174b5b9dcc7c405e3d4
+On task 7's gate, amended to pass the exit status through to the real exit (wyatt,
+2026-11-14: "Pass-through is enough (Recommended)").
 :::
 
 ## As built
