@@ -396,20 +396,23 @@ a signal handler's at teardown, rewrites the manifest as refused (wyatt, 2026-11
 in task 7 (Recommended)"). Should that rewrite and the manifest's removal both fail, the
 event's operation fails, and the next event tries again; the rewrite is made as the
 manifest is written and reaches only what it bound then, since the interpreter's teardown
-empties the recorder's module. The recorder wraps each handler the run gives
-`signal.signal`, since Python runs a handler in the main thread between any two of its
+empties the recorder's module. The recorder wraps each handler the run installs, in
+`_signal`, which `signal.signal` calls, telling its own wrappers by identity, and the run
+reads back its own handler from `signal.getsignal` and `signal.signal`, since Python runs a handler in the main thread between any two of its
 instructions, the recorder's own among them, wherever another thread raised the signal:
 a handler that runs inside the recorder's own calls refuses the run (wyatt, 2026-11-14:
 "Keep it in task 7 (Recommended)"), after the snapshot marks it late, and once the
 manifest is written rewrites it as refused. The exit paths
 see events only until the interpreter clears its audit hooks at teardown: what runs
 after, as an object the interpreter keeps until it clears its own state, is seen by no
-hook. So a codec search function or error handler that is not a function of the
-interpreter's own, one its module names, and any `sys.monitoring` callback are refused as
-they are registered; a fork callback, which the standard library registers as it is
+hook. So a codec search function or error handler that is not one of the interpreter's
+own, the very objects it held as the recorder started, and any `sys.monitoring` callback
+are refused as they are registered; a fork callback, which the standard library registers as it is
 imported, the recorder holds in the interpreter's place and lets go once the manifest is
 written, while the hooks still see what a finalizer it held does (wyatt, 2026-11-14: "Keep
-the stub (Recommended)"). The other places a run can leave an object at
+the stub (Recommended)"). These close the ways a run registers a callable of its own
+there; an object a run hangs on what the interpreter already keeps there is not seen, an
+open class the Risks name. The other places a run can leave an object at
 teardown, measured with a finalizer that reads, end refused or never run it: the
 context's variables, the asynchronous generator hooks, a trace or profile function,
 `sys` and `builtins` attributes, `threading.local`, `sys.excepthook`,
@@ -459,7 +462,13 @@ recorder's own work, a finalizer the collector runs there, whose events the quie
 recorder does not see; and a run's own method the recorder calls while it is at work, as
 `__fspath__` on a path it is given, whose reads go unrecorded and whose audit hook the
 refusal of `sys.addaudithook` does not see. A signal handler there is refused, as
-COMP_LIFTED_REASONS states.
+COMP_LIFTED_REASONS states. With them the same follow-up plan takes a third open class
+(wyatt, 2026-11-14: "Stop; defer the class (Recommended)"): an object a run hangs on
+what the interpreter keeps past its audit hooks, whose finalizer runs after them, as on
+the codec lookup cache, on a built-in function's `__module__` or a function's
+`__defaults__`, on the fork callbacks `threading` and `random` register before the run,
+or reached past a wrapper, as the original `_signal.signal` through `__wrapped__`; and a
+trace function the run sets, which runs inside the recorder's judging.
 
 ## Review
 
