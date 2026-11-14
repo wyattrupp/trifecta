@@ -791,3 +791,108 @@ class OsExit(unittest.TestCase):
         self.assertEqual(done.returncode, 2, done.stderr)
         m = manifest_at(directory)
         self.assertTrue(m["storable"], m.get("reasons"))
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_status_whose_index_reads_is_taken_before_the_snapshot(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import os
+
+            class Status:
+                def __index__(self):
+                    return len(open("a.txt").read())
+            os._exit(Status())
+            """)])
+        self.assertEqual(done.returncode, 1, done.stderr)
+        m = manifest_at(directory)
+        self.assertTrue(m["storable"], m.get("reasons"))
+        self.assertIn("a.txt", m["files"], "the read is in the manifest")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_status_the_real_exit_refuses_writes_nothing(self):
+        for status, error in (('"not a status"', "TypeError"), ("2 ** 100", "OverflowError")):
+            with self.subTest(status=status):
+                done, directory = run_exit(self.root, ["-c", textwrap.dedent(f"""
+                    import os
+                    try:
+                        os._exit({status})
+                    except {error}:
+                        pass
+                    open("a.txt").read()
+                    os._exit(0)
+                    """)])
+                self.assertEqual(done.returncode, 0, done.stderr)
+                m = manifest_at(directory)
+                self.assertTrue(m["storable"], m.get("reasons"))
+                self.assertIn("a.txt", m["files"], "the read after the refused exit is in it")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_finalizer_reads_nothing_the_manifest_lacks(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import gc, os
+
+            class Finalized:
+                def __del__(self):
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+
+            def cycle():
+                a = Finalized()
+                a.self = a
+            gc.collect()
+            gc.disable()
+            cycle()
+            gc.enable()
+            # A collection some way into os._exit: past the wrapper's first allocations,
+            # within the manifest's write.
+            gc.set_threshold(100, 1, 1)
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = manifest_at(directory)
+        self.assertTrue(m["storable"], m.get("reasons"))
+        if "read a" in done.stdout:
+            self.assertIn("a.txt", m["files"], "the finalizer's read is in the manifest")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_signal_handler_reads_nothing_the_manifest_lacks(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, signal
+            seen = []
+
+            def handler(*_):
+                if not seen:
+                    seen.append(1)
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = manifest_at(directory)
+        self.assertTrue(m["storable"], m.get("reasons"))
+        if "read a" in done.stdout:
+            self.assertIn("a.txt", m["files"], "the handler's read is in the manifest")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_second_threads_os_exit_waits_for_the_first(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, sys, threading, time
+            rec = sys.modules["_trifecta_record"]
+            go = threading.Event()
+
+            def second():
+                go.wait()
+                os._exit(5)
+            threading.Thread(target=second, daemon=True).start()
+            write = rec._write
+
+            def seam(path, text):
+                if path.endswith(".tmp"):
+                    go.set()
+                    time.sleep(1)  # time enough for the second exit, were it not held
+                write(path, text)
+            rec._write = seam
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(manifest_at(directory)["storable"])

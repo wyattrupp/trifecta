@@ -27,10 +27,12 @@ package a run imports is the run's own, never the recorder's.
 from __future__ import annotations
 
 import atexit
+import gc
 import hashlib
 import inspect
 import io
 import json
+import operator
 import os
 import re
 import stat
@@ -1054,6 +1056,11 @@ class Recorder:
                 self.exit_lock.acquire()
                 self.exit_lock.release()
             return  # rmtree's calls name entries by descriptor; its tree is written
+        if self.exiting is not None and self.exiting == threading.get_ident():
+            # In the exiting thread, after the snapshot, outside the recorder's own calls:
+            # code the run gave, as a finalizer or a signal handler is (COMP_LIFTED_REASONS).
+            self.late = True
+            return
         self.local.busy = True
         try:
             with self.lock:
@@ -1177,9 +1184,9 @@ class Recorder:
         self._write_tmp(target)
         os.replace(target + ".tmp", target)
 
-    def _write_tmp(self, target: str) -> None:
+    def _write_tmp(self, target: str) -> dict:
         """Take the snapshot and write it under the manifest's temporary name, with what
-        the run made beside it."""
+        the run made beside it; the data written."""
         with self.lock:
             self.check_intact()
         data = self.manifest()
@@ -1188,31 +1195,101 @@ class Recorder:
         _write(os.path.join(self.directory, MADE),
                json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
-        if self.late:
-            # An event reached the hook past the lock after the snapshot: what it did is
-            # in no manifest.
-            data = _refused(data, LATE)
-            _write(target + ".tmp", json.dumps(data, sort_keys=True))
+        return data
 
     def exit_process(self, original, *args, **kwargs):
-        """``os._exit`` as the recorder wraps it (COMP_LIFTED_REASONS): in the process it
-        started in, take the lock and hold it through the real exit, so another thread's
-        hook blocks before its operation; write the manifest as ``finish`` does, under its
-        temporary name, and rename it into place last. Elsewhere, as in a forked child,
-        no manifest is written, so the run is refused. The status is passed on as given."""
+        """``os._exit`` as the recorder wraps it (COMP_LIFTED_REASONS). The status is taken
+        as an ``int`` the real exit accepts before anything else, so no code of the run's
+        runs once the snapshot is taken; one that is none goes to the real exit with
+        nothing written. In the process the recorder started in, it takes the lock and
+        holds it through the real exit, so another thread's hook blocks before its
+        operation, and another thread's ``os._exit`` waits for the exit; it writes the
+        manifest as ``finish`` does, under its temporary name, and renames it into place
+        last. The recorder is quiet only in its own calls: any event after the snapshot
+        refuses the run, and the collector and signals are held off meanwhile. Elsewhere,
+        as in a forked child, no manifest is written, so the run is refused."""
         try:
-            if os.getpid() == self.pid and self.exiting is None and self.started:
-                self.local.busy = True
-                self.lock.acquire()  # never released: the process ends holding it
-                self.exit_lock.acquire()
-                self.exiting = threading.get_ident()
-                target = os.path.join(self.directory, MANIFEST)
-                self._write_tmp(target)
+            if kwargs or len(args) != 1:
+                raise TypeError("os._exit takes one status")
+            status = int.__index__(operator.index(args[0]))  # the run's __index__, now
+            if not -2**31 <= status < 2**31:
+                raise OverflowError("a status the real exit refuses")
+        except Exception:
+            return original(*args, **kwargs)  # it raises, and nothing is written
+        if os.getpid() != self.pid or not self.started:
+            return original(status)
+        me = threading.get_ident()
+        if self.exiting == me:  # the run's code inside this wrapper: refused by the hook
+            return original(status)
+        while self.exiting is not None:  # another thread is exiting: wait for its exit
+            self.exit_lock.acquire()
+            self.exit_lock.release()
+        held = _hold_signals()  # a handler pending runs here, recorded, before the lock
+        collecting = gc.isenabled()
+        gc.disable()
+        self.lock.acquire()  # held through the real exit
+        self.exit_lock.acquire()
+        self.exiting = me
+        target = os.path.join(self.directory, MANIFEST)
+        renamed = False
+        try:
+            self.local.busy = True
+            try:
+                data = self._write_tmp(target)
+            finally:
+                self.local.busy = False
+            self.local.busy = True
+            try:
+                if self.late:
+                    # An event after the snapshot: what it did is in no manifest.
+                    _write(target + ".tmp", json.dumps(_refused(data, LATE), sort_keys=True))
                 os.replace(target + ".tmp", target)
+                renamed = True
+            finally:
+                self.local.busy = False
         except BaseException:
             pass  # no manifest under the final name: the run is refused
+        try:
+            original(status)
         finally:
-            original(*args, **kwargs)
+            # The real exit returned or raised: the manifest cannot vouch for what follows.
+            self.local.busy = True
+            try:
+                if renamed:
+                    _write(target + ".tmp", json.dumps(
+                        _refused(data, RETURNED), sort_keys=True))
+                    os.replace(target + ".tmp", target)
+            except BaseException:
+                pass
+            finally:
+                self.local.busy = False
+                self.exiting = None
+                self.exit_lock.release()
+                self.lock.release()
+                if collecting:
+                    gc.enable()
+                _release_signals(held)
+
+
+def _hold_signals():
+    """Block every signal in this thread, where the system allows it, and let a handler
+    already pending run now; the mask before, or None."""
+    import signal
+    if not hasattr(signal, "pthread_sigmask"):
+        return None
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
+    _pending()
+    return held
+
+
+def _pending() -> None:
+    """A call: the interpreter runs a pending signal handler as it enters one."""
+
+
+def _release_signals(held) -> None:
+    if held is not None:
+        import signal
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
 
 
 #: Bounds on what a manifest read from a store may hold, which is data from another run.
@@ -1221,7 +1298,10 @@ MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 MAX_REASONS = 64
 #: Why a run is refused when an event reached its hook past the lock after ``os._exit``'s
 #: snapshot; the wording is not ruled.
-LATE = "does something in another thread after os._exit took its snapshot"
+LATE = "does something after os._exit took its snapshot"
+#: Why a run is refused when the real exit returned or raised after the manifest was in
+#: place; the wording is not ruled.
+RETURNED = "goes on after os._exit"
 
 
 def _refused(data: dict, why: str, first: bool = False) -> dict:
