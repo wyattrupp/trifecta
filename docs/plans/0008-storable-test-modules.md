@@ -164,6 +164,15 @@ One round, one reviewer per lens, on this plan's task 5. Folded in: wyatt's ruli
 host-name tests of `test_store_reuse` counted as measured, one.
 :::
 
+:::{review} Correctness; security
+:id: REV_PLAN_0008_5
+:k: 2
+:date: 2026-11-14
+:digest: 8668772a555f2042851fca6a41e5a6b95c43fb106152b174b5b9dcc7c405e3d4
+On task 7's gate, amended to pass the exit status through to the real exit (wyatt,
+2026-11-14: "Pass-through is enough (Recommended)").
+:::
+
 ## As built
 
 ### Task 1 (2026-11-13)

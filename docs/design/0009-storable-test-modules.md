@@ -595,3 +595,19 @@ inherits from the original checkout. Folded in: wyatt's ruling of 2026-11-14, re
 {need}`DEC_0050`; the check starts them without it and a recorded start holding it is
 refused.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_10
+:k: 2
+:date: 2026-11-14
+:digest: 28921d1f7b7bb85d9e6242207a09b54fba18a1353763ef9aa02587e01592067b
+Three rounds, one reviewer per lens, on COMP_LIFTED_REASONS as {need}`PLAN_0008`'s task 7
+built it: the `os._exit` wrapper, the normal exit's seal and what may run after it.
+Folded in: wyatt's rulings of 2026-11-14, quoted where they apply; a status taken before
+the snapshot, run code in the seal, a second exit, finalizers and signal handlers at
+teardown, a refusal that cannot be written, a link at the temporary name, a run's own
+audit hook, codec and monitoring callables kept past the hooks, and signal handlers read
+back as given, which the security passes found open. Deferred to a follow-up plan, as
+Risks states: run code inside the recorder's ordinary work, and objects a run hangs on
+what the interpreter keeps past its audit hooks.
+:::
