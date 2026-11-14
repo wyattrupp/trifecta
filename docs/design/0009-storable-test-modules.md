@@ -285,10 +285,12 @@ risk. Derived, not ruled: `toolchain.bin_vale` tests `os.name` in place of
 The stored unit stays the module. The lifts are built in {need}`DEC_0032`'s order, each
 shared lift with the first module that needs it. Tests move into modules that stay fresh
 and are never stored: the bash tests of `test_init` and `test_planning`;
-`test_adoption`'s guide test; `test_record`'s `-S` test and its tests whose children
-do a refused thing on purpose; the two tests of `test_store_reuse` that start a child
-reading the host name on purpose (wyatt, 2026-11-13: "Move them, in task 5
-(Recommended)"); the nested recorder's own tests, in `test_record_nested`, which run
+`test_adoption`'s guide test; `test_record`'s `-S` test, its tests whose children
+do a refused thing on purpose, and its test of two copies, whose `PYTHONPATH` names a
+copy outside the repository (wyatt, 2026-11-13: "Move it too (Recommended)"); the test of
+`test_store_reuse` that starts a child reading the host name on purpose (wyatt,
+2026-11-13: "Move them, in task 5 (Recommended)", ruled as two tests; as measured, the
+module has one, on both platforms); the nested recorder's own tests, in `test_record_nested`, which run
 three recorders deep under the module's; and the Windows junction and ctypes tests of `test_init`,
 `test_planning` and `test_record`. `test_package` builds its wheel through
 `flit_core.buildapi.build_wheel`, not `pip wheel`. The hook child of `test_planning`
