@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -122,8 +123,9 @@ class Unstorable(unittest.TestCase):
 
     @proves("REQ_REUSE_SOUND")
     def test_child_leaving_no_manifest(self):
+        # The interpreter's own exit, past the recorder's wrapper of os._exit.
         why = self.refused("import subprocess, sys; subprocess.run([sys.executable, '-c', "
-                           "'import os; os._exit(0)'])")
+                           "'import os, sys; sys.modules[os.name]._exit(0)'])")
         self.assertIn("no manifest", why)
 
     @proves("REQ_REUSE_SOUND")
@@ -152,6 +154,69 @@ class Unstorable(unittest.TestCase):
         why = self.refused(f"import subprocess; subprocess.run({other!r}, capture_output=True, "
                            "stdin=subprocess.DEVNULL)")
         self.assertIn("runs ", why)
+
+
+class OsExit(unittest.TestCase):
+    """COMP_LIFTED_REASONS: what ``os._exit``'s manifest cannot vouch for is refused."""
+
+    setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_an_event_past_the_lock_after_the_snapshot_rewrites_the_manifest_as_refused(self):
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, sys, threading, time
+            rec = sys.modules["_trifecta_record"]
+            go = threading.Event()
+
+            def late():
+                # Past the lock, as a recorder's own work is in this thread.
+                for name in ("_trifecta_record", "_trifecta_record_parent"):
+                    if name in sys.modules:
+                        sys.modules[name]._recorder.local.busy = True
+                go.wait()
+                open("late.txt", "w").close()
+            threading.Thread(target=late, daemon=True).start()
+            write = rec._write
+
+            def seam(path, text):
+                if path.endswith(".tmp") and not rec._recorder.late:
+                    go.set()
+                    for _ in range(1000):  # until the event has reached the hook
+                        if rec._recorder.late:
+                            break
+                        time.sleep(0.01)
+                write(path, text)
+            rec._write = seam
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = test_record.manifest_at(directory)
+        self.assertTrue(record.valid(m))
+        self.assertFalse(m["storable"])
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+        self.assertFalse((self.root / "late.txt").exists(), "the open waited for the exit")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_process_that_dies_between_the_write_and_the_rename_is_refused(self):
+        inner = textwrap.dedent("""
+            import os, sys
+            rec = sys.modules["_trifecta_record"]
+            write = rec._write
+
+            def seam(path, text):
+                write(path, text)
+                if path.endswith(".tmp"):
+                    sys.modules[os.name]._exit(0)  # the interpreter's own: no rename
+            rec._write = seam
+            os._exit(0)
+            """)
+        m = run(self.root, f"import subprocess, sys; subprocess.run([sys.executable, '-c', {inner!r}])")
+        self.assertFalse(m["storable"])
+        self.assertIn("a Python child left no manifest", [r["why"] for r in m["reasons"]])
+        (directory,) = sorted(self.root.parent.glob("record-*"))
+        (child,) = (directory / "children").iterdir()
+        self.assertTrue((child / (record.MANIFEST + ".tmp")).is_file())
+        self.assertFalse((child / record.MANIFEST).exists())
 
 
 class HostName(unittest.TestCase):

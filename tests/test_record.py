@@ -705,3 +705,89 @@ class Shape(unittest.TestCase):
             with self.subTest(fields=fields):
                 self.assertFalse(record.valid(
                     {**GOOD, "uname": {f: "0" * 64 for f in fields}}))
+
+
+def run_exit(root: Path, argv: list[str], input: str | None = None,
+             env: dict | None = None) -> tuple[subprocess.CompletedProcess, Path]:
+    """Run ``argv`` with this interpreter as a recorded child in ``root``, whatever its exit
+    status; the finished process and the directory it recorded into."""
+    directory = root.parent / f"record-{len(list(root.parent.glob('record-*')))}"
+    record.prepare(str(directory), str(root))
+    environment = {k: v for k, v in os.environ.items()
+                   if k not in record.OWN and k.upper() != record.PATH_ENV}
+    environment.update(env or {})
+    environment[record.ENV] = str(directory)
+    done = subprocess.run([sys.executable, *argv], cwd=root, env=environment, input=input,
+                          capture_output=True, encoding="utf-8")
+    return done, directory
+
+
+def manifest_at(directory: Path) -> dict:
+    return json.loads((directory / record.MANIFEST).read_text(encoding="utf-8"))
+
+
+class OsExit(unittest.TestCase):
+    """COMP_LIFTED_REASONS: a process that exits through ``os._exit``, which runs no
+    ``atexit``, still writes its manifest."""
+
+    setUp, tearDown = Inputs.setUp, Inputs.tearDown
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_the_manifest_is_written_under_a_temporary_name_and_renamed_into_place_last(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, sys
+            rec = sys.modules["_trifecta_record"]
+            write = rec._write
+
+            def seam(path, text):
+                if path.endswith(".tmp"):
+                    sys.stderr.write("final: " + rec.kind(path[:-len(".tmp")]) + "\\n")
+                write(path, text)
+            rec._write = seam
+            open("a.txt").read()
+            os._exit(3)
+            """)])
+        self.assertEqual(done.returncode, 3, done.stderr)
+        self.assertIn("final: absent", done.stderr, "the final name is written last")
+        m = manifest_at(directory)
+        self.assertTrue(record.valid(m))
+        self.assertTrue(m["storable"], m.get("why"))
+        self.assertIn("a.txt", m["files"])
+        self.assertFalse((directory / (record.MANIFEST + ".tmp")).exists())
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_another_threads_operation_begun_after_os_exit_does_not_complete(self):
+        done, directory = run_exit(self.root, ["-c", textwrap.dedent("""
+            import os, sys, threading, time
+            rec = sys.modules["_trifecta_record"]
+            go = threading.Event()
+
+            def late():
+                go.wait()
+                open("late.txt", "w").close()
+            threading.Thread(target=late, daemon=True).start()
+            write = rec._write
+
+            def seam(path, text):
+                if path.endswith(".tmp"):
+                    go.set()
+                    time.sleep(1)  # time enough for the open, were it not held
+                write(path, text)
+            rec._write = seam
+            os._exit(0)
+            """)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse((self.root / "late.txt").exists(), "the open waited for the exit")
+        self.assertTrue(manifest_at(directory)["storable"])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND", "REQ_HOOK_FAILS_CLOSED")
+    def test_a_hook_child_that_exits_through_os_exit_2_is_stored_with_status_2(self):
+        from trifecta import init as init_module
+        guard = init_module.PACKAGE_DIR / "claude" / "trifecta_guard.py"
+        call = json.dumps({"tool_name": "Write",
+                           "tool_input": {"file_path": "docs/superpowers/x.md"}})
+        done, directory = run_exit(self.root, [str(guard)], input=call,
+                                   env={"CLAUDE_PROJECT_DIR": str(self.root)})
+        self.assertEqual(done.returncode, 2, done.stderr)
+        m = manifest_at(directory)
+        self.assertTrue(m["storable"], m.get("reasons"))

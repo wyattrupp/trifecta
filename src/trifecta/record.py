@@ -567,6 +567,16 @@ class Recorder:
         self.registry: set[int] = set()
         self.seq = 0
         self.first: dict[tuple[str, str], int] = {}
+        #: The process the recorder started in: only there does ``os._exit`` write the
+        #: manifest (COMP_LIFTED_REASONS).
+        self.pid = os.getpid()
+        #: The thread that called ``os._exit``, from before the snapshot through the real
+        #: exit; and whether an event reached the hook in another thread meanwhile without
+        #: blocking on the lock, which refuses the run.
+        self.exiting: int | None = None
+        self.late = False
+        #: Held by the exiting thread through the real exit: such an event waits on it.
+        self.exit_lock = threading.Lock()
 
     def in_rmtree(self) -> bool:
         """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
@@ -1036,6 +1046,13 @@ class Recorder:
             self.local.audited = args[0] if args else None
             return
         if self.quiet() or self.in_rmtree():
+            exiting = self.exiting
+            if exiting is not None and exiting != threading.get_ident():
+                # After os._exit's snapshot and past the lock: the run is refused, and
+                # the operation waits for the exit.
+                self.late = True
+                self.exit_lock.acquire()
+                self.exit_lock.release()
             return  # rmtree's calls name entries by descriptor; its tree is written
         self.local.busy = True
         try:
@@ -1156,26 +1173,64 @@ class Recorder:
 
     def finish(self) -> None:
         self.local.busy = True
+        target = os.path.join(self.directory, MANIFEST)
+        self._write_tmp(target)
+        os.replace(target + ".tmp", target)
+
+    def _write_tmp(self, target: str) -> None:
+        """Take the snapshot and write it under the manifest's temporary name, with what
+        the run made beside it."""
         with self.lock:
             self.check_intact()
         data = self.manifest()
-        target = os.path.join(self.directory, MANIFEST)
         if os.path.exists(target):  # another process wrote here: whose reads is unknown
-            why = "two processes recorded into one place"
-            first = {"process": None, "why": why}
-            data = {**data, "storable": False, "why": why,
-                    "reasons": [first, *(r for r in data.get("reasons", [])
-                                         if r != first)][:MAX_REASONS]}
+            data = _refused(data, "two processes recorded into one place", first=True)
         _write(os.path.join(self.directory, MADE),
                json.dumps({"created": sorted(self.created), "written": sorted(self.written)}))
         _write(target + ".tmp", json.dumps(data, sort_keys=True))
-        os.replace(target + ".tmp", target)
+        if self.late:
+            # An event reached the hook past the lock after the snapshot: what it did is
+            # in no manifest.
+            data = _refused(data, LATE)
+            _write(target + ".tmp", json.dumps(data, sort_keys=True))
+
+    def exit_process(self, original, *args, **kwargs):
+        """``os._exit`` as the recorder wraps it (COMP_LIFTED_REASONS): in the process it
+        started in, take the lock and hold it through the real exit, so another thread's
+        hook blocks before its operation; write the manifest as ``finish`` does, under its
+        temporary name, and rename it into place last. Elsewhere, as in a forked child,
+        no manifest is written, so the run is refused. The status is passed on as given."""
+        try:
+            if os.getpid() == self.pid and self.exiting is None and self.started:
+                self.local.busy = True
+                self.lock.acquire()  # never released: the process ends holding it
+                self.exit_lock.acquire()
+                self.exiting = threading.get_ident()
+                target = os.path.join(self.directory, MANIFEST)
+                self._write_tmp(target)
+                os.replace(target + ".tmp", target)
+        except BaseException:
+            pass  # no manifest under the final name: the run is refused
+        finally:
+            original(*args, **kwargs)
 
 
 #: Bounds on what a manifest read from a store may hold, which is data from another run.
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 #: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
 MAX_REASONS = 64
+#: Why a run is refused when an event reached its hook past the lock after ``os._exit``'s
+#: snapshot; the wording is not ruled.
+LATE = "does something in another thread after os._exit took its snapshot"
+
+
+def _refused(data: dict, why: str, first: bool = False) -> dict:
+    """``data`` refused for ``why`` as well: first, or after the reasons it holds."""
+    reason = {"process": None, "why": why}
+    others = [r for r in data.get("reasons", []) if r != reason]
+    reasons = ([reason, *others] if first or not others else [*others, reason])
+    return {**data, "storable": False, "why": reasons[0]["why"],
+            "reasons": reasons[:MAX_REASONS]}
 def _recorders(r: Recorder) -> list[Recorder]:
     """``r`` and every other recorder started in this process."""
     found = [r]
@@ -4115,6 +4170,18 @@ def _watch_rmtree(r: Recorder) -> None:
     r.install(shutil, "rmtree", rmtree, "shutil.rmtree")
 
 
+def _watch_exit(r: Recorder) -> None:
+    """``os._exit`` runs no ``atexit``: wrapped, it writes the manifest first
+    (COMP_LIFTED_REASONS)."""
+    original = os._exit
+
+    def _exit(*args, **kwargs):
+        r.exit_process(original, *args, **kwargs)
+
+    _exit.__wrapped__ = original
+    r.install(os, "_exit", _exit, "os._exit")
+
+
 def _watch_open(r: Recorder) -> None:
     """os.open's audit event leaves out ``dir_fd``: a path relative to a descriptor is
     refused here, where the argument is seen."""
@@ -4432,6 +4499,7 @@ def start(directory: str, config: dict) -> Recorder:
     _watch_rmtree(r)
     _watch_open(r)
     _watch_scandir(r)
+    _watch_exit(r)
     # After the import watch, so a platform module on PYTHONPATH is a lookup it records.
     _fix_host_name(r)
     sys.addaudithook(r.hook)
