@@ -483,3 +483,17 @@ One round, one reviewer per lens, on {need}`PLAN_0008`'s task 5. Folded in: wyat
 2026-11-13 moving `test_record`'s test of two copies, "Move it too (Recommended)"; the
 host-name tests of `test_store_reuse` counted as measured, one.
 :::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_7
+:k: 2
+:date: 2026-11-13
+:digest: 6cddbd3b717a2fb7f10e3954ab10e60dd7121c52d848a2cc5d997eb8110bbccf
+Three rounds, one reviewer per lens, on COMP_KNOWN_PROGRAMS's git and Vale and
+COMP_LIFTED_REASONS as {need}`PLAN_0008`'s task 6 built them. Folded in: wyatt's rulings of
+2026-11-13, recorded as {need}`DEC_0046` to {need}`DEC_0049`; git's and Vale's terms and
+lists stated in full, the design's own choices labelled; a quoted or commented
+`StylesPath`, a nested repository, a start with code before it or inherited descriptors,
+a DLL from elsewhere and Vale swapped while it ran refused, which the security passes
+found open; what a running git or Vale reads held until the run reaps it.
+:::
