@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trifecta import record
+from trifecta import record, toolchain
 from trifecta.testing import only_on, proves
 
 from tests.test_record_trace import traced_paths
@@ -144,9 +144,11 @@ class Traced(unittest.TestCase):
     @proves("REQ_KNOWN_PROGRAM")
     @only_on("posix")
     def test_vale_in_its_forms_reads_only_its_stated_inputs_and_its_runtimes(self):
-        vale = REPO / "bin" / "vale"
+        # The Vale the check runs: bin/vale, or the one TRIFECTA_VALE names, as the
+        # fixture runner names it for each copy, which has no bin/ of its own.
+        vale = toolchain.vale_path(REPO)
         if not vale.is_file():
-            self.skipTest("no bin/vale")
+            self.skipTest("no Vale")
         build = self.made / "build"
         shutil.copytree(PACKAGE / "vale", build / "vale" / "vale")
         shutil.copytree(PACKAGE / "styles", build / "vale" / "styles")
