@@ -367,6 +367,101 @@ class GitTerms(Tree):
                          f"program {key}")
 
 
+class GitPlaces(unittest.TestCase):
+    """The places git's layout and locale are taken from, in trees these tests make."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.root = self.tmp / "a" / "root"
+        self.root.mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_the_locale_aliases_link_is_let_through_and_any_other_link_refused(self):
+        # As on CI's Ubuntu runner: the messages directory holds locale.alias, a link to
+        # /etc/locale.alias (wyatt, 2026-11-14: "Skip LOCALE_ALIAS (Recommended)").
+        etc = self.tmp / "etc"
+        etc.mkdir()
+        (etc / "locale.alias").write_text("french fr_FR.ISO-8859-1\n", encoding="utf-8")
+        messages = self.tmp / "share" / "locale"
+        (messages / "fr" / "LC_MESSAGES").mkdir(parents=True)
+        (messages / "fr" / "LC_MESSAGES" / "git.mo").write_bytes(b"mo")
+        alias = messages / "locale.alias"
+        alias.symlink_to(etc / "locale.alias")
+        with mock.patch.object(record, "LOCALE_DIR", str(self.tmp / "lib" / "locale")), \
+                mock.patch.object(record, "MESSAGES_DIR", str(messages)), \
+                mock.patch.object(record, "LOCALE_ALIAS", str(alias)):
+            r = recorder(self.root, [])
+            self.assertIsNone(record._locale_inputs(r, "git", "git"))
+            self.assertEqual(whys(r), [])
+            # Held by its link, its target and its content.
+            self.assertEqual(r.probes[str(alias)], "link")
+            self.assertIn(str(alias), r.outside)
+            self.assertIn(str(messages), r.listings)
+            # Any other link there stays refused.
+            (messages / "de").symlink_to(messages / "fr", target_is_directory=True)
+            r = recorder(self.root, [])
+            self.assertEqual(record._locale_inputs(r, "git", "git"),
+                             "runs git where a language's messages are a link")
+
+    @proves("REQ_KNOWN_PROGRAM", "REQ_REUSE_SOUND")
+    @only_on("nt")
+    def test_git_for_windows_is_stated_with_one_build_and_refused_with_both(self):
+        # Git for Windows 2.56 ships ucrt64 where 2.50 shipped mingw64 (wyatt, 2026-11-14:
+        # "State ucrt64 too (Recommended)").
+        flavours = ("mingw64", "ucrt64")
+        # Every build the launcher knows; besides the stated one each must be absent.
+        builds = (*flavours, "clangarm64", "mingw32", "mingw")
+        more = "runs a git whose installation holds more than one build"
+        for flavour in flavours:
+            with self.subTest(flavour):
+                install = self.tmp / flavour / "Git"
+                real = install / flavour / "bin" / "git.exe"
+                for path in (install / "cmd" / "git.exe", install / "bin" / "git.exe", real):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"MZ")
+                others = [install / b / "bin" / "git.exe" for b in builds if b != flavour]
+                for found in (install / "cmd" / "git.exe", install / "bin" / "git.exe", real):
+                    r = recorder(self.root, [])
+                    why, executables, templates, places = record._git_layout(r, str(found))
+                    self.assertIsNone(why)
+                    self.assertEqual(executables, list(dict.fromkeys([str(found), str(real)])))
+                    self.assertEqual(templates, str(install / flavour / "share" / "git-core"
+                                                    / "templates"))
+                    self.assertEqual(places, (str(install), str(install / flavour)))
+                    # Every other build is probed, and one appearing runs the module again.
+                    for absent in others:
+                        self.assertEqual(r.probes[str(absent)], "absent")
+                    self.assertIsNone(store.mismatch(manifest_of(r), self.root, {},
+                                                     store.Hashes()))
+                for absent in others:
+                    with self.subTest(flavour=flavour, other=absent.parent.parent.name):
+                        absent.parent.mkdir(parents=True)
+                        absent.write_bytes(b"MZ")
+                        self.assertIsNotNone(store.mismatch(manifest_of(r), self.root, {},
+                                                            store.Hashes()))
+                        # With another build beside it, a file or a link, the start is
+                        # refused: the launcher could run what is never hashed.
+                        why, executables, _, _ = record._git_layout(recorder(self.root, []),
+                                                                    str(real))
+                        self.assertEqual((why, executables), (more, []))
+                        absent.unlink()
+                        os.symlink(real, absent)
+                        why, executables, _, _ = record._git_layout(recorder(self.root, []),
+                                                                    str(real))
+                        self.assertEqual((why, executables), (more, []))
+                        shutil.rmtree(absent.parent.parent)
+                # The stated build's own git.exe as a link is not the layout stated.
+                real.unlink()
+                os.symlink(install / "cmd" / "git.exe", real)
+                why, _, _, _ = record._git_layout(recorder(self.root, []),
+                                                  str(install / "cmd" / "git.exe"))
+                self.assertEqual(why, "runs a git whose layout the design does not state")
+
+
 # --- Vale --------------------------------------------------------------------------------
 
 class ValeTerms(Tree):

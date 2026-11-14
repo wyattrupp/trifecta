@@ -109,7 +109,10 @@ library the cache lacks, one the cache chooses by the processor, or a program or
 with a search path of its own refusing the start; every locale's files under
 `/usr/lib/locale`, the locale archive among them, the gconv modules' cache beside the C
 library, with `gconv-modules` and the `gconv-modules.d` tree, the locale aliases, and each language's catalog of git's messages under
-`/usr/share/locale`, whatever language the environment names; the template tree in
+`/usr/share/locale`, whatever language the environment names, where the walk skips the
+one entry `locale.alias` when it is a link, since it is already recorded by its link, its
+target and its content as {need}`DEC_0043` names it, and refuses any other link (wyatt,
+2026-11-14: "Skip LOCALE_ALIAS (Recommended)"); the template tree in
 `init`; the parents of the made repository, and the working directory git starts in and
 its parents, which git resolves; and the whole environment, since `TZ` and the other
 `LD_*` variables move what git and its loader do. The files under the made `HOME` and
@@ -117,12 +120,19 @@ its parents, which git resolves; and the whole environment, since `TZ` and the o
 no record. On Windows the list is stated from Git for Windows' layout: git is found as
 CreateProcess finds it, in the interpreter's own directory, the working directory, the
 system's directories and then along `PATH`, each place before it recorded as probed; its
-launcher in `cmd` or `bin`, which starts `mingw64/bin/git.exe`, and that program, each by
+launcher in `cmd` or `bin`, which starts the build's `bin/git.exe`, the build being
+`mingw64` or `ucrt64` (wyatt, 2026-11-14: "State ucrt64 too (Recommended)"), whose
+`bin/git.exe` must be a file; every other build the launcher knows, the other of those two,
+`clangarm64`, `mingw32` and `mingw`, must have no `bin/git.exe`, neither file nor link,
+each recorded as probed absent, so an installation that adds one reruns the module, and an
+installation holding more than one build is refused, since the launcher could start what
+is never hashed; and that
+program, found in the build's `bin` or through a launcher, each by
 path and SHA-256, with each DLL either imports from that directory, followed again, and
 each other name it imports probed there, a DLL found neither there nor in the system's
 `System32`, but for the system's API sets, refusing the start; the installation's `etc/gitconfig`,
-`mingw64/etc/gitconfig`, `ProgramData/Git/config`, the templates under
-`mingw64/share/git-core/templates`, the catalogs under `mingw64/share/locale`, and the
+the build's `etc/gitconfig`, `ProgramData/Git/config`, the templates under the build's
+`share/git-core/templates`, the catalogs under the build's `share/locale`, and the
 whole environment, `USERPROFILE` among it. Another layout is refused. git on this
 repository stays refused.
 
@@ -549,4 +559,15 @@ lists stated in full, the design's own choices labelled; a quoted or commented
 `StylesPath`, a nested repository, a start with code before it or inherited descriptors,
 a DLL from elsewhere and Vale swapped while it ran refused, which the security passes
 found open; what a running git or Vale reads held until the run reaps it.
+:::
+
+:::{review} Correctness; security
+:id: REV_DES_0009_8
+:k: 2
+:date: 2026-11-14
+:digest: b0cfbf8a5b9fd6f68287e91e9b3bd469403ce876635ccd6aebba7a226fb36df9
+Two rounds, one reviewer for both lenses, on the fixes CI's runners called for: wyatt's
+rulings of 2026-11-14 on Ubuntu's `locale.alias` link and Git for Windows' `ucrt64`
+build. Folded in: every other build the launcher knows is held absent, file or link,
+which the security pass found open as a link at the other build's `git.exe`.
 :::
