@@ -375,7 +375,14 @@ last step before the real exit. The recorder is quiet only in its own calls: an 
 that reaches the hook after the snapshot without blocking, in any thread, the exiting one
 included, rewrites the manifest as refused, and the collector and, where the system
 allows, signals are held off from the snapshot through the exit. Should the real exit
-return or raise, the manifest is rewritten as refused. The manifest holds
+return or raise, the manifest is rewritten as refused. At a normal exit the recorder
+writes the manifest the same way, and once it is in place the recorder is quiet no
+longer: an event after it that is no recorder's own, in any thread, as a finalizer's or
+a signal handler's at teardown, rewrites the manifest as refused (wyatt, 2026-11-14: "Fix
+in task 7 (Recommended)"). Each file the recorder writes in its directory, the temporary
+name among them, is made afresh: what the name held, a link or a hard link to another
+file, is removed first, and the file is created exclusively, never through a link
+(wyatt, 2026-11-14: "Fix in task 7 (Recommended)"). The manifest holds
 no exit status: the status is passed on to the real exit as given, and a test reads it as
 the child's return code (wyatt, 2026-11-14: "Pass-through is enough (Recommended)"). A
 fork is already refused by the recorder.
