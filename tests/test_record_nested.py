@@ -664,8 +664,11 @@ class Prefixes(_TmpRepo):
 
     @proves("REQ_NESTED_RECORDING", "REQ_REUSE_SOUND")
     def test_a_write_under_the_prefixes_is_refused(self):
-        purelib = Path(sysconfig.get_paths()["purelib"])
-        probe = purelib / f"zz-trifecta-probe-{os.getpid()}.txt"
+        # The probe lands at the prefix itself, not in the site directories: the store's
+        # identity lists those (store.environment_key), so a probe there would change the
+        # identity of every module running beside this one.
+        prefix = Path(sys.prefix)
+        probe = prefix / f"zz-trifecta-probe-{os.getpid()}.txt"
         routes = {
             "written": f"open({str(probe)!r}, 'w').close()",
             # Across devices the move or link fails; its audit event came first.
@@ -677,7 +680,7 @@ class Prefixes(_TmpRepo):
                          f"shutil.copyfile('made.txt', {str(probe)!r})",
         }
         if os.name == "posix":
-            routes["through a link"] = (f"os.symlink({str(purelib)!r}, 'site'); "
+            routes["through a link"] = (f"os.symlink({str(prefix)!r}, 'site'); "
                                         f"open(os.path.join('site', {probe.name!r}), 'w')"
                                         f".close()")
         try:
