@@ -174,6 +174,7 @@ MAX_DEPTH = 256
 #: examines of a path the run touched is its own work, not the run's.
 _lstat, _stat, _scandir, _getcwd, _open = os.lstat, os.stat, os.scandir, os.getcwd, io.open
 _realpath = os.path.realpath
+_os_open, _unlink = os.open, os.unlink
 #: The one lock every recorder in a process takes. Each recorder's hook and wrappers run
 #: inside the other's work, as a path one resolves passes the other's wrapper of
 #: ``os.lstat`` and an event one raises reaches the other's hook: with a lock each, two
@@ -288,7 +289,16 @@ def _prefixes() -> list[str]:
 
 
 def _write(path: str, text: str) -> None:
-    with _open(path, "w", encoding="utf-8", newline="\n") as f:
+    """Write ``text`` to a new file at ``path``: whatever the name held, a link or a hard
+    link to another file among them, is removed first, and the file is made afresh, never
+    through a link, so nothing outside is written (COMP_LIFTED_REASONS)."""
+    try:
+        _unlink(path)
+    except FileNotFoundError:
+        pass
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_BINARY", 0))
+    with _open(_os_open(path, flags, 0o600), "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
 
 
@@ -579,6 +589,10 @@ class Recorder:
         self.late = False
         #: Held by the exiting thread through the real exit: such an event waits on it.
         self.exit_lock = threading.Lock()
+        #: The manifest as written at exit, after which every event that is no recorder's
+        #: own refuses the run; and whether it has been rewritten as refused.
+        self.sealed: dict | None = None
+        self.sealed_refused = False
 
     def in_rmtree(self) -> bool:
         """Whether this thread is inside shutil.rmtree, whose own calls are no input."""
@@ -1047,23 +1061,36 @@ class Recorder:
         if event == CHECK_EVENT:  # the recorder's own check that this hook still runs
             self.local.audited = args[0] if args else None
             return
+        if self.sealed is not None:
+            # The manifest is written: an event that is no recorder's own, in any thread,
+            # is in no manifest, so the run is refused (COMP_LIFTED_REASONS).
+            if event not in TEARDOWN and not self.own():
+                self.refuse_sealed()
+            return
         if self.quiet() or self.in_rmtree():
             exiting = self.exiting
             if exiting is not None and exiting != threading.get_ident():
-                # After os._exit's snapshot and past the lock: the run is refused, and
-                # the operation waits for the exit.
+                # After the snapshot and past the lock: the run is refused, and the
+                # operation waits until the manifest is written, or for the exit.
                 self.late = True
                 self.exit_lock.acquire()
                 self.exit_lock.release()
+                if self.sealed is not None and not self.own():
+                    self.refuse_sealed()
             return  # rmtree's calls name entries by descriptor; its tree is written
         if self.exiting is not None and self.exiting == threading.get_ident():
-            # In the exiting thread, after the snapshot, outside the recorder's own calls:
-            # code the run gave, as a finalizer or a signal handler is (COMP_LIFTED_REASONS).
-            self.late = True
+            # In the thread writing the manifest, after the snapshot, outside the
+            # recorders' own calls: code the run gave, as a finalizer or a signal handler.
+            if not self.own():
+                self.late = True
             return
         self.local.busy = True
         try:
             with self.lock:
+                if self.sealed is not None:  # written while this event waited
+                    self.local.busy = False
+                    self.refuse_sealed()
+                    return
                 handler = HANDLERS.get(event)
                 if handler is not None:
                     handler(self, args)
@@ -1178,11 +1205,75 @@ class Recorder:
                         and self.first.get((name, k), 0) > started]:
                 del section[key]
 
+    def own(self) -> bool:
+        """Whether this thread is in a recorder's own calls, this one's or another's in
+        this process."""
+        return any(r.quiet() for r in _recorders(self))
+
+    def refuse_sealed(self) -> None:
+        """Rewrite the written manifest as refused, once: something happened after it was
+        written. Should the rewrite fail, the manifest is removed, so none stays storable."""
+        with self.lock:
+            if self.sealed_refused or self.sealed is None:
+                return
+            self.sealed_refused = True
+            busy, self.local.busy = getattr(self.local, "busy", False), True
+            target = os.path.join(self.directory, MANIFEST)
+            try:
+                _write(target + ".tmp", json.dumps(_refused(self.sealed, LATE),
+                                                   sort_keys=True))
+                os.replace(target + ".tmp", target)
+            except BaseException:
+                try:
+                    _unlink(target)
+                except BaseException:
+                    pass
+            finally:
+                self.local.busy = busy
+
     def finish(self) -> None:
+        """At exit: the manifest, written as ``exit_process`` writes it, under the lock,
+        the collector and signals held off; afterwards every event that is no recorder's
+        own refuses the run, and the recorder is quiet no longer."""
+        if self.exiting is not None or self.sealed is not None:
+            return
+        held = _hold_signals()
+        collecting = gc.isenabled()
+        gc.disable()
+        self.lock.acquire()
+        self.exit_lock.acquire()
+        self.exiting = threading.get_ident()
+        try:
+            self.sealed = self._seal(os.path.join(self.directory, MANIFEST))
+        except BaseException:
+            pass  # no manifest under the final name: the run is refused
+        finally:
+            self.exiting = None
+            self.local.busy = False
+            self.exit_lock.release()
+            self.lock.release()
+            if collecting:
+                gc.enable()
+            _release_signals(held)
+
+    def _seal(self, target: str) -> dict:
+        """Write the manifest under its temporary name and rename it into place, the
+        recorder quiet only in its own calls; refused when an event came between. The
+        caller holds the locks and names this thread as the one writing; the data written."""
         self.local.busy = True
-        target = os.path.join(self.directory, MANIFEST)
-        self._write_tmp(target)
-        os.replace(target + ".tmp", target)
+        try:
+            data = self._write_tmp(target)
+        finally:
+            self.local.busy = False
+        self.local.busy = True
+        try:
+            if self.late:
+                data = _refused(data, LATE)
+                _write(target + ".tmp", json.dumps(data, sort_keys=True))
+            os.replace(target + ".tmp", target)
+        finally:
+            self.local.busy = False
+        return data
 
     def _write_tmp(self, target: str) -> dict:
         """Take the snapshot and write it under the manifest's temporary name, with what
@@ -1233,20 +1324,8 @@ class Recorder:
         target = os.path.join(self.directory, MANIFEST)
         renamed = False
         try:
-            self.local.busy = True
-            try:
-                data = self._write_tmp(target)
-            finally:
-                self.local.busy = False
-            self.local.busy = True
-            try:
-                if self.late:
-                    # An event after the snapshot: what it did is in no manifest.
-                    _write(target + ".tmp", json.dumps(_refused(data, LATE), sort_keys=True))
-                os.replace(target + ".tmp", target)
-                renamed = True
-            finally:
-                self.local.busy = False
+            data = self._seal(target)
+            renamed = True
         except BaseException:
             pass  # no manifest under the final name: the run is refused
         try:
@@ -1296,9 +1375,11 @@ def _release_signals(held) -> None:
 MAX_ENTRIES, MAX_TEXT = 200_000, 4096
 #: How many reasons a refused manifest keeps; the bound is the design's, not ruled.
 MAX_REASONS = 64
-#: Why a run is refused when an event reached its hook past the lock after ``os._exit``'s
-#: snapshot; the wording is not ruled.
-LATE = "does something after os._exit took its snapshot"
+#: Why a run is refused when an event that is no recorder's own came after its snapshot;
+#: the wording is not ruled.
+LATE = "does something after the recorder took its snapshot"
+#: Events at the interpreter's teardown that no run's code raises: the audit hooks cleared.
+TEARDOWN = frozenset({"cpython._PySys_ClearAuditHooks"})
 #: Why a run is refused when the real exit returned or raised after the manifest was in
 #: place; the wording is not ruled.
 RETURNED = "goes on after os._exit"

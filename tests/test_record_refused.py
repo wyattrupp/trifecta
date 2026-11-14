@@ -219,6 +219,92 @@ class OsExit(unittest.TestCase):
         self.assertFalse((child / record.MANIFEST).exists())
 
 
+class AfterTheManifest(unittest.TestCase):
+    """COMP_LIFTED_REASONS: what runs after the manifest is written at a normal exit, and a
+    link planted at its temporary name."""
+
+    setUp, tearDown = test_record.Inputs.setUp, test_record.Inputs.tearDown
+
+    def exits(self, code: str) -> tuple[subprocess.CompletedProcess, dict]:
+        done, directory = test_record.run_exit(self.root, ["-c", textwrap.dedent(code)])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        m = test_record.manifest_at(directory)
+        self.assertTrue(record.valid(m))
+        return done, m
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_finalizer_at_teardown_refuses_the_run(self):
+        done, m = self.exits("""
+            import os
+
+            class Kept:
+                def __del__(self, open=open, write=os.write):
+                    write(1, ("read " + open("a.txt").read()).encode())
+            kept = Kept()
+            """)
+        self.assertIn("read a", done.stdout, "the finalizer ran at teardown")
+        self.assertFalse(m["storable"])
+        self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_cycle_collected_at_teardown_refuses_the_run(self):
+        done, m = self.exits("""
+            import gc, os
+
+            class Finalized:
+                def __del__(self, open=open, write=os.write):
+                    write(1, ("read " + open("a.txt").read()).encode())
+
+            def cycle():
+                a = Finalized()
+                a.self = a
+            gc.disable()  # collected only once the interpreter tears down
+            cycle()
+            """)
+        if "read a" in done.stdout:
+            self.assertFalse(m["storable"], "the finalizer read after the manifest")
+            self.assertIn(record.LATE, [r["why"] for r in m["reasons"]])
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    @only_on("posix")
+    def test_a_signal_handler_at_exit_reads_nothing_the_manifest_lacks(self):
+        done, m = self.exits("""
+            import atexit, os, signal
+            exiting, seen = [], []
+
+            def handler(*_):
+                if exiting and not seen:
+                    seen.append(1)
+                    signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm left for teardown
+                    os.write(1, ("read " + open("a.txt").read()).encode())
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0.0001, 0.0001)
+            atexit.register(exiting.append, 1)  # runs just before the recorder writes
+            """)
+        if "read a" in done.stdout:
+            self.assertTrue(not m["storable"] or "a.txt" in m["files"],
+                            "the handler's read is in the manifest or refuses the run")
+
+    @proves("REQ_LIFT_PROVEN", "REQ_REUSE_SOUND")
+    def test_a_link_at_the_temporary_name_writes_nothing_through_it(self):
+        for kind in ("symlink", "link"):
+            with self.subTest(kind=kind):
+                victim = self.root / "b.txt"
+                directory = self.root.parent / f"record-{len(list(self.root.parent.glob('record-*')))}"
+                planted = directory / (record.MANIFEST + ".tmp")
+                for exit_by in ("pass", "import os; os._exit(0)"):
+                    done, m = self.exits(f"""
+                        import os
+                        os.{kind}({str(victim)!r}, {str(planted)!r})
+                        {exit_by}
+                        """)
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "b",
+                                     "the file the link names is untouched")
+                    self.assertFalse(m["storable"])
+                    directory = self.root.parent / f"record-{len(list(self.root.parent.glob('record-*')))}"
+                    planted = directory / (record.MANIFEST + ".tmp")
+
+
 class HostName(unittest.TestCase):
     setUp, tearDown = test_record.HostName.setUp, test_record.HostName.tearDown
 
