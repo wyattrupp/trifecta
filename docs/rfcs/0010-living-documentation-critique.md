@@ -12,11 +12,13 @@ created: 2026-11-15
 
 Cyrille Martraire's book "Living Documentation" was read in full against this repository.
 It supports what the check does: rules held by a tool, one home per fact, and a decision
-log that is never edited. It faults how the corpus is produced: documents are written
-before the code they describe, far more is written down than the book thinks worth
-keeping, and the knowledge about a component sits beside the source and not on it. This
-RFC records the twelve faults, records what the book supports so that no answer undoes
-it, and puts each fault as a question. It proposes no requirement.
+log that is never edited. It faults how the corpus is produced: design docs and plans
+are written before the code they describe, far more is written down than the book thinks
+worth keeping, and the knowledge about a component sits beside the source and not on it.
+The book was written for teams of people, so this RFC also sorts its reasons into those
+that hold when a coding session does the writing and those that do not. It records the
+twelve faults, records what the book supports so that no answer undoes it, and puts each
+fault as a question. It proposes no requirement.
 
 ## Motivation
 
@@ -54,6 +56,9 @@ What the book supports:
   is {need}`REQ_LINK_TARGETS` and {need}`REQ_SPEC_RESOLVES`.
 - Stating what is wanted before building it, and proving it by a test. This covers a
   requirement and its negative fixture; it does not cover a design doc or a plan.
+- Writing down the purpose of a piece of work early, so that it can be reviewed before
+  anything is built, and writing down a decision and its reasons when it is made. This
+  covers an RFC and a decision record written before the code.
 - A written record for knowledge that has to outlast the people who held it. A coding
   session that starts with no memory of the last one is such a reader.
 - Writing something down at once when doing so is cheap. A session that drafts a
@@ -62,12 +67,15 @@ What the book supports:
 
 What the book faults:
 
-1. Documents come before the code. The book names writing documentation before building
-   as an abuse of its own method and calls detailed design specifications waste. It
-   holds that documentation follows what was built and does not drive it, and that
-   designing the whole before implementing any of it no longer fits. Here
-   {need}`DEC_0008` makes a spec three kinds of document, a plan follows, and
-   {need}`DEC_0014` makes that order the default for a session.
+1. Design docs and plans come before the code. The book names writing documentation
+   before building as an abuse of its own method and calls detailed design
+   specifications waste. It holds that documentation follows what was built and does
+   not drive it, and that designing the whole before implementing any of it no longer
+   fits. The fault is with a description of the solution written ahead of the solution;
+   a statement of what is wanted, and a decision recorded when it is made, are among
+   what the book supports, above. Here {need}`DEC_0008` makes a design doc part of a
+   spec, a plan follows it, and {need}`DEC_0014` makes that order the default for a
+   session.
 2. A feature nobody built is fully specified. The book says to document only what has
    been built, in answer to a need that was met. {need}`RFC_0007` is accepted and
    {need}`DES_0007` approved, and {need}`PLAN_0006` has no step ticked.
@@ -118,6 +126,33 @@ What the book faults:
     README is such instructions. Two things answer the warning in part: the README names
     no version, and a test runs one of its install blocks.
 
+Where the book's reasons do not carry over. wyatt, 2026-11-15, of the first fault: "we
+need to come up with how the 'writing documentation first is wrong' angle for us, because
+this isn't necessarily for agentic written software", and, asked what "this" was: "this =
+the book". The book gives its reasons for teams of people who write the code themselves.
+Sorted by whether each still holds when a coding session writes both the documents and
+the code:
+
+- Does not carry over: writing is the cost. The book counts time spent on a document as
+  time taken from the code. A session writes either in seconds; the scarce thing is the
+  time a person has to read and review.
+- Does not carry over: talk takes the place of documents. The book's default is people
+  who talk every day and hold the design in their heads. A session keeps nothing from
+  the one before it, so a document is its memory and the only channel between sessions.
+- Does not carry over: whoever codes knows what is wanted. The book's advice to start
+  coding and reflect along the way assumes it. Here a person holds the intent and a
+  session writes the code, so the intent has to be written down before the code is.
+- Carries over: nobody knows the design before building it. {need}`RFC_0009` and the
+  decisions from {need}`DEC_0041` to {need}`DEC_0050` are design found during the build
+  and added afterwards.
+- Carries over: prose that describes code goes stale, whoever wrote it.
+- Not foreseen by the book: prose is free. The effort of writing was what kept a team
+  from writing too much. With that gone, only a rule bounds the amount.
+- Not foreseen by the book: a required shape is always filled. A session asked for two
+  options weighed supplies two, whether or not both were weighed.
+- Not foreseen by the book: code is cheap as well. A working trial costs minutes, which
+  leaves less reason to settle a design on paper first.
+
 ## Terms
 
 :::{term} Internal documentation
@@ -146,7 +181,7 @@ change without the other.
 :id: Q_CORPUS_READER
 :::
 
-:::{question} Does a change start from documents or from code?
+:::{question} Which documents come before the code they describe?
 :id: Q_BUILD_ORDER
 :::
 
@@ -158,7 +193,7 @@ change without the other.
 :id: Q_DECISION_BAR
 :::
 
-:::{question} What bounds the size of the corpus and of the tool?
+:::{question} What bounds how much a person has to read?
 :id: Q_CORPUS_SIZE
 :::
 
