@@ -16,9 +16,12 @@ log that is never edited. It faults how the corpus is produced: design docs and 
 are written before the code they describe, far more is written down than the book thinks
 worth keeping, and the knowledge about a component sits beside the source and not on it.
 The book was written for teams of people, so this RFC also sorts its reasons into those
-that hold when a coding session does the writing and those that do not. It records the
-twelve faults, records what the book supports so that no answer undoes it, and puts each
-fault as a question. It proposes no requirement.
+that hold when a coding session does the writing and those that do not, and states the
+gap between the book's framing and this repository's: the book passes knowledge among
+people who trust what they remember, and this repository keeps control and continuity
+where what is remembered cannot be trusted. It records the twelve faults, records what
+the book supports so that no answer undoes it, and puts each fault as a question. It
+proposes no requirement.
 
 ## Motivation
 
@@ -137,8 +140,9 @@ the code:
   time taken from the code. A session writes either in seconds; the scarce thing is the
   time a person has to read and review.
 - Does not carry over: talk takes the place of documents. The book's default is people
-  who talk every day and hold the design in their heads. A session keeps nothing from
-  the one before it, so a document is its memory and the only channel between sessions.
+  who talk every day and hold the design in their heads. What a session carries over
+  from the one before it, and what a person recalls of either, can be wrong without
+  anyone noticing, so nothing here rests on it; the gap is stated below.
 - Does not carry over: whoever codes knows what is wanted. The book's advice to start
   coding and reflect along the way assumes it. Here a person holds the intent and a
   session writes the code, so the intent has to be written down before the code is.
@@ -152,6 +156,58 @@ the code:
   options weighed supplies two, whether or not both were weighed.
 - Not foreseen by the book: code is cheap as well. A working trial costs minutes, which
   leaves less reason to settle a design on paper first.
+
+The gap between the book's framing and this repository's. The book is about passing
+knowledge among people who share a memory and can trust it. This repository is about
+control and continuity where the {need}`shared memory <TERM_SHARED_MEMORY>` cannot be
+trusted. wyatt, 2026-11-15, asked whether the gap is control and continuity without
+shared memory: "yeah, I would say so. but the lack of shared memory is not really the
+point. it's the fallibility of the shared memory that we have to guard against, thus have
+to essentially pretend it doesn't exist." A session does carry things over: a summary of
+its own past, notes kept between sessions, what the person tells it. A person remembers
+too. Any of these can be wrong and read as right, so the repository is built as if none
+of them were there: what counts is written in the corpus and held by the check.
+
+| | The book assumes | Here |
+| --- | --- | --- |
+| Who holds the design | The team, in their heads, and they can be asked | A person holds the intent and did not write the code; the session that wrote it cannot be asked |
+| What is remembered | Trusted; a document is a fallback | Fallible, so treated as absent; the corpus is what is known |
+| Losing whoever knew | An accident to guard against | The ordinary case, at the end of every session |
+| What is scarce | The time and the will to write | A person's time to read and to verify |
+| Which way knowledge flows | From the code, through a document, to people | From a person, through a document, to a session and its code, and back to the person to be checked |
+| Who reads | People, who skim | A session, which reads all of it and takes it at its word, and a person, who reads as little as will do |
+| Trust | The team trusts itself; a call for detail is a sign of trouble | Trust in a session is partial and that is correct; the documents and the check are the control |
+| Why writing helps | It makes the writer think | The writer is a session; the gain to the person is something to rule on |
+
+Where the book does treat this situation. It treats it as two cases apart from its main
+line, and this repository is both at once and all the time. One is legacy code: nobody
+who knows the reasons is left, and what is known has to be rebuilt from what was
+written. The other is compliance: a strict procedure, decision-makers who are named, and
+a record of what led to what, held by tools and not by diligence. So the book's answers
+for those two cases bear on this repository more than its advice to a team that talks:
+rules held by a tool, a decision log, and views that are generated.
+
+What a document is for here. The book gives a document one job, to carry knowledge to a
+reader later. Here it has three, and the book does not tell them apart:
+
+- Instruction: what a person wants, given to a session that cannot be relied on to ask
+  or to recall.
+- Memory: what one session leaves for the next, in place of anything it might carry
+  over.
+- Record of authority: what a person ruled, in their words, kept apart from what a
+  session chose. {need}`DEC_0041` already does this, where its outcome quotes the
+  ruling and names the recommendations it was chosen from.
+
+Two things follow, and neither is settled here.
+
+- A session makes the book's case against design docs stronger. The book's ground is
+  that most of what is known is already in the code and is better drawn out of it than
+  written beside it. A session can read the code and describe any component when asked.
+  What then has to be written down and kept is what cannot be drawn out of the code
+  again: the intent, the rulings, the options turned down, and the evidence.
+- The third job suggests one bar for the decision log: a record where a person ruled,
+  and none where a session chose alone. wyatt, 2026-11-15, of that bar: "that feels way
+  too narrow". The bar is left to {need}`Q_DECISION_BAR`, with that one set aside.
 
 ## Terms
 
@@ -171,6 +227,13 @@ does not touch.
 :id: TERM_RECONCILIATION
 A check that two statements of the same knowledge still agree, run because either can
 change without the other.
+:::
+
+:::{term} Shared memory
+:id: TERM_SHARED_MEMORY
+What the people and the sessions working on a repository carry of it outside the
+repository: what a person recalls, what a session holds from earlier in its run or was
+handed from a past one, a transcript, a note. It can be wrong and read as right.
 :::
 
 ## Requirements
@@ -195,6 +258,10 @@ change without the other.
 
 :::{question} What bounds how much a person has to read?
 :id: Q_CORPUS_SIZE
+:::
+
+:::{question} What bounds the size of the tool?
+:id: Q_TOOL_SIZE
 :::
 
 :::{question} How long does a done plan stay in the corpus?
