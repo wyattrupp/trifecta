@@ -19,9 +19,9 @@ The book was written for teams of people, so this RFC also sorts its reasons int
 that hold when a coding session does the writing and those that do not, and states the
 gap between the book's framing and this repository's: the book passes knowledge among
 people who trust what they remember, and this repository keeps control and continuity
-where what is remembered cannot be trusted. It records the twelve faults, records what
-the book supports so that no answer undoes it, and puts each fault as a question. It
-proposes no requirement.
+where what is remembered cannot be trusted. It records the twelve faults, says how far
+each holds across that gap, records what the book supports so that no answer undoes it,
+and puts what is left as questions. It proposes no requirement.
 
 ## Motivation
 
@@ -208,6 +208,30 @@ Two things follow, and neither is settled here.
 - The third job suggests one bar for the decision log: a record where a person ruled,
   and none where a session chose alone. wyatt, 2026-11-15, of that bar: "that feels way
   too narrow". The bar is left to {need}`Q_DECISION_BAR`, with that one set aside.
+
+How far each fault holds across the gap. The twelve faults above are stated as the book
+makes them. The test applied to each here: does its reason still stand once the shared
+memory is treated as absent and a session does the writing? The answers are the
+author's judgement, not a measurement, and the numbers are those of the list above.
+
+| Fault | Holds | What is left of it |
+| --- | --- | --- |
+| 1. Design docs and plans before the code | In full | It rests on the design being unknown before it is built, which carries over. Falls to {need}`Q_BUILD_ORDER`. |
+| 7. A component's knowledge is not on it | In full | Prose about code goes stale whoever wrote it, and a session that can describe a component from its source makes the separate description less needed. Falls to {need}`Q_COMPONENT_HOME`. |
+| 8. The link to the source proves little | In full, and most of all | A check that passes while the prose is stale is something wrong that reads as right, which is what the gap is a guard against. Falls to {need}`Q_SPEC_STRENGTH`. |
+| 10. Diagrams cannot surprise | In full | A person checking a session's work needs a view of the code as it is, not the corpus drawn again. Falls to {need}`Q_DIAGRAM_SOURCE`. |
+| 12. The README holds what changes | In full, and least | Stale prose again; a test already runs one install block. Falls to {need}`Q_README_SCOPE`. |
+| 2. An unbuilt feature is specified | In part | An accepted RFC is intent kept out of the shared memory, which the gap calls for. Only the design approved ahead of the build is at fault. Falls to {need}`Q_UNBUILT_DESIGN`. |
+| 4. Too many decisions are recorded | In part | The book's three to five assumes a team that recalls its routine choices. The count does not carry over; the amount a person has to read does. Falls to {need}`Q_DECISION_BAR`. |
+| 5. The amount of text counts against the design | In part | Where prose is free, its length no longer measures how hard the design is to explain. What is left is the person's reading time. Falls to {need}`Q_CORPUS_SIZE`. |
+| 6. Plans are kept | In part | The book throws a plan away because people remember what mattered in it. Here the As built entry is that memory and stays; only the list of steps is short-lived. Falls to {need}`Q_PLAN_LIFETIME`. |
+| 9. Terms are written by hand | In part | That developers need no glossary beyond the code does not hold for a session, which takes each word as written. What is left: no term is compared with the names in the source. Falls to {need}`Q_TERM_SOURCE`. |
+| 11. The tool is large and shipped as a framework | In part | That rules grow from those who work under them does not hold for a session: rules a person sets are the control. It holds for a team that adopts the tool, and the tool's size is a cost either way. Falls to {need}`Q_ADOPTER_RULES` and {need}`Q_TOOL_SIZE`. |
+| 3. Writing a document is the default | Not as stated | The book's reason is that talk and memory serve better. The gap rules both out, so writing is the default here by necessity. Only a bound on the amount is left, and fault 5 holds that. |
+
+{need}`Q_CORPUS_READER` belongs to no one fault. The gap answers part of it: there are
+two readers, a session and a person, and several of the faults above come out
+differently for each.
 
 ## Terms
 
