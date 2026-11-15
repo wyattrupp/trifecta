@@ -146,9 +146,11 @@ the code:
 - Does not carry over: whoever codes knows what is wanted. The book's advice to start
   coding and reflect along the way assumes it. Here a person holds the intent and a
   session writes the code, so the intent has to be written down before the code is.
-- Carries over: nobody knows the design before building it. {need}`RFC_0009` and the
-  decisions from {need}`DEC_0041` to {need}`DEC_0050` are design found during the build
-  and added afterwards.
+- Carries over, in part: nobody knows the design before building it. The decisions from
+  {need}`DEC_0041` to {need}`DEC_0050` were found during the build of {need}`RFC_0009`
+  and added afterwards. A later measurement, in {need}`DEC_0051`, narrows this: the
+  components and interfaces named before the code held, and the prose about them is
+  what changed.
 - Carries over: prose that describes code goes stale, whoever wrote it.
 - Not foreseen by the book: prose is free. The effort of writing was what kept a team
   from writing too much. With that gone, only a rule bounds the amount.
@@ -216,7 +218,7 @@ author's judgement, not a measurement, and the numbers are those of the list abo
 
 | Fault | Holds | What is left of it |
 | --- | --- | --- |
-| 1. Design docs and plans before the code | In full | It rests on the design being unknown before it is built, which carries over. Falls to {need}`Q_BUILD_ORDER`. |
+| 1. Design docs and plans before the code | In full for the prose, not for the names | It rests on the design being unknown before it is built. {need}`DEC_0051` measures that the names of components and interfaces held and the prose about them did not. Falls to {need}`Q_BUILD_ORDER`. |
 | 7. A component's knowledge is not on it | In full | Prose about code goes stale whoever wrote it, and a session that can describe a component from its source makes the separate description less needed. Falls to {need}`Q_COMPONENT_HOME`. |
 | 8. The link to the source proves little | In full, and most of all | A check that passes while the prose is stale is something wrong that reads as right, which is what the gap is a guard against. Falls to {need}`Q_SPEC_STRENGTH`. |
 | 10. Diagrams cannot surprise | In full | A person checking a session's work needs a view of the code as it is, not the corpus drawn again. Falls to {need}`Q_DIAGRAM_SOURCE`. |
