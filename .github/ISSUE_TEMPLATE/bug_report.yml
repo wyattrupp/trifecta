@@ -1,0 +1,47 @@
+name: Bug report
+description: trifecta reports a finding it should not, misses one it should, or fails.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Release or commit
+      description: The wheel's version, or the commit SHA when running from source.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and Python
+      placeholder: Ubuntu 24.04, Python 3.12.3
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran.
+      render: sh
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: What it printed, findings included, each with its requirement ID.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What you expected instead, and the requirement that says so if you know it.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Smallest document that reproduces it
+      description: A minimal Markdown document or corpus, if the bug depends on one.
