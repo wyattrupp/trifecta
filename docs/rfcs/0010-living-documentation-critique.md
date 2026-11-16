@@ -218,22 +218,23 @@ author's judgement, not a measurement, and the numbers are those of the list abo
 
 | Fault | Holds | What is left of it |
 | --- | --- | --- |
-| 1. Design docs and plans before the code | In full for the prose, not for the names | It rests on the design being unknown before it is built. {need}`DEC_0051` measures that the names of components and interfaces held and the prose about them did not. Falls to {need}`Q_BUILD_ORDER`. |
-| 7. A component's knowledge is not on it | In full | Prose about code goes stale whoever wrote it, and a session that can describe a component from its source makes the separate description less needed. Falls to {need}`Q_COMPONENT_HOME`. |
-| 8. The link to the source proves little | In full, and most of all | A check that passes while the prose is stale is something wrong that reads as right, which is what the gap is a guard against. Falls to {need}`Q_SPEC_STRENGTH`. |
-| 10. Diagrams cannot surprise | In full | A person checking a session's work needs a view of the code as it is, not the corpus drawn again. Falls to {need}`Q_DIAGRAM_SOURCE`. |
-| 12. The README holds what changes | In full, and least | Stale prose again; a test already runs one install block. Falls to {need}`Q_README_SCOPE`. |
-| 2. An unbuilt feature is specified | In part | An accepted RFC is intent kept out of the shared memory, which the gap calls for. Only the design approved ahead of the build is at fault. Falls to {need}`Q_UNBUILT_DESIGN`. |
-| 4. Too many decisions are recorded | In part | The book's three to five assumes a team that recalls its routine choices. The count does not carry over; the amount a person has to read does. Falls to {need}`Q_DECISION_BAR`. |
-| 5. The amount of text counts against the design | In part | Where prose is free, its length no longer measures how hard the design is to explain. What is left is the person's reading time. Falls to {need}`Q_CORPUS_SIZE`. |
-| 6. Plans are kept | In part | The book throws a plan away because people remember what mattered in it. Here the As built entry is that memory and stays; only the list of steps is short-lived. Falls to {need}`Q_PLAN_LIFETIME`. |
-| 9. Terms are written by hand | In part | That developers need no glossary beyond the code does not hold for a session, which takes each word as written. What is left: no term is compared with the names in the source. Falls to {need}`Q_TERM_SOURCE`. |
-| 11. The tool is large and shipped as a framework | In part | That rules grow from those who work under them does not hold for a session: rules a person sets are the control. It holds for a team that adopts the tool, and the tool's size is a cost either way. Falls to {need}`Q_ADOPTER_RULES` and {need}`Q_TOOL_SIZE`. |
+| 1. Design docs and plans before the code | In full for the prose, not for the names | It rests on the design being unknown before it is built. {need}`DEC_0051` measures that the names of components and interfaces held and the prose about them did not. Fell to {need}`Q_BUILD_ORDER`, which it resolves. |
+| 7. A component's knowledge is not on it | In full | Prose about code goes stale whoever wrote it, and a session that can describe a component from its source makes the separate description less needed. Fell to {need}`Q_COMPONENT_HOME`, which {need}`DEC_0052` resolves: a built component is described in its source. |
+| 8. The link to the source proves little | In full, and most of all | A check that passes while the prose is stale is something wrong that reads as right, which is what the gap is a guard against. Fell to {need}`Q_SPEC_STRENGTH`, which {need}`DEC_0053` resolves: the path is an exact address, named back from the source, and claims nothing of the prose. |
+| 10. Diagrams cannot surprise | In full | A person checking a session's work needs a view of the code as it is, not the corpus drawn again. Fell to {need}`Q_DIAGRAM_SOURCE`, which {need}`DEC_0054` resolves: a diagram of components is drawn from the code, with the declared links marked on it. |
+| 12. The README holds what changes | In full, and least | Stale prose again; a test already runs one install block. Fell to {need}`Q_README_SCOPE`, which {need}`DEC_0063` resolves: the README holds adoption only, and every block of commands in it is run by a test. |
+| 2. An unbuilt feature is specified | In part | An accepted RFC is intent kept out of the shared memory, which the gap calls for. Only the design approved ahead of the build is at fault. Fell to {need}`Q_UNBUILT_DESIGN`, which {need}`DEC_0056` resolves: the RFC may wait, and a design is approved and a plan written only when the build starts. |
+| 4. Too many decisions are recorded | In part | The book's three to five assumes a team that recalls its routine choices. The count does not carry over; the amount a person has to read does. Fell to {need}`Q_DECISION_BAR`, which {need}`DEC_0058` resolves: a record exists to resolve an RFC question and for nothing else, which the fifty records already met. |
+| 5. The amount of text counts against the design | In part | Where prose is free, its length no longer measures how hard the design is to explain. What is left is the person's reading time. Fell to {need}`Q_CORPUS_SIZE`, which {need}`DEC_0060` resolves: what is put to a person is bounded by its form, and the corpus is given no bound. |
+| 6. Plans are kept | In part | The book throws a plan away because people remember what mattered in it. Here the As built entry is that memory and stays; only the list of steps is short-lived. Fell to {need}`Q_PLAN_LIFETIME`, which {need}`DEC_0057` resolves: a done plan keeps its As built and loses its steps. |
+| 9. Terms are written by hand | In part | That developers need no glossary beyond the code does not hold for a session, which takes each word as written. What is left: no term is compared with the names in the source. Fell to {need}`Q_TERM_SOURCE`, which {need}`DEC_0055` resolves: terms stay declared in RFCs, and the rule against a declared synonym reaches the source. |
+| 11. The tool is large and shipped as a framework | In part | That rules grow from those who work under them does not hold for a session: rules a person sets are the control. It holds for a team that adopts the tool, and the tool's size is a cost either way. Fell to {need}`Q_ADOPTER_RULES`, which {need}`DEC_0062` resolves: the rules ship whole until an adopting repository asks otherwise; and to {need}`Q_TOOL_SIZE`, which {need}`DEC_0061` resolves: no cap, and each part states its size and its measured gain. |
 | 3. Writing a document is the default | Not as stated | The book's reason is that talk and memory serve better. The gap rules both out, so writing is the default here by necessity. Only a bound on the amount is left, and fault 5 holds that. |
 
 {need}`Q_CORPUS_READER` belongs to no one fault. The gap answers part of it: there are
 two readers, a session and a person, and several of the faults above come out
-differently for each.
+differently for each. {need}`DEC_0059` resolves it: the corpus is written for a session and
+the tool, and what a person has to read is put to them.
 
 ## Terms
 
