@@ -21,7 +21,9 @@ gap between the book's framing and this repository's: the book passes knowledge 
 people who trust what they remember, and this repository keeps control and continuity
 where what is remembered cannot be trusted. It records the twelve faults, says how far
 each holds across that gap, records what the book supports so that no answer undoes it,
-and puts what is left as questions. It proposes no requirement.
+and puts what is left as thirteen questions. A decision record answers each, and the
+requirements below state those answers. Writing them raised four further questions,
+which four more decision records answer.
 
 ## Motivation
 
@@ -265,6 +267,148 @@ handed from a past one, a transcript, a note. It can be wrong and read as right.
 
 ## Requirements
 
+Each requirement below states one ruling, and names the decision record that holds it.
+None is built, and none binds until this RFC is accepted and a design satisfies it.
+
+:::{req} A design names before it describes
+:id: REQ_NAMES_BEFORE_BUILD
+A component or an interface that has no `spec` path MUST hold nothing beyond its title
+and its options.
+:::
+
+From {need}`DEC_0051`.
+
+:::{req} A built component is described in its source
+:id: REQ_DESCRIBED_IN_SOURCE
+The definition that the `spec` path of a component or an interface names MUST carry a
+description of it: in a Python file, a docstring on that definition or a comment directly
+above it.
+:::
+
+From {need}`DEC_0052`. That ruling also keeps prose in the need only for how files relate
+and why. No requirement states that half: where the line falls is a judgement, and a
+requirement here has to be one a fixture or a test can prove.
+
+:::{req} A spec path resolves to one definition
+:id: REQ_SPEC_EXACT
+A `spec` path that has a fragment MUST resolve to exactly one definition in the file it
+names: a function, a class or an assignment in a Python file; a key that occurs once as a
+key in a YAML or TOML file; a heading in a Markdown file. A `spec` path into a file whose
+format holds no comment MUST have no fragment.
+:::
+
+:::{req} The source names its need back
+:id: REQ_SPEC_NAMED_BACK
+The definition that a `spec` path resolves to MUST name the id of the need that points at
+it: in a Python file in its docstring or in a comment directly above it, and in a YAML,
+TOML or Markdown file in a comment directly above it. A file whose format holds no
+comment owes no such name.
+:::
+
+Both from {need}`DEC_0053`, with {need}`DEC_0065` for the files that are not Python. They
+add to {need}`REQ_SPEC_RESOLVES` and do not undo it: a
+fragment that resolves to one definition also occurs in the file.
+
+:::{req} A diagram of components is drawn from the source
+:id: REQ_DIAGRAM_FROM_SOURCE
+A diagram of components MUST be drawn from the Python files the package ships, from the
+imports of one by another at the least, and MUST mark on it each link the needs declare, so that a link
+declared and absent from the source, a link in the source that no need declares, and a
+link in both can be told apart.
+:::
+
+From {need}`DEC_0054`, with {need}`DEC_0064` for which files are read.
+
+:::{req} Declared synonyms stay out of the source
+:id: REQ_SYNONYMS_IN_SOURCE
+A declared synonym of a defined term MUST NOT appear in a name, a comment or a string of
+a Python file the package ships in place of the term.
+:::
+
+From {need}`DEC_0055`, with {need}`DEC_0064` for which files are read.
+
+:::{req} An approved design is one being built
+:id: REQ_APPROVED_IS_BUILDING
+An approved design doc MUST be implemented by a plan in which at least one step is done.
+An approved design doc that is not MAY return to draft, and a plan that implements a
+design doc returned to draft MUST be abandoned.
+:::
+
+From {need}`DEC_0056`. By {need}`DEC_0066` a design doc stays draft while its plan is
+written and becomes approved in the change that marks the first step done.
+
+:::{req} A done plan holds no steps
+:id: REQ_DONE_PLAN_HOLDS_NO_STEPS
+A done plan MUST hold no step. Each of its tasks MUST keep its id, its title and its As
+built entry, and the plan MUST keep its review records.
+:::
+
+From {need}`DEC_0057`.
+
+:::{req} A decision record resolves a question
+:id: REQ_DECISION_RESOLVES_QUESTION
+Every decision record MUST resolve at least one question of an RFC.
+:::
+
+From {need}`DEC_0058`. Every record in the corpus meets it today.
+
+:::{req} One view lists the rulings
+:id: REQ_RULINGS_VIEW
+One document MUST hold a derived view that lists every accepted decision record by its
+id, its title and the questions it resolves.
+:::
+
+:::{req} A ruling is asked for in a set form
+:id: REQ_ASK_FORM
+The instructions the init command installs MUST direct a Claude Code session to put a
+ruling to a person as one decision, with its measured readings, how each was read, what
+the readings do not show, and the options.
+:::
+
+Both from {need}`DEC_0060`. The second is this RFC's reading of that ruling and not its
+words: the ruling sets the form, and what a session puts to a person is not in the
+corpus, so the only place the tool reaches it is the instructions it installs. A design
+may find a better place.
+
+:::{req} A part of the tool states its size and its gain
+:id: REQ_SIZE_AND_GAIN
+An RFC that has a requirement and is accepted after this one MUST state, before it is
+accepted, how many lines of source it expects to add and the reading that will show what
+they gained. The As built of a done plan that implements a design of such an RFC MUST
+state the lines added and that reading as measured.
+:::
+
+From {need}`DEC_0061`, with {need}`DEC_0067` for the RFCs it binds. No other requirement
+here excuses a document by its date: by {need}`DEC_0067` the plan that builds each also
+changes what fails it.
+
+:::{req} The README's commands are run
+:id: REQ_README_BLOCKS_RUN
+Every block of commands in the README MUST be run by a test, and the README MUST hold no
+instructions for developing this repository.
+:::
+
+From {need}`DEC_0063`. It adds to {need}`REQ_ADOPTION_GUIDE`.
+
+Two rulings give no requirement. {need}`DEC_0059`, that the corpus is written for a
+session and the tool, is a stance the requirements above rest on, and nothing a check
+can hold. {need}`DEC_0062`, that an adopting repository takes the rules whole, builds
+nothing.
+
+Five requirements of accepted RFCs say otherwise than a requirement above, and each has
+to be amended, under a review of its RFC, before the one above can be met:
+
+| Requirement above | Earlier requirement | Where they part |
+| --- | --- | --- |
+| {need}`REQ_DIAGRAM_FROM_SOURCE` | {need}`REQ_DIAGRAMS_DERIVED` | The earlier one has a diagram draw only from the configuration and the built graph. |
+| {need}`REQ_APPROVED_IS_BUILDING` | {need}`REQ_STATUS_FORWARD` | The earlier one forbids an approved design doc to return to draft. |
+| {need}`REQ_APPROVED_IS_BUILDING` | {need}`REQ_COVERAGE` | The earlier one has a requirement of an accepted RFC satisfied by a component of an approved or implemented design doc, so a design doc in draft covers nothing. |
+| {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_FROZEN_TASKS` | The earlier one holds the steps of a resolved task to the base ref. |
+| {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_AS_BUILT` | The earlier one calls a task resolved when it has steps and none is open, and a done plan has every task resolved. |
+
+{need}`DEC_0012`, which chose how tasks are frozen, is accepted and stands; whether the
+amendment above needs a decision to supersede it is not settled here.
+
 ## Questions
 
 :::{question} Who is the corpus written for?
@@ -319,11 +463,33 @@ handed from a past one, a transcript, a note. It can be wrong and read as right.
 :id: Q_README_SCOPE
 :::
 
+Writing the requirements showed four things the rulings did not settle. Each has since
+been ruled on, and the requirements above say so where it changes them.
+
+:::{question} What of the documents written before these requirements?
+:id: Q_EXISTING_DOCUMENTS
+:::
+
+:::{question} What is a definition, and where is its comment, in a file that is not Python?
+:id: Q_NON_PYTHON_DEFINITION
+:::
+
+:::{question} Which files are the source that the terms and the diagram read?
+:id: Q_SOURCE_FILES
+:::
+
+:::{question} How does a design doc come to be approved when approval needs a step done?
+:id: Q_BUILD_START
+:::
+
 ## Out of scope
 
 Whether the book is right; the parts of the book about business domains, conversations
 between roles in a team, and documentation produced by a running system, which have no
-counterpart here; any change to what the book supports, listed above; a requirement,
-until the questions are answered.
+counterpart here; any change to what the book supports, listed above; the amendments
+to the earlier requirements listed under Requirements, each of which belongs to a review
+of its own RFC; whether the recorder and the store are kept, which {need}`DEC_0061` leaves
+to a later ruling; and moving any existing document, plan or README text to meet a
+requirement above.
 
 ## Review
