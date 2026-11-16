@@ -156,6 +156,10 @@ gave 60 imports, 55 of them undeclared, and two import cycles. A name imported f
 package had been counted twice; the table above measures 52 and 47, and no cycle. Asked
 the same day whether the choice stands on the corrected reading, wyatt: "Yes, it stands".
 
+The review of {need}`RFC_0010` later found a reading in this record wrong, which that RFC
+states among its corrections. Asked on 2026-11-15 whether the choice stands on the
+corrected reading, wyatt: "Both stand".
+
 ## Consequences
 
 - Good, because the three decisions together give a person one description of a

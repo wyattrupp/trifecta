@@ -285,7 +285,8 @@ bounded by nothing here.
 :id: REQ_DESCRIBED_IN_SOURCE
 The definition that the `spec` path of a component or an interface names MUST carry a
 description of it: in a Python file, a docstring on that definition or a comment directly
-above it; in a YAML, TOML or Markdown file, a comment directly above it.
+above it; in a YAML, TOML or Markdown file, a comment directly above it. A file whose
+format holds no comment owes no description.
 :::
 
 From {need}`DEC_0052`. That ruling also keeps prose in the need only for how files relate
@@ -319,8 +320,10 @@ A diagram of components MUST be drawn from the Python files the package ships, f
 imports of one by another at the least, and MUST mark on it each link the needs declare, so that a link
 declared and absent from the source, a link in the source that no need declares, and a
 link in both can be told apart. The files MUST be read without being imported or run,
-and text taken from them MUST reach a diagram only as a label, never as markup or as an
-attribute.
+MUST lie inside the repository, and one that cannot be read as Python MUST be reported.
+Text taken from them MUST reach a diagram only as a label, never as markup or as an
+attribute, and the directive that draws the diagram MUST take no content, argument or
+option.
 :::
 
 From {need}`DEC_0054`, with {need}`DEC_0064` for which files are read. This is a third
@@ -331,7 +334,8 @@ gives the text of a need.
 :::{req} Declared synonyms stay out of the source
 :id: REQ_SYNONYMS_IN_SOURCE
 A declared synonym of a defined term MUST NOT appear in a name, a comment or a string of
-a Python file the package ships in place of the term.
+a Python file the package ships in place of the term. A file that cannot be read as
+Python MUST be reported.
 :::
 
 From {need}`DEC_0055`, with {need}`DEC_0064` for which files are read.
@@ -339,10 +343,10 @@ From {need}`DEC_0055`, with {need}`DEC_0064` for which files are read.
 :::{req} An approved design is one being built
 :id: REQ_APPROVED_IS_BUILDING
 An approved design doc MUST be implemented by an active plan in which at least one step
-is done, or by a done plan. A design doc that such a plan implements MUST be approved or
-implemented. Against the base ref, an approved design doc MAY return to draft only if no
-plan that implements it had a step done at the base ref, and every plan that implements
-it MUST be abandoned in the same change.
+is done, or by a done plan. A design doc that such a plan implements MUST be approved,
+implemented or obsolete. Against the base ref, an approved design doc MAY return to
+draft only if no plan that implemented it at the base ref was done or had a step done
+there, and every plan that implemented it there MUST be abandoned in the same change.
 :::
 
 From {need}`DEC_0056`. By {need}`DEC_0066` a design doc stays draft while its plan is
@@ -350,14 +354,23 @@ written and becomes approved in the change that marks the first step done; the s
 sentence above is what holds that, since without it a design could stay in draft, read
 by no review, through its whole build. {need}`DEC_0056` has a plan written only when the
 build starts, and {need}`DEC_0066`, the later ruling, has it written and reviewed before
-the first step; the requirement follows the later one.
+the first step; the requirement follows the later one. The return to draft is
+{need}`DEC_0056`'s, and once the first sentence holds on the main branch it has nothing
+left to apply to: it is there for the designs approved before this requirement. Two
+things it leaves unsettled. A draft design with a draft plan is the ordinary state under
+{need}`DEC_0066` when reached forward, and here a design returned to draft has its plans
+abandoned; the two rulings differ and the requirement keeps both. And a design whose
+plan had a step done and is then given up can neither stay approved nor return to draft;
+obsolete is the one status left to it, and no ruling says that is what is meant.
 
 :::{req} A done plan holds no steps
 :id: REQ_DONE_PLAN_HOLDS_NO_STEPS
-A done plan MUST hold no step. Steps MUST be removed only from a plan every task of which
-was resolved at the base ref. Each task MUST keep its id, its title, its options and its
-As built entry, and the plan its review records, and each of these MUST match the base
-ref. The reviewed content of a draft or an active plan MUST go on covering its steps.
+A plan that was done at the base ref MUST hold no step. A plan MUST become done only
+from active at the base ref. A task that was resolved at the base ref MUST keep its id,
+its title, its options and its As built entry unchanged, whatever the status of its plan
+now, and its steps MUST be removed only when every task of its plan was resolved at the
+base ref. A review record that was in a plan at the base ref MUST be kept unchanged. The
+reviewed content of a draft or an active plan MUST go on covering its steps.
 :::
 
 From {need}`DEC_0057`. The ruling keeps the id, the titles, the review records and the As
@@ -366,7 +379,10 @@ RFC found it needs: the options of a task, since {need}`REQ_DESIGN_BUILT` reads 
 from the tasks of a done plan; that what is kept matches the base ref, since today a
 task is frozen only through its steps and the As built is outside the reviewed content;
 and that steps go only once every task was resolved, since otherwise an open step could
-be deleted and the plan called done.
+be deleted and the plan called done. So a plan becomes done with its steps still in it,
+which is where the check sees that each was done or dropped, and loses them in a change
+after that one. A plan cannot be added already done. The steps of a task that is not
+resolved stay free to change, as now.
 
 :::{req} A decision record resolves a question
 :id: REQ_DECISION_RESOLVES_QUESTION
@@ -398,7 +414,7 @@ may find a better place.
 :id: REQ_SIZE_AND_GAIN
 This RFC, and every RFC of a later number that has a requirement, MUST state, before it
 is accepted, how many lines of source it expects to add and the reading that will show what
-they gained. The As built of a done plan that implements a design of such an RFC MUST
+they gained. The As built entry of a task of a done plan that implements a design of such an RFC MUST
 state the lines added and that reading as measured.
 :::
 
@@ -406,10 +422,12 @@ From {need}`DEC_0061`, with {need}`DEC_0067` for the RFCs it binds. This RFC is 
 {need}`DEC_0061` and {need}`DEC_0063` both say, and states both here.
 
 Expected size: about 1,900 lines of source and about 600 of tests. That is the present
-average carried over, not a design: the 23 source files outside the recorder and the
-store hold 5,049 lines for the 39 rule ids the package reports, 129 lines to a rule, and
-the test files outside those parts hold 1,559 lines, 40 to a rule; this RFC has fifteen
-requirements. It is an estimate made before any design, and a design may show it wrong
+average carried over, not a design: the 23 source files other than the recorder, the
+store, the profiler and build reuse hold 5,049 lines, and 39 requirement ids are quoted
+in the package's Python, which is 129 lines to an id; the Python test files outside
+those parts hold 1,559 lines, 40 to an id; this RFC has fifteen requirements. An id
+quoted is not shown to be a rule held, and the 123 fixtures, which prove most rules, are
+outside the test figure. It is an estimate made before any design, and a design may show it wrong
 either way.
 
 The reading that will show the gain: for each requirement, what it reports on the
@@ -419,17 +437,18 @@ states it again as measured, with the lines added. A requirement that reports no
 there, as {need}`REQ_SYNONYMS_IN_SOURCE` and {need}`REQ_DECISION_RESOLVES_QUESTION` do
 today, has shown no gain by this reading and is put to a person under {need}`DEC_0061`. The ruling also has a part whose gain is not shown put to a
 person, to keep or to cut. That is a step for a person and not a rule a check can hold,
-so it is not in the requirement. No other requirement
-here excuses a document by its date: by {need}`DEC_0067` the plan that builds each also
-changes what fails it.
+so it is not in the requirement. One other requirement
+here excuses a document by when it was made, {need}`REQ_RECORD_HOLDS_ASK`; for the rest,
+by {need}`DEC_0067` the plan that builds each also changes what fails it.
 
 :::{req} The README's commands are run
 :id: REQ_README_BLOCKS_RUN
 Every block of commands in the README MUST be run by a test, and the README MUST hold no
 instructions for developing this repository. A test MAY leave out a command that needs a
-published release or a credential, and MAY run on one system only; each command left out
-MUST be held by an assertion on the README's text, and the test MUST run with no
-credential in its environment.
+published release or a credential, and MAY run on one system only. Each command left out
+MUST be held, whole and in its place among the others, by an assertion on the README's
+text. The test MUST run with an environment built from a stated list of names and with
+a home directory that is empty.
 :::
 
 From {need}`DEC_0063`. It adds to {need}`REQ_ADOPTION_GUIDE`.
@@ -444,27 +463,38 @@ From {need}`DEC_0068`, a ruling made on a finding of the review of this RFC.
 
 :::{req} A decision record holds the ask
 :id: REQ_RECORD_HOLDS_ASK
-A decision record that quotes a person's ruling MUST hold the question, the readings and
-the options as they were put to that person, and which option was recommended.
+A decision record numbered 0051 or later whose decision-makers include a person MUST
+hold the question and the options as they were put to that person, the option that was
+recommended if one was, and the readings that were put with them.
 :::
 
-From {need}`DEC_0069`, likewise. The nineteen records of this RFC meet it. The fifty
-before them cannot: an accepted record on the main branch does not change, and what was
-put for them was not kept. The requirement binds a record made from this RFC on.
+From {need}`DEC_0069`, likewise. The number is in the requirement because the fifty
+records before it cannot meet it: an accepted record on the main branch does not change,
+and what was put for them was not kept. That is a second requirement here that excuses
+a document by when it was made; {need}`DEC_0067` rules one, and this one is forced by
+{need}`REQ_IMMUTABLE_DECISIONS` and has not been put to a person. The nineteen records of
+this RFC hold the question and the options as put. They hold the readings only where
+those were in the question itself; the readings that stood beside it in a message are
+given by reference to the record's table, which holds the corrected figure where one
+was wrong. And a question put again after its record is on the main branch has no place
+to be recorded, which is not settled here.
 
 Two rulings give no requirement. {need}`DEC_0059`, that the corpus is written for a
 session and the tool, is a stance the requirements above rest on, and nothing a check
 can hold. {need}`DEC_0062`, that an adopting repository takes the rules whole, builds
 nothing.
 
-Seven requirements of accepted RFCs say otherwise than a requirement above, and each has
-to be amended, under a review of its RFC, before the one above can be met:
+Eight requirements of accepted RFCs say otherwise than a requirement above, or reach
+less far than it needs, and each has to be amended, under a review of its RFC, before
+the one above can be met:
 
 | Requirement above | Earlier requirement | Where they part |
 | --- | --- | --- |
 | {need}`REQ_APPROVED_IS_BUILDING` | {need}`REQ_STATUS_FORWARD` | The earlier one forbids an approved design doc to return to draft. |
+| {need}`REQ_APPROVED_IS_BUILDING` | {need}`REQ_DIAGRAMS_DERIVED` | The earlier one has the trace mark a requirement that no component of an approved or implemented design satisfies, the test {need}`REQ_COVERAGE` uses; once that counts a draft the two differ. |
 | {need}`REQ_APPROVED_IS_BUILDING` | {need}`REQ_COVERAGE` | The earlier one has a requirement of an accepted RFC satisfied by a component of an approved or implemented design doc, so a design doc in draft covers nothing. |
-| {need}`REQ_DRAFT_DESIGN_REVIEWED` | {need}`REQ_REVIEWED`, {need}`REQ_REVIEW_CURRENT` | The earlier ones ask a review, and a current one, only of an approved or implemented design doc. |
+| {need}`REQ_DRAFT_DESIGN_REVIEWED` | {need}`REQ_REVIEWED`, {need}`REQ_REVIEW_CURRENT` | Not a contradiction: the earlier ones ask a review, and a current one, only of an approved or implemented design doc, and have to reach a draft that a plan implements. |
+| {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_REVIEW_CURRENT` | The reviewed content of a plan covers its steps, so removing them leaves a done plan with no review of its current text, while its records are to stay unchanged. What a done plan's reviewed content is has to be said. |
 | {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_FROZEN_TASKS` | The earlier one holds the steps of a resolved task to the base ref. |
 | {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_TASK_SHAPE` | The earlier one has every task hold at least one step. |
 | {need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` | {need}`REQ_AS_BUILT` | The earlier one calls a task resolved when it has steps and none is open, and a done plan has every task resolved. |
@@ -477,7 +507,8 @@ of each in place, under a review of its RFC.
 
 What these requirements leave at risk:
 
-- A draft design doc that no plan implements yet carries no review. Once
+- A draft design doc that no plan implements, whether none was written or the one
+  written was abandoned, carries no review. Once
   {need}`REQ_COVERAGE` is amended, the requirements of an accepted RFC can be covered by
   it for as long as nothing builds them. {need}`REQ_DRAFT_DESIGN_REVIEWED` closes this
   only from the point a plan is written.
@@ -501,7 +532,8 @@ left as the rulings were made on them. Asked on 2026-11-15 whether {need}`DEC_00
 - {need}`DEC_0054` says {need}`REQ_DIAGRAMS_DERIVED` forbids a diagram drawn from the
   source. It does not: it holds the meta-model and the trace directives, and says
   nothing of a third diagram. Nothing of {need}`RFC_0007` has to change for
-  {need}`REQ_DIAGRAM_FROM_SOURCE`.
+  {need}`REQ_DIAGRAM_FROM_SOURCE`; its trace is touched by the amendment of
+  {need}`REQ_COVERAGE`, as the table above says.
 - {need}`DEC_0067` gives seven fragments as failing {need}`REQ_SPEC_EXACT`. Seven is the
   count of fragments whose text is found more than once. Read as definitions, one
   fails, the workflow step name found twice, or three if a local variable of the same
@@ -660,4 +692,52 @@ Not checked by either reviewer: `trifecta check` itself, which the author ran; t
 quotations of wyatt; the book's positions, of which this RFC cites no passage; the CI
 times and the GitHub readings in {need}`DEC_0061` and {need}`DEC_0062`; the transcript
 figures in {need}`DEC_0060`.
+:::
+
+:::{review} Correctness; security
+:id: REV_RFC_0010_2
+:k: 2
+:date: 2026-11-15
+:digest: db8883dbc91d96aafce2c1afac98802d4fc26e10874cbe0954635ad9a32e842f
+A second round, over what changed between commits `57686d9` and `ed0ff16`: the
+requirements as rewritten after the first round, {need}`DEC_0068`, {need}`DEC_0069`, and
+the asks added to {need}`DEC_0051` to {need}`DEC_0067`. One reviewer for each lens,
+neither shown the other's notes; again none of another model lineage. Most of what was
+found lay in two requirements the first round's answer had rewritten, and both reviewers
+found the two worst. This is the last round: what is changed in answer to it, listed
+next, has been read by no reviewer.
+
+Folded in, found by both: a design whose plan is done could return to draft, since a
+done plan holds no step to show it was built, so the test now reads a done plan as well
+as a step done, at the base ref; and the sentences of
+{need}`REQ_DONE_PLAN_HOLDS_NO_STEPS` bound every task of every plan, so they now bind a
+task resolved at the base ref, a plan becomes done with its steps still in it and loses
+them in a later change, and a plan cannot be added already done.
+
+Folded in, from the correctness pass: {need}`REQ_RECORD_HOLDS_ASK` carries in its own
+text the number it binds from, and the RFC says this is a second exemption by date and
+was not ruled; what the nineteen records hold of their asks is stated as it is;
+{need}`REQ_DIAGRAMS_DERIVED` returns to the earlier requirements touched, for its
+trace's test of coverage; the inputs of the expected size are named as they are;
+{need}`REQ_DESCRIBED_IN_SOURCE` speaks for a format with no comments; the outcomes of
+{need}`DEC_0054` and {need}`DEC_0067` state "Both stand".
+
+Folded in, from the security pass: a review record in a plan at the base ref is kept
+unchanged, and {need}`REQ_REVIEW_CURRENT` joins the earlier requirements touched for a
+done plan; the measured size and gain go in a task's As built entry, which is held; the
+README's test holds each command it leaves out whole and in its place, and runs with a
+listed environment and an empty home directory; the diagram's directive takes no
+content, argument or option, reads only inside the repository, and reports a file it
+cannot read, as the rule on synonyms now does too.
+
+Not taken, each left to the design or to a ruling and stated in the Requirements
+section where it bears: what becomes of a design whose started build is given up; that
+{need}`DEC_0056` and {need}`DEC_0066` differ on a draft design with a draft plan; where a
+question put again after a record is on the main branch is recorded; whether the ask in
+a record is a fenced block and whether the prose rules read it; how a renamed plan is
+matched to its base; what a citation of a dropped step means once the steps are gone;
+whether the README's test also shuts off the network.
+
+Not checked by either reviewer: `trifecta check`, which the author ran; the asks against
+the transcript they were copied from; the quotations of wyatt.
 :::

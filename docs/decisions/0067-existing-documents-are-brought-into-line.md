@@ -124,6 +124,10 @@ Chosen option: {need}`OPT_0067_INTO_LINE`, because wyatt, 2026-11-15, choosing f
 Claude's recommendations with the readings above in the ask: "Bring into line; no past
 sizes (Recommended)".
 
+The review of {need}`RFC_0010` later found a reading in this record wrong, which that RFC
+states among its corrections. Asked on 2026-11-15 whether the choice stands on the
+corrected reading, wyatt: "Both stand".
+
 ## Consequences
 
 - Good, because no requirement of {need}`RFC_0010` carries a date but one.
