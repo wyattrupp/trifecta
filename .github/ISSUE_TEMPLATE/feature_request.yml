@@ -1,0 +1,27 @@
+name: Feature request
+description: A new check, document type, command, or change to a requirement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What trifecta should do instead.
+    validations:
+      required: true
+  - type: input
+    id: requirements
+    attributes:
+      label: Requirements touched
+      description: The REQ_ IDs in docs/rfcs/ this would add or change, if you know them.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
