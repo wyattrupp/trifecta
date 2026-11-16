@@ -32,6 +32,33 @@ Measured on 2026-11-15 at commit `1ec2b54`, over the 49 `spec` paths:
 How each was read: the lines of each file that hold the fragment, by eye for which is a
 key, a heading or a comment.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_NON_PYTHON_DEFINITION: what is a definition, and where is its comment,
+outside Python? Evidence: 7 of 49 spec paths go to non-Python files: YAML 4, TOML 1,
+JSON 1, Markdown 1; 3 have no fragment; one YAML fragment (name: Store) occurs twice;
+JSON cannot hold a comment.
+
+Options, in the order shown:
+- Key or heading; comment if possible (Recommended): Definition is a key that occurs
+  once (YAML, TOML) or a heading (Markdown). The need's id goes in a comment directly
+  above it. A file whose format has no comments is named whole and owes no back-
+  reference.
+- Exact rules for Python only: Outside Python a spec path is held as now: file exists,
+  fragment text occurs. No exactness, no back-reference for the 7.
+- Whole file only outside Python: A spec path into a non-Python file takes no fragment;
+  the id goes in a comment at the top where the format allows. Simplest; loses pointing
+  at one job or one heading.
+
+Answer: Key or heading; comment if possible (Recommended)
+```
+
 ## Decision Drivers
 
 - {need}`DEC_0053`: the address is exact and held both ways

@@ -46,6 +46,35 @@ words by `wc -w`; commits by `git log` on each file.
 One limit. The repository is eight days old, so "not built" here is six days without a
 change while two later specs were built. It is not a record that either was given up.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_UNBUILT_DESIGN: what becomes of an accepted RFC and approved design that
+nothing builds? Evidence: 2 such specs (research rigor, diagrams), 0 of 43 plan steps
+ticked, untouched since 2026-11-09 while 2 later RFCs were built; 7,815 words, 5,069 of
+them design and plan.
+
+Options, in the order shown:
+- RFC waits, design and plan do not (Recommended): Accepted RFC and its decision records
+  stay as record of intent. A design is approved and a plan written only when the build
+  starts; an approved design with no step ticked goes back to draft and its plan to
+  abandoned. Applies to both specs now.
+- Withdraw the whole spec: RFC withdrawn, design obsolete, plan abandoned, until someone
+  takes it up again. Shortest corpus; the intent leaves the accepted set though its
+  decision records stay.
+- Leave as is: An accepted and approved spec may wait unbuilt with no limit. Nothing
+  changes; 5,069 words of how-to stay approved for code that does not exist.
+- Rule each case apart: No general rule. Diagrams gets settled with DEC_0054's
+  supersession; research rigor is asked separately.
+
+Answer: RFC waits, design and plan do not (Recommended)
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: the description of a solution

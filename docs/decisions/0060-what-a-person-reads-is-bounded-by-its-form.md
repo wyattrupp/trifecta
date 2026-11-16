@@ -43,6 +43,51 @@ decision records one by one. Two limits: this is one session and one person; and
 question for this record was itself put again, having counted eleven rulings where
 there were nine, which makes four of ten.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+First:
+
+```text
+Question: Q_CORPUS_SIZE: what bounds how much a person has to read? Evidence: you ruled
+11 times on about 350 words each (question, options, readings); each record ran 850 to
+1,025 words; 3 of 11 asks had to be put again for a wrong or missing reading, none for
+length; no derived view lists what was ruled.
+
+Options, in the order shown:
+- Bound by form: ask stands alone (Recommended): No word cap. An ask is one decision
+  with its measured readings, how each was read, its limits, and the options, complete
+  enough to rule on without opening the corpus. Plus one derived view listing each
+  ruling in a line. Corpus length unbounded.
+- Word cap on an ask: As above, and an ask may not exceed N words, N yours to set.
+  Mechanical once asks live in a file; nothing measured shows length was the problem.
+- Cap asks, not words: Bound how many rulings are put to a person per RFC or per day.
+  Limits interruptions; pushes choices into fewer, larger asks.
+- No bound: Leave to the session's judgement and your global measure-before-asking
+  guide. Nothing written in trifecta.
+
+Answer: Bound by form: ask stands alone (Recommended)
+```
+
+Then:
+
+```text
+Question: Q_CORPUS_SIZE ask miscounted: 9 rulings not 11, so 3 of 9 rulings (a third)
+rested on an ask with a wrong or missing reading, not 3 of 11. Other figures unchanged.
+Does "Bound by form: ask stands alone" stand?
+
+Options, in the order shown:
+- Yes, it stands: Record the choice with the corrected count and the miscount stated in
+  the outcome.
+- Hold it open: Record nothing; Q_CORPUS_SIZE stays open.
+
+Answer: Yes, it stands
+```
+
 ## Decision Drivers
 
 - {need}`DEC_0059`: a person reads what is put to them, so that is where the bound falls

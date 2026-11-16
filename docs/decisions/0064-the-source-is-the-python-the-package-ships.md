@@ -36,6 +36,31 @@ are names another party fixes. An import, which the diagram is drawn from, exist
 Python. One limit: the documents under `docs` and the fixtures under `tests` were not
 read, the first because {need}`REQ_CANONICAL_TERMS` already holds them.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_SOURCE_FILES: which files are the source that terms and the diagram read?
+Evidence: 27 Python files under src, 23 under tests; no declared synonym in either; the
+only 3 hits anywhere are GitHub-fixed names in .github (cache-hit, adr); imports exist
+only in Python.
+
+Options, in the order shown:
+- Package Python only (Recommended): Source means the Python files the package ships
+  (here, under src). Terms and diagram read those and nothing else. Clean today; tests,
+  workflows and README stay outside.
+- Package and tests Python: As above plus the 23 test files. Also clean today; doubles
+  what the rule reads and test names start to be bound by the terms.
+- Every file a spec path names: The 28 files components point into, any format. Follows
+  the design; needs an exception for names a third party fixes, as cache-hit shows.
+
+Answer: Package Python only (Recommended)
+```
+
 ## Decision Drivers
 
 - {need}`DEC_0052`: descriptions move into the source, so the terms have to bind there

@@ -41,6 +41,32 @@ satisfied by a component of an approved or implemented design doc, so a design d
 is in draft, under this record or under {need}`DEC_0056`, leaves the requirements of its
 RFC uncovered. That holds for every option below alike.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_BUILD_START: how does a design get approved if approval needs a step done?
+Evidence: all 7 designs were approved in the commit that first added their plan; first
+step came 40 minutes to 26 hours later; nothing stops a plan implementing a draft
+design.
+
+Options, in the order shown:
+- Approve with the first step (Recommended): A design stays draft, names only, while its
+  plan is written and reviewed. It becomes approved in the change that marks the first
+  step done. Approved then always means being built, with no gap.
+- Approved may wait while plan is draft: Approval as now; the step test applies only
+  once the plan is active. A plan left in draft lets a design sit approved unbuilt,
+  which is the case DEC_0056 ruled against.
+- Drop the step test: Approved needs only a plan, as now. Returning an idle design to
+  draft is done by hand when someone notices. No check holds DEC_0056.
+
+Answer: Approve with the first step (Recommended)
+```
+
 ## Decision Drivers
 
 - {need}`DEC_0056`: an approved design is one being built

@@ -45,6 +45,35 @@ afterwards. Two limits: what a person did read of the corpus was not measured, o
 was written; and how the nineteen earlier rulings that quote wyatt were put to him was
 not looked at.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_CORPUS_READER (decides Q_CORPUS_SIZE): who is the corpus written for?
+Evidence: 89,424 words in 85 files, about 10,000 added a day; plans tell a session to
+read up to 19,132 words first; nothing tells a person what to read; your 8 rulings today
+were made from asks, not documents.
+
+Options, in the order shown:
+- Session and tool; person gets asks (Recommended): Corpus is written for a session to
+  act on and a tool to check. A person is not expected to read it through: what a person
+  must read is put to them as an ask with evidence, or a derived view. Q_CORPUS_SIZE
+  then bounds the ask, not the corpus.
+- Both, whole corpus: A person must be able to read all of it. Corpus size then needs a
+  hard bound, and most of today's rulings about moving prose are also cuts a person
+  needs.
+- Person first: Corpus is written for a person; sessions make do. The book's stance.
+  Would call for far less text than a session has needed so far.
+- Split by document type: RFCs and decision records are for a person; design docs and
+  plans are for a session. Bound falls on the first two only (46,204 words today).
+
+Answer: Session and tool; person gets asks (Recommended)
+```
+
 ## Decision Drivers
 
 - The gap in {need}`RFC_0010`: a session does the writing, and a person's time to read

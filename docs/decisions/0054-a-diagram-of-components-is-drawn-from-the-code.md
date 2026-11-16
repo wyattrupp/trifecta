@@ -45,6 +45,69 @@ import is one kind of link in code, and calls, files read and programs run were 
 counted; and the three pairs declared and not imported all consume
 {need}`IF_NEEDS_JSON`, which is read as a file, so imports miss links that are real.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+First:
+
+```text
+Question: Q_DIAGRAM_SOURCE: what are diagrams drawn from? Evidence: corpus declares 8
+file-level edges between components; code has 60 import edges; 5 overlap; 55 imports
+appear nowhere in the corpus, two cycles among them. RFC_0007 (needs-drawn) is accepted,
+0 of 15 plan steps built.
+
+Options, in the order shown:
+- Code, needs marked on it (Recommended): Diagram of components is drawn from the code
+  (imports to start), with declared links marked against it, so the difference shows.
+  RFC_0007's needs-only rule would need superseding; its trace and meta-model diagrams
+  fall to Q_UNBUILT_DESIGN.
+- Both, kept apart: Keep RFC_0007's two corpus diagrams as accepted and add a separate
+  code-drawn one. Most to build; nothing puts the two side by side.
+- Needs only, as accepted: RFC_0007 stands. Diagrams show the design as declared; the
+  fault is accepted as the cost.
+- No diagrams: Withdraw the unbuilt diagram work. Smallest tool; a session can draw the
+  code on request. Leaves a person with no standing view of the code as it is.
+
+Answer: Code, needs marked on it (Recommended)
+```
+
+Then:
+
+```text
+Question: Your Q_DIAGRAM_SOURCE choice rested on figures I miscounted: import edges are
+52 not 60, undeclared imports 47 not 55, and there are no import cycles (I said two).
+Does "Code, needs marked on it" stand on the corrected reading?
+
+Options, in the order shown:
+- Yes, it stands: Record the choice with the corrected figures and the miscount stated
+  in the outcome.
+- Needs only, as accepted: RFC_0007 stands; diagrams show the design as declared.
+- No diagrams: Withdraw the unbuilt diagram work.
+- Hold it open: Record nothing; Q_DIAGRAM_SOURCE stays open.
+
+Answer: Yes, it stands
+```
+
+Then:
+
+```text
+Question: DEC_0054 and DEC_0067 rested on readings the review found wrong: no conflict
+exists between a code-drawn diagram and RFC_0007's rule (I said one did), and 1 fragment
+fails REQ_SPEC_EXACT, not 7. Both corrections make the chosen options cheaper. Do both
+rulings stand?
+
+Options, in the order shown:
+- Both stand: Records stay as ruled; the RFC carries the corrections, as it now does.
+- Put DEC_0054 again: Reopen the diagram source question with the corrected reading.
+- Put both again: Reopen both questions with corrected readings.
+
+Answer: Both stand
+```
+
 ## Decision Drivers
 
 - The book's reason for a generated diagram, which {need}`RFC_0010` finds to hold here in

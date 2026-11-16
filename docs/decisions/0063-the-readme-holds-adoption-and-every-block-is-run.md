@@ -49,6 +49,33 @@ and no sentence was read against the code; which half each block is in was not
 counted; and how much of the developing part is also said in `CLAUDE.md` or the skill
 was not measured.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_README_SCOPE: what does the README hold? Evidence: 1,408 words, 59% adoption
+steps, 38% developing-this-repo; 7 code blocks, 1 run by a test; 10 commits in 9 days;
+nothing stale found in paths, subcommands or versions; one subcommand (profile) missing.
+
+Options, in the order shown:
+- Adoption only, every block run (Recommended): README is what the tool is and how to
+  adopt it, and each command block in it is run by a test. The developing half (528
+  words) leaves: to where a session reads its instructions, or to source per DEC_0052.
+- As now, every block run: Both halves stay. Requirement widens so all 7 blocks are run
+  by a test. Prose around them still unguarded.
+- Purpose and a link: The book's way: README says what and why in a few lines and points
+  to the template repository for steps. Shortest; REQ_ADOPTION_GUIDE would need
+  superseding.
+- As now: No change. One block tested, the rest held by whoever edits it. Nothing stale
+  was found today.
+
+Answer: Adoption only, every block run (Recommended)
+```
+
 ## Decision Drivers
 
 - The book's warning, which {need}`RFC_0010` finds to hold: instructions change and a

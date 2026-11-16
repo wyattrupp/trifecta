@@ -51,6 +51,36 @@ Three limits. An id found in the package is not shown to be a rule the check hol
 search can miss or lag, and a repository outside that account would not show. And the
 owner's other standards tool, kept outside this repository, was not looked at.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_ADOPTER_RULES: which rules can an adopting repository change or leave out?
+Evidence: adopter gets 12 files and one setting (project name); no switch drops a rule;
+70 requirements, 39 to 45 enforced by the package; no adopter exists beyond the template
+and its test repo.
+
+Options, in the order shown:
+- None, until an adopter asks (Recommended): Rules ship whole. No opt-out is built now,
+  since no adopter exists to measure one against (DEC_0061). The first real adopter that
+  needs a rule dropped reopens this with its case as evidence.
+- Leave out with a record: Adopter may drop a rule by naming its id in conf.py, and must
+  hold a decision record of its own for each one dropped. Check prints what was left
+  out. Their person rules, visibly.
+- Fixed core, optional rest: Graph integrity, immutability and review rules are fixed;
+  prose, plan and proof rules are optional per adopter. Needs each of 39 rules sorted
+  into a tier, yours to rule on.
+- Any, freely: conf.py is the adopter's; they may change any type or rule. What is
+  possible today by reassignment, made official. Check no longer means the same thing
+  across repositories.
+
+Answer: None, until an adopter asks (Recommended)
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: rules handed whole to a team

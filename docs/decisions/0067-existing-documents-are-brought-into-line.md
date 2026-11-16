@@ -40,6 +40,51 @@ Two limits. Comments above a definition and constants were not counted for
 {need}`REQ_DESCRIBED_IN_SOURCE`, so its count is rough. And an RFC that is already built
 cannot state what it expected to add.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+First:
+
+```text
+Question: Q_EXISTING_DOCUMENTS: what of documents written before these requirements?
+Evidence: today's corpus fails 8 of 13: 15 unbuilt needs with prose, 21+ missing back-
+references, 7 loose fragments, 2 idle approved designs, 135 steps in 6 done plans, 9
+RFCs and 6 plans with no size or gain, 5 unrun README blocks.
+
+Options, in the order shown:
+- Bring into line; no past sizes (Recommended): No exemption by date. The plan that
+  builds each requirement also changes existing documents to meet it. One exception:
+  expected size and gain bind RFCs accepted from now on, since a past expectation cannot
+  be stated.
+- Bring all into line: As above with no exception: the 9 accepted RFCs and 6 done plans
+  get size and gain written in after the fact, as measured values.
+- Bind new documents only: Requirements apply to documents created after acceptance;
+  older ones stay as written. Check needs a date rule, and the corpus holds two
+  standards indefinitely.
+
+Answer: Bring into line; no past sizes (Recommended)
+```
+
+Then:
+
+```text
+Question: DEC_0054 and DEC_0067 rested on readings the review found wrong: no conflict
+exists between a code-drawn diagram and RFC_0007's rule (I said one did), and 1 fragment
+fails REQ_SPEC_EXACT, not 7. Both corrections make the chosen options cheaper. Do both
+rulings stand?
+
+Options, in the order shown:
+- Both stand: Records stay as ruled; the RFC carries the corrections, as it now does.
+- Put DEC_0054 again: Reopen the diagram source question with the corrected reading.
+- Put both again: Reopen both questions with corrected readings.
+
+Answer: Both stand
+```
+
 ## Decision Drivers
 
 - One standard in the corpus, so that a passing check means one thing

@@ -403,8 +403,21 @@ state the lines added and that reading as measured.
 :::
 
 From {need}`DEC_0061`, with {need}`DEC_0067` for the RFCs it binds. This RFC is bound, as
-{need}`DEC_0061` and {need}`DEC_0063` both say, and it does not yet state either; it has
-to before it is accepted. The ruling also has a part whose gain is not shown put to a
+{need}`DEC_0061` and {need}`DEC_0063` both say, and states both here.
+
+Expected size: about 1,900 lines of source and about 600 of tests. That is the present
+average carried over, not a design: the 23 source files outside the recorder and the
+store hold 5,049 lines for the 39 rule ids the package reports, 129 lines to a rule, and
+the test files outside those parts hold 1,559 lines, 40 to a rule; this RFC has fifteen
+requirements. It is an estimate made before any design, and a design may show it wrong
+either way.
+
+The reading that will show the gain: for each requirement, what it reports on the
+corpus and the source as they stood when it was written. {need}`DEC_0067` holds that
+reading for ten of the fifteen, with the corrections listed below; the plan's As built
+states it again as measured, with the lines added. A requirement that reports nothing
+there, as {need}`REQ_SYNONYMS_IN_SOURCE` and {need}`REQ_DECISION_RESOLVES_QUESTION` do
+today, has shown no gain by this reading and is put to a person under {need}`DEC_0061`. The ruling also has a part whose gain is not shown put to a
 person, to keep or to cut. That is a step for a person and not a rule a check can hold,
 so it is not in the requirement. No other requirement
 here excuses a document by its date: by {need}`DEC_0067` the plan that builds each also
@@ -435,7 +448,9 @@ A decision record that quotes a person's ruling MUST hold the question, the read
 the options as they were put to that person, and which option was recommended.
 :::
 
-From {need}`DEC_0069`, likewise.
+From {need}`DEC_0069`, likewise. The nineteen records of this RFC meet it. The fifty
+before them cannot: an accepted record on the main branch does not change, and what was
+put for them was not kept. The requirement binds a record made from this RFC on.
 
 Two rulings give no requirement. {need}`DEC_0059`, that the corpus is written for a
 session and the tool, is a stance the requirements above rest on, and nothing a check

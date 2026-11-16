@@ -47,6 +47,33 @@ counted for the whole file a `spec` path names, not for the one symbol, so the 2
 upper bound; and no need's prose was read against its code, so how much of it is now
 wrong is not known.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_COMPONENT_HOME: once built, where does prose about a component live?
+Evidence at 50ff955: 64 blocks hold 13,177 words; source holds 17,204 docstring+comment
+words; 27 of 49 built blocks had their spec file change after the block's text last did;
+14 blocks span 2+ files.
+
+Options, in the order shown:
+- Source, relations outside (Recommended): After build, what a component does is its
+  docstring/comment in source. Design block keeps name, links, spec path, and only prose
+  about how files relate or why. Ends double description; needs a later requirement and
+  a way to show source prose in built docs.
+- Source only: Design block is name, links, spec path, no prose at all. Cross-file facts
+  go in a module docstring. Shortest corpus; 14 multi-file and 7 non-Python components
+  have no natural home.
+- Design doc, as now: Block stays the home, written after build per DEC_0051. Nothing
+  changes; source docstrings keep duplicating it and nothing compares the two.
+
+Answer: Source, relations outside (Recommended)
+```
+
 ## Decision Drivers
 
 - The book's preference for knowledge on the thing it is about, which {need}`RFC_0010`

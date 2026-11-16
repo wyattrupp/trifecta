@@ -50,6 +50,36 @@ requirement it satisfies and the test that proves the requirement. One limit: th
 counted for the whole file, not at the definition the fragment names, so the needs that
 lack a name at that definition number 21 or more.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_SPEC_STRENGTH: what must a spec path prove? Evidence: 49 paths; check holds
+only that file exists and fragment text occurs; 7 of 46 fragments match more than once
+(2 match a comment or another step); 28 of 49 spec files name the need's id back;
+pointed symbols are 11% of source lines.
+
+Options, in the order shown:
+- Address, both ways (Recommended): Spec must resolve to exactly one definition (def,
+  class, assignment, or named key), and that place must name the need's id back. Claims
+  nothing about prose or behaviour; tests hold behaviour through requirements. 21 needs
+  need a back-reference added.
+- Address only, made exact: Spec must resolve to exactly one definition. No back-
+  reference from source. Fixes the 7 loose matches; source still cannot tell a reader
+  which component it belongs to.
+- Pin by digest: Need records a hash of the symbol's text; any change fails the check
+  until the need is looked at again. Strongest; 27 of 49 spec files changed after the
+  need last did, so it fires often.
+- As now: File exists, fragment text occurs. With DEC_0052 moving prose to source,
+  accept that the path proves only that a place exists.
+
+Answer: Address, both ways (Recommended)
+```
+
 ## Decision Drivers
 
 - The book's fault with a check that still passes after what it guards has changed,

@@ -78,9 +78,11 @@ Claude's recommendations: "Yes, record holds the ask (Recommended)".
 ## Consequences
 
 - Good, because this record and {need}`DEC_0068` hold their asks, as the first two to.
-- Bad, because the seventeen records before them do not, and an accepted record cannot
-  be changed once it is on the main branch; they can be brought into line, as
-  {need}`DEC_0067` has it, only before that.
+- Good, because the seventeen records before them were brought into line, as
+  {need}`DEC_0067` has it, before any reached the main branch: each now holds its ask,
+  copied from the transcript of the session.
+- Bad, because the fifty records before those hold none, cannot now be changed, and
+  nothing kept what was put for them.
 - Bad, because the readings that stood beside a question in a session, and not in the
   question itself, are part of what was put, and what counts as the ask is not drawn
   finely here.

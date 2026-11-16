@@ -53,6 +53,55 @@ fifty a person would not miss was not measured. And the first ask that was put g
 records as 5.6 to an RFC and did not give the 39 questions or the four that hold more
 than one record.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+First:
+
+```text
+Question: Q_DECISION_BAR: which choices get a decision record? Evidence: all 50 earlier
+records resolve a question an RFC raised, none exists otherwise; 5.6 per RFC; all 50
+cited, 49 constrain a component; median 360 words; 14 decided by a session alone.
+
+Options, in the order shown:
+- A record per RFC question, no other (Recommended): State the bar that is already
+  measured: a choice gets a record when, and only when, an RFC raised it as a question.
+  No count cap. How much there is to read falls to Q_CORPUS_SIZE.
+- Raise the bar on questions: A choice is raised as a question only if it binds more
+  than one component or is costly to undo; lesser choices are settled in the RFC's own
+  prose. Fewer records; the line is judgement no check makes.
+- Cap questions per RFC: An RFC may raise at most N questions, N yours to set.
+  Mechanical; forces splitting or folding. RFC_0005 has 6 and RFC_0009 more today.
+- Hold it open: Record nothing; evidence does not show the fault, so leave
+  Q_DECISION_BAR open until it bites.
+
+Answer: A record per RFC question, no other (Recommended)
+```
+
+Then:
+
+```text
+Question: Your Q_DECISION_BAR choice lacked this: 39 questions have 50 records. Four
+questions carry 2 to 6 records each (11 extra, 10 in RFC_0009; Q_PROGRAMS has 6). Does
+"a record per RFC question, no other" stand, and what of several records on one
+question?
+
+Options, in the order shown:
+- Stands; several allowed: Bar is: a record exists only to resolve an RFC question. A
+  question may take more than one record when it holds more than one choice. Matches the
+  corpus as it is; 11 extra records stand.
+- Stands; one per question: Bar is exactly one accepted record per question. A question
+  needing a second choice is split into two questions first. Existing 11 extras are
+  immutable and stay; rule binds from now.
+- Hold it open: Record nothing; Q_DECISION_BAR stays open.
+
+Answer: Stands; several allowed
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: a person's reading time, not

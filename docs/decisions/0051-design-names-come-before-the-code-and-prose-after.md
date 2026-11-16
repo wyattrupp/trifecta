@@ -41,6 +41,50 @@ named was dropped. The prose about them did not: outside the review records it g
 separate prose that changed its meaning from prose that was added, such as the `spec`
 paths set when a component is built.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+First:
+
+```text
+Question: Q_BUILD_ORDER is the root of the thirteen questions. Measured on the seven
+design docs with a recorded approval: all 46 components and interfaces named at approval
+are still there (2 added, 0 dropped), while the docs grew from 1,102 to 2,178 lines,
+about half of that growth being review records and the rest prose about the components.
+So the breakdown held and the detail did not. Which documents should come before the
+code they describe?
+
+Options, in the order shown:
+- Thin design first (Recommended): Before code: RFC, decisions, and a design doc holding
+  only component and interface names with their links. The prose about each component is
+  written after it is built. Plans stay tied to components. Fits the measurement: the
+  part that held is kept upfront, the part that changed moves after.
+- Design after build: Before code: RFC and decisions only. The design doc is written
+  from the built code and cannot be approved until its spec paths exist. Plans would
+  build against requirements, so the plan-to-component links (DEC_0008, task 'builds')
+  need reworking. The measurement does not call for this much.
+- Keep as is: Full design doc approved before code, as now. Accepts the book's fault as
+  the price of control. Design prose keeps roughly doubling after approval.
+
+Answer: Thin design first (Recommended)
+```
+
+Then:
+
+```text
+Put in a message, not as a question with options: "I said review records were
+"about half" of the design docs' growth after approval. Measured: 398 of 1,076
+lines, a little over a third. So prose about components grew by 678 lines, more
+than I told you. That leans further toward the option you chose, but you ruled on
+the wrong figure."
+
+Answer: Yes, it stands
+```
+
 ## Decision Drivers
 
 - The book's fault with a solution described before it is built, which {need}`RFC_0010`

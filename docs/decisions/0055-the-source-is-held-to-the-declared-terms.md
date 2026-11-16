@@ -52,6 +52,36 @@ Two limits. The match is of words, so it found where the word of {need}`TERM_TRA
 occurs and not that it means something else there; a person read that. And the source
 is the Python files only, not the workflow files or the README.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_TERM_SOURCE: are terms compared with names in source? Evidence: 29 terms; 14
+appear in source names, 11 nowhere (9 have no code yet or are not about code); 0 of 15
+banned synonyms occur in source; 1 homonym (Trace: RFC meaning vs strace in 21 names); 2
+built terms worded differently in source.
+
+Options, in the order shown:
+- Hold source to the terms (Recommended): Terms stay declared by hand in RFCs. The
+  synonym rule is extended to source: a banned synonym in a name, comment or string is a
+  finding. No glossary is drawn from code. Passes today with zero findings; would not
+  catch the Trace homonym.
+- Also report unmatched terms: As above, plus the check lists each term of a built RFC
+  that no source name or comment uses. Would have flagged 'Nested recording' and
+  'Decision record'. Needs a rule for terms that rightly have no code.
+- Draw glossary from code: The book's way: terms come from source names and their
+  docstrings; RFC terms retire. 2,059 identifiers against 29 terms, and most terms
+  (plan, review, gate) are corpus words with no single home in code.
+- No comparison: As now. Terms bind docs prose only. Sessions kept the vocabulary in
+  source unprompted so far; nothing holds it.
+
+Answer: Hold source to the terms (Recommended)
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: no term is compared with the

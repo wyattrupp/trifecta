@@ -46,6 +46,36 @@ points at them. Two limits: that the As built is used as memory is read from the
 citations, not from watching a session use it; and how much of the As built describes a
 component, which {need}`DEC_0052` now sends to the source, was not measured.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_PLAN_LIFETIME: how long does a done plan stay? Evidence: 6 done plans,
+20,522 words: 54% As built, 37% steps. All 6 are cited by later docs by plan id, 7
+accepted decision records among them; nothing outside cites a step. Steps are frozen
+today by DEC_0012.
+
+Options, in the order shown:
+- As built stays, steps go (Recommended): When a plan is done its id, task titles,
+  review records and As built stay for good; the step lists are removed. Cuts about
+  7,600 words now and keeps every inbound link. REQ_FROZEN_TASKS would need superseding
+  for steps.
+- Keep whole, as now: DEC_0012 stands. Done plan kept entire and frozen. Nothing to
+  build; 7,612 words of carried-out instructions stay in the corpus.
+- Remove when done: The book's way: done plan deleted, git holds it. Breaks links from 7
+  immutable decision records and from later plans and designs unless a rule lets a link
+  point at history.
+- Move to an archive: Done plans leave the checked corpus for a folder the build still
+  links to but does not validate or count. Keeps everything; adds a second kind of place
+  for the tool to know.
+
+Answer: As built stays, steps go (Recommended)
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: the list of steps is short-lived

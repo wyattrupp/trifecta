@@ -59,6 +59,35 @@ both ways, {need}`DEC_0054` a diagram drawn from the code, {need}`DEC_0055` the 
 against a declared synonym read over the source, {need}`DEC_0060` a derived view of
 rulings. None takes anything out of it.
 
+### The ask as put
+
+What was put to wyatt, copied from the transcript of the session. An option marked
+"(Recommended)" was the one recommended. The readings shown beside a question in the
+same message were those of the table above, save where the outcome says a figure was
+wrong; they are not copied again.
+
+```text
+Question: Q_TOOL_SIZE: what bounds the size of the tool? Evidence: 10,730 source lines;
+53% (5,681) is run-reuse machinery from RFC_0008/0009, with 80% of test lines; CI went
+from 829 s before that work to about 2,750 s now; this session's rulings add four
+features and remove none.
+
+Options, in the order shown:
+- Each part states size and measured gain (Recommended): No line cap. An RFC that adds
+  code gives, at acceptance, the lines it expects and the reading that will show it
+  paid; As built gives both as measured. A part whose gain is not shown is put to you to
+  keep or cut. Reuse machinery would be first.
+- Split reuse out of the tool: trifecta is the check and nothing else; recorder, store
+  and their tests become a separate package it may depend on. Halves trifecta without
+  deleting code; a second thing to release and adopt.
+- Line cap: Source may not exceed N lines, N yours to set; an addition past it must
+  remove something. Mechanical; number is arbitrary and the tool is already at 10,730.
+- No bound: Size follows the requirements accepted. Nothing written; fault 11 accepted
+  as the cost of the tool being the product.
+
+Answer: Each part states size and measured gain (Recommended)
+```
+
 ## Decision Drivers
 
 - What is left of the book's fault in {need}`RFC_0010`: tooling serves what is
